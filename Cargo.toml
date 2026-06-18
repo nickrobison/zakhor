@@ -1,0 +1,14 @@
+[package]
+name = "zakhor"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = "0.1.89"
+gio = "0.22.6"
+rmcp = { version = "1.7.0", features = ["server", "transport-io"] }
+schemars = "1.2.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tokio = { version = "1.52.3", features = ["full"] }
+tracker-rs = "0.8.0"
