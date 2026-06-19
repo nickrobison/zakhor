@@ -76,13 +76,65 @@ pub struct RecordDecisionArgs {
     pub rationale: String,
 }
 
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct StoreObservationResponse {
+    pub observation_uri: String,
+    pub triple_count: usize,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct EntityResult {
+    pub uri: String,
+    pub label: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct QueryEntitiesResponse {
+    pub entities: Vec<EntityResult>,
+    pub count: usize,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct TripleResult {
+    pub subject: String,
+    pub predicate: String,
+    pub object: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct TraverseGraphResponse {
+    pub triples: Vec<TripleResult>,
+    pub count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct SearchResult {
+    pub id: String,
+    pub score: f64,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct SearchHybridResponse {
+    pub results: Vec<SearchResult>,
+    pub count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct RecordDecisionResponse {
+    pub decision_uri: String,
+}
+
 #[tool_router(server_handler)]
 impl MemoryHandler {
     #[tool(description = "Store an observation about entities and relations in the knowledge graph")]
     async fn store_observation(
         &self,
         Parameters(args): Parameters<StoreObservationArgs>,
-    ) -> Result<Json<serde_json::Value>, String> {
+    ) -> Result<Json<StoreObservationResponse>, String> {
         let span = info_span!(
             "mcp_tool",
             tool = "store_observation",
@@ -94,7 +146,7 @@ impl MemoryHandler {
         let _guard = span.enter();
         let start = Instant::now();
 
-        let result = (|| -> Result<Json<serde_json::Value>, String> {
+        let result = (|| -> Result<Json<StoreObservationResponse>, String> {
             let text = args.text.clone();
             let entity_uris: Vec<String> = args.entities.iter().map(|e| e.uri.clone()).collect();
 
@@ -113,10 +165,10 @@ impl MemoryHandler {
                 }
             }
 
-            Ok(Json(serde_json::json!({
-                "observation_uri": ingest_result.observation_uri,
-                "triple_count": ingest_result.triple_count
-            })))
+            Ok(Json(StoreObservationResponse {
+                observation_uri: ingest_result.observation_uri,
+                triple_count: ingest_result.triple_count,
+            }))
         })();
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -129,7 +181,7 @@ impl MemoryHandler {
     async fn query_entities(
         &self,
         Parameters(args): Parameters<QueryEntitiesArgs>,
-    ) -> Result<Json<serde_json::Value>, String> {
+    ) -> Result<Json<QueryEntitiesResponse>, String> {
         let span = info_span!(
             "mcp_tool",
             tool = "query_entities",
@@ -141,24 +193,25 @@ impl MemoryHandler {
         let _guard = span.enter();
         let start = Instant::now();
 
-        let result = (|| -> Result<Json<serde_json::Value>, String> {
+        let result = (|| -> Result<Json<QueryEntitiesResponse>, String> {
             let sparql = tools::build_entity_query(&args.pattern, args.limit);
             let cursor = self
                 .conn
                 .query(&sparql, None::<&gio::Cancellable>)
                 .map_err(|e| format!("SPARQL query failed: {e}"))?;
 
-            let mut entities = Vec::new();
+            let mut entities: Vec<EntityResult> = Vec::new();
             while cursor
                 .next(None::<&gio::Cancellable>)
                 .map_err(|e| format!("Cursor error: {e}"))?
             {
                 let uri = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
                 let label = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
-                entities.push(serde_json::json!({ "uri": uri, "label": label }));
+                entities.push(EntityResult { uri, label });
             }
 
-            Ok(Json(serde_json::json!({ "entities": entities, "count": entities.len() })))
+            let count = entities.len();
+            Ok(Json(QueryEntitiesResponse { entities, count }))
         })();
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -171,7 +224,7 @@ impl MemoryHandler {
     async fn traverse_graph(
         &self,
         Parameters(args): Parameters<TraverseGraphArgs>,
-    ) -> Result<Json<serde_json::Value>, String> {
+    ) -> Result<Json<TraverseGraphResponse>, String> {
         let span = info_span!(
             "mcp_tool",
             tool = "traverse_graph",
@@ -183,26 +236,31 @@ impl MemoryHandler {
         let _guard = span.enter();
         let start = Instant::now();
 
-        let result = (|| -> Result<Json<serde_json::Value>, String> {
+        let result = (|| -> Result<Json<TraverseGraphResponse>, String> {
             let sparql = tools::build_traverse_query(&args.start_id, args.depth, &args.edge_types);
             match self.conn.query(&sparql, None::<&gio::Cancellable>) {
                 Ok(cursor) => {
-                    let mut triples = Vec::new();
+                    let mut triples: Vec<TripleResult> = Vec::new();
                     loop {
                         match cursor.next(None::<&gio::Cancellable>) {
                             Ok(true) => {
                                 let s = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
                                 let p = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
                                 let o = cursor.string(2).map(|s| s.to_string()).unwrap_or_default();
-                                triples.push(serde_json::json!({ "subject": s, "predicate": p, "object": o }));
+                                triples.push(TripleResult { subject: s, predicate: p, object: o });
                             }
                             Ok(false) => break,
                             Err(e) => return Err(format!("Cursor error: {e}")),
                         }
                     }
-                    Ok(Json(serde_json::json!({ "triples": triples, "count": triples.len() })))
+                    let count = triples.len();
+                    Ok(Json(TraverseGraphResponse { triples, count, warning: None }))
                 }
-                Err(e) => Ok(Json(serde_json::json!({ "triples": [], "count": 0, "warning": format!("Query issue: {e}") }))),
+                Err(e) => Ok(Json(TraverseGraphResponse {
+                    triples: vec![],
+                    count: 0,
+                    warning: Some(format!("Query issue: {e}")),
+                })),
             }
         })();
 
@@ -216,7 +274,7 @@ impl MemoryHandler {
     async fn search_hybrid(
         &self,
         Parameters(args): Parameters<SearchHybridArgs>,
-    ) -> Result<Json<serde_json::Value>, String> {
+    ) -> Result<Json<SearchHybridResponse>, String> {
         let span = info_span!(
             "mcp_tool",
             tool = "search_hybrid",
@@ -228,7 +286,7 @@ impl MemoryHandler {
         let _guard = span.enter();
         let start = Instant::now();
 
-        let result = (|| -> Result<Json<serde_json::Value>, String> {
+        let result = (|| -> Result<Json<SearchHybridResponse>, String> {
             match self.sync_mgr {
                 Some(ref sync_mgr) => {
                     let mgr = sync_mgr.lock().unwrap();
@@ -238,13 +296,18 @@ impl MemoryHandler {
                         &args.query,
                         args.limit as usize,
                     );
-                    let docs: Vec<serde_json::Value> = results
+                    let docs: Vec<SearchResult> = results
                         .into_iter()
-                        .map(|d| serde_json::json!({ "id": d.id, "score": d.score }))
+                        .map(|d| SearchResult { id: d.id, score: d.score })
                         .collect();
-                    Ok(Json(serde_json::json!({ "results": docs, "count": docs.len() })))
+                    let count = docs.len();
+                    Ok(Json(SearchHybridResponse { results: docs, count, warning: None }))
                 }
-                None => Ok(Json(serde_json::json!({ "results": [], "count": 0, "warning": "Indexes not available" }))),
+                None => Ok(Json(SearchHybridResponse {
+                    results: vec![],
+                    count: 0,
+                    warning: Some("Indexes not available".to_string()),
+                })),
             }
         })();
 
@@ -258,7 +321,7 @@ impl MemoryHandler {
     async fn record_decision(
         &self,
         Parameters(args): Parameters<RecordDecisionArgs>,
-    ) -> Result<Json<serde_json::Value>, String> {
+    ) -> Result<Json<RecordDecisionResponse>, String> {
         let span = info_span!(
             "mcp_tool",
             tool = "record_decision",
@@ -270,7 +333,7 @@ impl MemoryHandler {
         let _guard = span.enter();
         let start = Instant::now();
 
-        let result = (|| -> Result<Json<serde_json::Value>, String> {
+        let result = (|| -> Result<Json<RecordDecisionResponse>, String> {
             let uuid = tracker::functions::sparql_get_uuid_urn()
                 .ok_or_else(|| "Failed to generate UUID".to_string())?;
             let decision_uri = uuid.to_string();
@@ -287,7 +350,7 @@ impl MemoryHandler {
                 .update(&sparql, None::<&gio::Cancellable>)
                 .map_err(|e| format!("Failed to record decision: {e}"))?;
 
-            Ok(Json(serde_json::json!({ "decision_uri": decision_uri })))
+            Ok(Json(RecordDecisionResponse { decision_uri }))
         })();
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
