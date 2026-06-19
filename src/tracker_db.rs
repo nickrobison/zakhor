@@ -20,19 +20,7 @@ pub fn store_memory(conn: &SparqlConnection, text: &str) -> Result<String, Strin
     let uuid = tracker::functions::sparql_get_uuid_urn()
         .ok_or_else(|| "Failed to generate UUID".to_string())?;
 
-    let escaped_text = tracker::functions::sparql_escape_string(text)
-        .ok_or_else(|| "Failed to escape text literal".to_string())?;
-
-    let sparql = format!(
-        "PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>\n\
-         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n\
-         INSERT DATA {{\n\
-             <{}> rdf:type nie:InformationElement ;\n\
-                  nie:identifier \"{}\" ;\n\
-                  nie:plainTextContent \"{}\" .\n\
-         }}",
-        uuid, uuid, escaped_text,
-    );
+    let sparql = crate::sparql::SparqlBuilder::insert_data(&uuid, text);
 
     conn.update(&sparql, None::<&gio::Cancellable>)
         .map_err(|e| format!("Failed to store memory: {}", e))?;
@@ -41,19 +29,7 @@ pub fn store_memory(conn: &SparqlConnection, text: &str) -> Result<String, Strin
 }
 
 pub fn read_memory(conn: &SparqlConnection, id: &str) -> Result<String, String> {
-    let escaped_id = tracker::functions::sparql_escape_string(id)
-        .ok_or_else(|| "Failed to escape ID".to_string())?;
-
-    let sparql = format!(
-        "PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>\n\
-         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n\
-         SELECT ?text WHERE {{\n\
-             ?id rdf:type nie:InformationElement ;\n\
-                 nie:identifier \"{}\" ;\n\
-                 nie:plainTextContent ?text .\n\
-         }}",
-        escaped_id,
-    );
+    let sparql = crate::sparql::SparqlBuilder::select(id);
 
     let cursor = conn
         .query(&sparql, None::<&gio::Cancellable>)
@@ -73,28 +49,7 @@ pub fn read_memory(conn: &SparqlConnection, id: &str) -> Result<String, String> 
 }
 
 pub fn update_memory(conn: &SparqlConnection, id: &str, text: &str) -> Result<String, String> {
-    let escaped_id = tracker::functions::sparql_escape_string(id)
-        .ok_or_else(|| "Failed to escape ID".to_string())?;
-
-    let escaped_text = tracker::functions::sparql_escape_string(text)
-        .ok_or_else(|| "Failed to escape text".to_string())?;
-
-    let sparql = format!(
-        "PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>\n\
-         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n\
-         DELETE {{\n\
-             ?id nie:plainTextContent ?oldText .\n\
-         }}\n\
-         INSERT {{\n\
-             ?id nie:plainTextContent \"{}\" .\n\
-         }}\n\
-         WHERE {{\n\
-             ?id rdf:type nie:InformationElement ;\n\
-                 nie:identifier \"{}\" ;\n\
-             OPTIONAL {{ ?id nie:plainTextContent ?oldText . }}\n\
-         }}",
-        escaped_text, escaped_id,
-    );
+    let sparql = crate::sparql::SparqlBuilder::delete_insert_where(id, text);
 
     conn.update(&sparql, None::<&gio::Cancellable>)
         .map_err(|e| format!("Failed to update memory: {}", e))?;
@@ -103,25 +58,7 @@ pub fn update_memory(conn: &SparqlConnection, id: &str, text: &str) -> Result<St
 }
 
 pub fn delete_memory(conn: &SparqlConnection, id: &str) -> Result<(), String> {
-    let escaped_id = tracker::functions::sparql_escape_string(id)
-        .ok_or_else(|| "Failed to escape ID".to_string())?;
-
-    let sparql = format!(
-        "PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>\n\
-         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n\
-         DELETE {{\n\
-             ?id rdf:type nie:InformationElement .\n\
-             ?id nie:identifier ?oldId .\n\
-             ?id nie:plainTextContent ?oldText .\n\
-         }}\n\
-         WHERE {{\n\
-             ?id rdf:type nie:InformationElement ;\n\
-                 nie:identifier \"{}\" .\n\
-             ?id nie:identifier ?oldId .\n\
-             OPTIONAL {{ ?id nie:plainTextContent ?oldText . }}\n\
-         }}",
-        escaped_id,
-    );
+    let sparql = crate::sparql::SparqlBuilder::delete_data(id);
 
     conn.update(&sparql, None::<&gio::Cancellable>)
         .map_err(|e| format!("Failed to delete memory: {}", e))?;
