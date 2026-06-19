@@ -10,6 +10,7 @@ mod semantic;
 mod sparql;
 mod server;
 mod tracker_db;
+mod schema;
 
 /// Correlation ID counter shared across MCP tool invocations.
 /// Each tool call gets a unique `mcp-<hex>` identifier that
