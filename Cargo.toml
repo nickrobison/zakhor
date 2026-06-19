@@ -8,7 +8,8 @@ async-trait = "0.1.89"
 bincode = "1.3"
 fastembed = "5.17"
 gio = "0.22.6"
-rmcp = { version = "1.7.0", features = ["server", "transport-io"] }
+rmcp = { version = "1.7.0", features = ["server", "transport-io", "transport-streamable-http-server"] }
+axum = { version = "0.7", features = ["http1", "http2", "macros", "tokio", "json"] }
 schemars = "1.2.1"
 tantivy = "0.22"
 serde = { version = "1.0.228", features = ["derive"] }
