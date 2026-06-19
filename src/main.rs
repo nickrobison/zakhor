@@ -1,7 +1,7 @@
 use axum::{Router, routing::any_service};
 use rmcp::ServiceExt;
 use rmcp::transport::streamable_http_server::{
-    session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
+    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
 use std::sync::{Arc, Mutex};
 use tokio::io::{stdin, stdout};
@@ -13,13 +13,13 @@ mod error;
 mod ingestion;
 mod lexical;
 mod provenance;
+mod schema;
 mod semantic;
-mod sparql;
 mod server;
+mod sparql;
 mod sync;
 mod tools;
 mod tracker_db;
-mod schema;
 
 /// Correlation ID counter shared across MCP tool invocations.
 /// Each tool call gets a unique `mcp-<hex>` identifier that
@@ -49,8 +49,7 @@ async fn serve_http(
     let http_service = StreamableHttpService::new(
         move || Ok(service.clone()),
         Arc::new(LocalSessionManager::default()),
-        StreamableHttpServerConfig::default()
-            .with_allowed_hosts([cfg.http.host.clone()]),
+        StreamableHttpServerConfig::default().with_allowed_hosts([cfg.http.host.clone()]),
     );
 
     let app = Router::new()
@@ -59,6 +58,35 @@ async fn serve_http(
 
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+fn print_help() {
+    println!(
+        "Zakhor MCP server\n\n\
+Usage:\n  zakhor [OPTIONS]\n\n\
+Options:\n  --http              Serve MCP over Streamable HTTP/SSE instead of stdio\n  --db-path <PATH>    Override the Tracker DB path\n  --rebuild-indexes   Rebuild lexical and semantic indexes before serving\n  -h, --help          Print this help text\n\n\
+Environment:\n  ZAKHOR_DB_PATH        Database path override\n  ZAKHOR_HTTP_HOST      HTTP bind host (default: 127.0.0.1)\n  ZAKHOR_HTTP_PORT      HTTP bind port (default: 3000)"
+    );
+}
+
+fn apply_cli_overrides(cfg: &mut config::Config) {
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--db-path" => {
+                if i + 1 < args.len() {
+                    cfg.database.path = std::path::PathBuf::from(&args[i + 1]);
+                    i += 1;
+                }
+            }
+            other if other.starts_with("--db-path=") => {
+                cfg.database.path = std::path::PathBuf::from(&other["--db-path=".len()..]);
+            }
+            _ => {}
+        }
+        i += 1;
+    }
 }
 
 #[tokio::main]
@@ -72,12 +100,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    let cfg = config::Config::load();
+    let mut cfg = config::Config::load();
+    apply_cli_overrides(&mut cfg);
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        print_help();
+        return Ok(());
+    }
+
     let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
     let conn = tracker_db::init_db(db_path);
 
-    let rebuild = std::env::args().any(|a| a == "--rebuild-indexes");
-    let http_mode = std::env::args().any(|a| a == "--http");
+    let rebuild = args.iter().any(|a| a == "--rebuild-indexes");
+    let http_mode = args.iter().any(|a| a == "--http");
 
     let sync_mgr = if rebuild {
         let mgr = sync::IndexSyncManager::new(&cfg.database.path)?;

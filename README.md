@@ -19,7 +19,7 @@ plain-text content.
 ## Usage
 
 ```bash
-# Start with default DB path (./zakhor-db/):
+# Start with default DB path (./zakhor-db/) over stdio:
 cargo run
 
 # Start with a specific DB path:
@@ -27,39 +27,58 @@ cargo run -- --db-path /path/to/db
 
 # Or set via env var:
 ZAKHOR_DB_PATH=/path/to/db cargo run
+
+# Start over MCP Streamable HTTP/SSE:
+cargo run -- --http
 ```
 
-Once running, the MCP server listens on stdin/stdout — connect any
+By default, stdio mode listens on stdin/stdout. Use `--http` to expose the same
+MCP tools over Streamable HTTP/SSE at `http://127.0.0.1:3000`.
+
+HTTP configuration can be overridden with environment variables:
+
+- `ZAKHOR_HTTP_HOST` — bind host, default `127.0.0.1`
+- `ZAKHOR_HTTP_PORT` — bind port, default `3000`
+
+Example:
+
+```bash
+ZAKHOR_HTTP_HOST=0.0.0.0 ZAKHOR_HTTP_PORT=4000 cargo run -- --http
+```
+
+Once running, the MCP server listens on stdin/stdout or HTTP/SSE — connect any
 MCP-compatible host (Claude Desktop, OpenCode, etc.) to use the tools.
 
 ### MCP Tools
 
 | Tool | Args | Description |
 |------|------|-------------|
-| `store_memory` | `text` | Store a text memory, returns its SPARQL ID |
-| `read_memory` | `id` | Read a memory by SPARQL ID |
-| `update_memory` | `id`, `text` | Replace the text of an existing memory |
-| `delete_memory` | `id` | Delete a memory by SPARQL ID |
+| `store_observation` | `content`, `created_at`, `metadata` | Store an observation with optional structured metadata |
+| `query_entities` | `pattern`, `limit` | Query entities by label pattern in the knowledge graph |
+| `traverse_graph` | `uri`, `limit` | Traverse outgoing RDF edges from an entity |
+| `search_hybrid` | `query`, `limit` | Hybrid lexical/semantic search using RRF fusion |
+| `record_decision` | `context`, `decision`, `alternatives`, `rationale` | Record a decision with context and rationale |
+| `rebuild_indexes` | none | Rebuild all search indexes from Tracker |
 
 ## Architecture
 
 ```
-┌────────────────────┐     MCP (stdin/stdout)     ┌──────────────┐
-│  MCP Host          │ ◄─────────────────────────► │   Zakhor     │
-│  (Claude, OpenCode)│                              │  (rmcp)      │
-└────────────────────┘                              └──────┬───────┘
-                                                           │
-                                                  spawn_blocking
-                                                           │
-                                                    ┌──────┴───────┐
-                                                    │ tracker-rs   │
-                                                    │ (SPARQL FFI) │
-                                                    └──────┬───────┘
-                                                           │
-                                                    ┌──────┴───────┐
-                                                    │ GNOME Tracker│
-                                                    │  SPARQL DB   │
-                                                    └──────────────┘
+┌────────────────────┐     MCP stdio or Streamable HTTP/SSE     ┌──────────────┐
+│  MCP Host          │ ◄──────────────────────────────────────► │   Zakhor     │
+│  (Claude, OpenCode)│                                           │  (rmcp)      │
+└────────────────────┘                                           └──────┬───────┘
+                                                                        │
+                                                               spawn_blocking
+                                                                        │
+                                                                 ┌──────┴───────┐
+                                                                 │ tracker-rs   │
+                                                                 │ (SPARQL FFI) │
+                                                                 └──────┬───────┘
+                                                                        │
+                                                                 ┌──────┴───────┐
+                                                                 │ GNOME Tracker│
+                                                                 │  SPARQL DB   │
+                                                                 └──────────────┘
 ```
 
 ## Project Structure
