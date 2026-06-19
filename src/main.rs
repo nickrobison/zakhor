@@ -6,6 +6,7 @@ use tracing_subscriber::EnvFilter;
 mod config;
 mod error;
 mod lexical;
+mod provenance;
 mod semantic;
 mod sparql;
 mod server;

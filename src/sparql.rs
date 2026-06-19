@@ -183,6 +183,26 @@ impl SparqlBuilder {
             where_clause,
         )
     }
+
+    /// Build a SELECT query that returns all triples in a specific named graph.
+    ///
+    /// Generates:
+    /// ```sparql
+    /// PREFIX ...
+    /// SELECT ?s ?p ?o WHERE {
+    ///   GRAPH <http://zakhor/ns/graph/{uuid}> { ?s ?p ?o }
+    /// }
+    /// ```
+    pub fn select_graph(observation_uuid: &str) -> String {
+        let graph_iri = format!("{}graph/{}", Prefix::ZAKHOR, observation_uuid);
+        format!(
+            "{}SELECT ?s ?p ?o WHERE {{\n\
+             GRAPH <{}> {{ ?s ?p ?o }}\n\
+             }}",
+            prefix_declarations(),
+            graph_iri,
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +276,19 @@ mod tests {
         assert!(q.contains("CONSTRUCT {"));
         assert!(q.contains("<urn:uuid:abc>"));
         assert!(q.contains("WHERE {"));
+    }
+
+    // -- select_graph ----------------------------------------------------------
+
+    #[test]
+    fn test_select_graph_contains_keywords() {
+        let q = SparqlBuilder::select_graph("test-uuid-123");
+        assert!(q.starts_with("PREFIX"));
+        assert!(q.contains("SELECT ?s ?p ?o"));
+        assert!(q.contains("WHERE {"));
+        assert!(q.contains("GRAPH"));
+        assert!(q.contains("<http://zakhor/ns/graph/test-uuid-123>"));
+        assert!(q.ends_with('}'));
     }
 
     // -- prefix declarations ---------------------------------------------------
