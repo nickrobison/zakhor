@@ -1,15 +1,18 @@
 use rmcp::ServiceExt;
+use std::sync::{Arc, Mutex};
 use tokio::io::{stdin, stdout};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 mod config;
 mod error;
+mod ingestion;
 mod lexical;
 mod provenance;
 mod semantic;
 mod sparql;
 mod server;
+mod sync;
 mod tracker_db;
 mod schema;
 
@@ -43,9 +46,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cfg = config::Config::load();
     let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
-    let _conn = tracker_db::init_db(db_path);
+    let conn = tracker_db::init_db(db_path);
 
-    let service = server::MemoryHandler::new_with_config(&cfg);
+    let rebuild = std::env::args().any(|a| a == "--rebuild-indexes");
+
+    let sync_mgr = if rebuild {
+        let mgr = sync::IndexSyncManager::new(&cfg.database.path)?;
+        mgr.rebuild_all(&conn)?;
+        tracing::info!("Indexes rebuilt successfully");
+        Some(Arc::new(Mutex::new(mgr)))
+    } else {
+        match sync::IndexSyncManager::new(&cfg.database.path) {
+            Ok(mgr) => Some(Arc::new(Mutex::new(mgr))),
+            Err(e) => {
+                tracing::warn!("Failed to init sync manager (indexes unavailable): {e}");
+                None
+            }
+        }
+    };
+
+    let service = server::MemoryHandler::new_with_config(&cfg, sync_mgr);
     let transport = (stdin(), stdout());
 
     let server = service.serve(transport).await?;

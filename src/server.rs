@@ -1,10 +1,12 @@
 use crate::config::Config;
+use crate::sync::IndexSyncManager;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracing::info_span;
 
@@ -35,18 +37,25 @@ fn args_hash<T: Serialize>(args: &T) -> String {
 #[derive(Clone)]
 pub struct MemoryHandler {
     conn: tracker::SparqlConnection,
+    pub sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,
 }
 
 impl MemoryHandler {
     pub fn new() -> Self {
         let conn = crate::tracker_db::init_db("./zakhor-db");
-        Self { conn }
+        Self {
+            conn,
+            sync_mgr: None,
+        }
     }
 
-    pub fn new_with_config(cfg: &Config) -> Self {
+    pub fn new_with_config(
+        cfg: &Config,
+        sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,
+    ) -> Self {
         let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
         let conn = crate::tracker_db::init_db(db_path);
-        Self { conn }
+        Self { conn, sync_mgr }
     }
 }
 
@@ -70,6 +79,9 @@ pub struct UpdateMemoryArgs {
 pub struct DeleteMemoryArgs {
     id: String,
 }
+
+#[derive(Deserialize, Serialize, JsonSchema)]
+pub struct RebuildIndexesArgs {}
 
 #[tool_router(server_handler)]
 impl MemoryHandler {
@@ -204,6 +216,48 @@ impl MemoryHandler {
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
         span.record("result", "success");
+        span.record("duration_ms", &duration_ms);
+        result
+    }
+
+    #[tool(
+        name = "rebuild_indexes",
+        description = "Rebuild all search indexes from Tracker"
+    )]
+    async fn rebuild_indexes(
+        &self,
+        _args: Parameters<RebuildIndexesArgs>,
+    ) -> Result<String, String> {
+        let span = info_span!(
+            "mcp_tool",
+            tool = "rebuild_indexes",
+            correlation_id = &crate::new_correlation_id(),
+            args_hash = %args_hash(&_args.0),
+            duration_ms = tracing::field::Empty,
+            result = tracing::field::Empty,
+        );
+        let start = Instant::now();
+
+        let propagate_span = span.clone();
+        let this = self.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let _guard = propagate_span.enter();
+            match &this.sync_mgr {
+                Some(mgr) => match mgr.lock() {
+                    Ok(guard) => guard
+                        .rebuild_all(&this.conn)
+                        .map_err(|e| format!("Rebuild failed: {e}"))
+                        .map(|_| "Indexes rebuilt successfully".to_string()),
+                    Err(e) => Err(format!("Sync manager lock poisoned: {e}")),
+                },
+                None => Err("No sync manager available (indexes disabled)".to_string()),
+            }
+        })
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?;
+
+        let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+        span.record("result", if result.is_ok() { "success" } else { "error" });
         span.record("duration_ms", &duration_ms);
         result
     }
