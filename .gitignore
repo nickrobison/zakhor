@@ -2,4 +2,5 @@
 /zakhor-db/
 /logs/
 .omo/
+.fastembed_cache/
 
