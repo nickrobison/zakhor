@@ -1,5 +1,5 @@
 use std::fmt;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 #[derive(Debug)]
 pub enum ZakhorError {
@@ -75,11 +75,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_retry_success_first_try() {
-        let result = with_retry(
-            || async { Ok::<_, ZakhorError>(42) },
-            3,
-        )
-        .await;
+        let result = with_retry(|| async { Ok::<_, ZakhorError>(42) }, 3).await;
         assert_eq!(result.unwrap(), 42);
     }
 
@@ -169,6 +165,8 @@ where
         Err(err)
     } else {
         // This case shouldn't happen but just in case
-        Err(ZakhorError::Internal("Retry failed unexpectedly".to_string()))
+        Err(ZakhorError::Internal(
+            "Retry failed unexpectedly".to_string(),
+        ))
     }
 }
