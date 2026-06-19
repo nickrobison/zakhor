@@ -12,38 +12,44 @@ pub const EXTRA_PREFIXES: &[(&str, &str)] = &[("nfo", NFO), ("nao", NAO), ("skos
 // IRI constructor functions — simple direct allocation for testability:
 
 pub fn entity_iri() -> IriBuf {
-    IriBuf::new(format!("{}Entity", Prefix::ZAKHOR)).unwrap()
+    IriBuf::new(format!("{}Entity", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
 }
 pub fn decision_iri() -> IriBuf {
-    IriBuf::new(format!("{}Decision", Prefix::ZAKHOR)).unwrap()
+    IriBuf::new(format!("{}Decision", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
 }
 pub fn project_iri() -> IriBuf {
-    IriBuf::new(format!("{}Project", Prefix::ZAKHOR)).unwrap()
+    IriBuf::new(format!("{}Project", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
 }
 pub fn issue_iri() -> IriBuf {
-    IriBuf::new(format!("{}Issue", Prefix::ZAKHOR)).unwrap()
+    IriBuf::new(format!("{}Issue", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
 }
 pub fn constraint_iri() -> IriBuf {
-    IriBuf::new(format!("{}Constraint", Prefix::ZAKHOR)).unwrap()
+    IriBuf::new(format!("{}Constraint", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
 }
 pub fn observation_iri() -> IriBuf {
-    IriBuf::new(format!("{}Observation", Prefix::ZAKHOR)).unwrap()
+    IriBuf::new(format!("{}Observation", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
 }
 
 pub fn has_entity_iri() -> IriBuf {
-    IriBuf::new(format!("{}hasEntity", Prefix::ZAKHOR)).unwrap()
+    IriBuf::new(format!("{}hasEntity", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
 }
 pub fn has_relation_iri() -> IriBuf {
-    IriBuf::new(format!("{}hasRelation", Prefix::ZAKHOR)).unwrap()
+    IriBuf::new(format!("{}hasRelation", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
 }
 pub fn provenance_graph_iri() -> IriBuf {
-    IriBuf::new(format!("{}provenanceGraph", Prefix::ZAKHOR)).unwrap()
+    IriBuf::new(format!("{}provenanceGraph", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
 }
 pub fn decision_context_iri() -> IriBuf {
-    IriBuf::new(format!("{}decisionContext", Prefix::ZAKHOR)).unwrap()
+    IriBuf::new(format!("{}decisionContext", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
 }
 pub fn decision_rationale_iri() -> IriBuf {
-    IriBuf::new(format!("{}decisionRationale", Prefix::ZAKHOR)).unwrap()
+    IriBuf::new(format!("{}decisionRationale", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
 }
 
 /// Generate SPARQL CONSTRUCT query that registers the ontology in Tracker.

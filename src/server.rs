@@ -155,7 +155,7 @@ impl MemoryHandler {
                 .map_err(|e| format!("Ingest failed: {e}"))?;
 
             if let Some(ref sync_mgr) = self.sync_mgr {
-                let mgr = sync_mgr.lock().unwrap();
+                let mgr = sync_mgr.lock().expect("sync manager lock poisoned");
                 if let Err(e) = mgr.sync_observation(
                     &ingest_result.observation_uri,
                     &text,
@@ -289,7 +289,7 @@ impl MemoryHandler {
         let result = (|| -> Result<Json<SearchHybridResponse>, String> {
             match self.sync_mgr {
                 Some(ref sync_mgr) => {
-                    let mgr = sync_mgr.lock().unwrap();
+                    let mgr = sync_mgr.lock().expect("sync manager lock poisoned");
                     let results = tools::hybrid_search(
                         &mgr.lexical,
                         &mgr.semantic,

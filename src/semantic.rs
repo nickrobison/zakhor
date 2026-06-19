@@ -40,8 +40,12 @@ impl SemanticIndex {
     /// Model auto-download occurs on first use (blocking IO, CPU only).
     pub fn new(db_path: &Path) -> Result<Self, String> {
         let snapshot_path = db_path.join("semantic").join("vectors.bin");
-        std::fs::create_dir_all(snapshot_path.parent().unwrap())
-            .map_err(|e| format!("Failed to create semantic dir: {}", e))?;
+        std::fs::create_dir_all(
+            snapshot_path
+                .parent()
+                .expect("snapshot path must have parent directory"),
+        )
+        .map_err(|e| format!("Failed to create semantic dir: {}", e))?;
 
         let model = TextEmbedding::try_new(
             InitOptions::new(EmbeddingModel::BGESmallENV15).with_show_download_progress(false),
@@ -70,7 +74,10 @@ impl SemanticIndex {
             .model
             .embed(vec![text.to_string()], None)
             .map_err(|e| format!("Embedding failed: {}", e))?;
-        let embedding = embeddings.into_iter().next().unwrap();
+        let embedding = embeddings
+            .into_iter()
+            .next()
+            .expect("embedding should produce exactly one vector");
         self.vectors.push((id.to_string(), embedding));
         Ok(())
     }

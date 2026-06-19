@@ -15,7 +15,10 @@ pub fn hybrid_search(
     // Lexical search
     let lexical_results = lexical.search(query, overfetch).unwrap_or_default();
     // Semantic search (lock mutex)
-    let semantic_results = semantic.lock().unwrap().search(query, overfetch);
+    let semantic_results = semantic
+        .lock()
+        .expect("semantic index lock poisoned")
+        .search(query, overfetch);
 
     // RRF fusion with k=60
     let k = 60.0;
