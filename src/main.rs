@@ -1,4 +1,8 @@
+use axum::{Router, routing::any_service};
 use rmcp::ServiceExt;
+use rmcp::transport::streamable_http_server::{
+    session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
+};
 use std::sync::{Arc, Mutex};
 use tokio::io::{stdin, stdout};
 use tracing::level_filters::LevelFilter;
@@ -34,6 +38,29 @@ pub fn new_correlation_id() -> String {
     )
 }
 
+async fn serve_http(
+    cfg: &config::Config,
+    service: server::MemoryHandler,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let addr = format!("{}:{}", cfg.http.host, cfg.http.port);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    tracing::info!(addr = %addr, "Starting HTTP transport mode");
+
+    let http_service = StreamableHttpService::new(
+        move || Ok(service.clone()),
+        Arc::new(LocalSessionManager::default()),
+        StreamableHttpServerConfig::default()
+            .with_allowed_hosts([cfg.http.host.clone()]),
+    );
+
+    let app = Router::new()
+        .route("/", any_service(http_service.clone()))
+        .route("/*path", any_service(http_service));
+
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -50,6 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = tracker_db::init_db(db_path);
 
     let rebuild = std::env::args().any(|a| a == "--rebuild-indexes");
+    let http_mode = std::env::args().any(|a| a == "--http");
 
     let sync_mgr = if rebuild {
         let mgr = sync::IndexSyncManager::new(&cfg.database.path)?;
@@ -67,10 +95,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let service = server::MemoryHandler::new_with_config(&cfg, sync_mgr);
-    let transport = (stdin(), stdout());
 
-    let server = service.serve(transport).await?;
-    server.waiting().await?;
+    if http_mode {
+        serve_http(&cfg, service).await?;
+    } else {
+        let transport = (stdin(), stdout());
+        let server = service.serve(transport).await?;
+        server.waiting().await?;
+    }
 
     Ok(())
 }
