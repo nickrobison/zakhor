@@ -13,6 +13,7 @@ mod semantic;
 mod sparql;
 mod server;
 mod sync;
+mod tools;
 mod tracker_db;
 mod schema;
 

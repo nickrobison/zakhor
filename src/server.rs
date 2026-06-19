@@ -1,7 +1,11 @@
 use crate::config::Config;
+use crate::ingestion::{IngestionPipeline, StoreObservationArgs};
 use crate::sync::IndexSyncManager;
-use rmcp::handler::server::wrapper::Parameters;
-use rmcp::{tool, tool_router};
+use crate::tools;
+use rmcp::handler::server::wrapper::{Json, Parameters};
+use rmcp::tool;
+use rmcp::tool_router;
+use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
@@ -9,23 +13,6 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracing::info_span;
-
-const MAX_INPUT_LEN: usize = 10_240;
-
-fn validate_not_empty(s: &str, name: &str) -> Result<(), String> {
-    if s.is_empty() {
-        return Err(format!("'{}' must not be empty", name));
-    }
-    if s.len() > MAX_INPUT_LEN {
-        return Err(format!(
-            "'{}' too long ({} bytes, max {})",
-            name,
-            s.len(),
-            MAX_INPUT_LEN
-        ));
-    }
-    Ok(())
-}
 
 fn args_hash<T: Serialize>(args: &T) -> String {
     let json = serde_json::to_string(args).unwrap_or_default();
@@ -60,162 +47,251 @@ impl MemoryHandler {
 }
 
 #[derive(Deserialize, Serialize, JsonSchema)]
-pub struct StoreMemoryArgs {
-    text: String,
-}
-
-#[derive(Deserialize, Serialize, JsonSchema)]
-pub struct ReadMemoryArgs {
-    id: String,
-}
-
-#[derive(Deserialize, Serialize, JsonSchema)]
-pub struct UpdateMemoryArgs {
-    id: String,
-    text: String,
-}
-
-#[derive(Deserialize, Serialize, JsonSchema)]
-pub struct DeleteMemoryArgs {
-    id: String,
-}
-
-#[derive(Deserialize, Serialize, JsonSchema)]
 pub struct RebuildIndexesArgs {}
+
+#[derive(Deserialize, Serialize, JsonSchema)]
+pub struct QueryEntitiesArgs {
+    pub pattern: String,
+    pub limit: u32,
+}
+
+#[derive(Deserialize, Serialize, JsonSchema)]
+pub struct TraverseGraphArgs {
+    pub start_id: String,
+    pub depth: u32,
+    pub edge_types: Vec<String>,
+}
+
+#[derive(Deserialize, Serialize, JsonSchema)]
+pub struct SearchHybridArgs {
+    pub query: String,
+    pub limit: u32,
+}
+
+#[derive(Deserialize, Serialize, JsonSchema)]
+pub struct RecordDecisionArgs {
+    pub context: String,
+    pub decision: String,
+    pub alternatives: Vec<String>,
+    pub rationale: String,
+}
 
 #[tool_router(server_handler)]
 impl MemoryHandler {
-    #[tool(
-        name = "store_memory",
-        description = "Store knowledge in GNOME Tracker"
-    )]
-    async fn store_memory(&self, args: Parameters<StoreMemoryArgs>) -> Result<String, String> {
+    #[tool(description = "Store an observation about entities and relations in the knowledge graph")]
+    async fn store_observation(
+        &self,
+        Parameters(args): Parameters<StoreObservationArgs>,
+    ) -> Result<Json<serde_json::Value>, String> {
         let span = info_span!(
             "mcp_tool",
-            tool = "store_memory",
-            correlation_id = &crate::new_correlation_id(),
-            args_hash = %args_hash(&args.0),
+            tool = "store_observation",
+            correlation_id = %crate::new_correlation_id(),
+            args_hash = %args_hash(&args),
             duration_ms = tracing::field::Empty,
             result = tracing::field::Empty,
         );
+        let _guard = span.enter();
         let start = Instant::now();
 
-        let text = args.0.text;
-        validate_not_empty(&text, "text")?;
+        let result = (|| -> Result<Json<serde_json::Value>, String> {
+            let text = args.text.clone();
+            let entity_uris: Vec<String> = args.entities.iter().map(|e| e.uri.clone()).collect();
 
-        let propagate_span = span.clone();
-        let this = self.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            let _guard = propagate_span.enter();
-            crate::tracker_db::store_memory(&this.conn, &text)
-        })
-        .await
-        .map_err(|e| format!("Task join error: {}", e))?;
+            let mut pipeline = IngestionPipeline::new();
+            let ingest_result = pipeline.ingest(&self.conn, args)
+                .map_err(|e| format!("Ingest failed: {e}"))?;
+
+            if let Some(ref sync_mgr) = self.sync_mgr {
+                let mgr = sync_mgr.lock().unwrap();
+                if let Err(e) = mgr.sync_observation(
+                    &ingest_result.observation_uri,
+                    &text,
+                    &entity_uris,
+                ) {
+                    tracing::warn!(error = %e, "Failed to sync observation to indexes");
+                }
+            }
+
+            Ok(Json(serde_json::json!({
+                "observation_uri": ingest_result.observation_uri,
+                "triple_count": ingest_result.triple_count
+            })))
+        })();
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-        span.record("result", "success");
+        span.record("result", if result.is_ok() { "success" } else { "error" });
         span.record("duration_ms", &duration_ms);
         result
     }
 
-    #[tool(
-        name = "read_memory",
-        description = "Read knowledge from GNOME Tracker by ID"
-    )]
-    async fn read_memory(&self, args: Parameters<ReadMemoryArgs>) -> Result<String, String> {
+    #[tool(description = "Query entities by label pattern in the knowledge graph")]
+    async fn query_entities(
+        &self,
+        Parameters(args): Parameters<QueryEntitiesArgs>,
+    ) -> Result<Json<serde_json::Value>, String> {
         let span = info_span!(
             "mcp_tool",
-            tool = "read_memory",
-            correlation_id = &crate::new_correlation_id(),
-            args_hash = %args_hash(&args.0),
+            tool = "query_entities",
+            correlation_id = %crate::new_correlation_id(),
+            args_hash = %args_hash(&args),
             duration_ms = tracing::field::Empty,
             result = tracing::field::Empty,
         );
+        let _guard = span.enter();
         let start = Instant::now();
 
-        let id = args.0.id;
-        validate_not_empty(&id, "id")?;
+        let result = (|| -> Result<Json<serde_json::Value>, String> {
+            let sparql = tools::build_entity_query(&args.pattern, args.limit);
+            let cursor = self
+                .conn
+                .query(&sparql, None::<&gio::Cancellable>)
+                .map_err(|e| format!("SPARQL query failed: {e}"))?;
 
-        let propagate_span = span.clone();
-        let this = self.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            let _guard = propagate_span.enter();
-            crate::tracker_db::read_memory(&this.conn, &id)
-        })
-        .await
-        .map_err(|e| format!("Task join error: {}", e))?;
+            let mut entities = Vec::new();
+            while cursor
+                .next(None::<&gio::Cancellable>)
+                .map_err(|e| format!("Cursor error: {e}"))?
+            {
+                let uri = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
+                let label = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
+                entities.push(serde_json::json!({ "uri": uri, "label": label }));
+            }
+
+            Ok(Json(serde_json::json!({ "entities": entities, "count": entities.len() })))
+        })();
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-        span.record("result", "success");
+        span.record("result", if result.is_ok() { "success" } else { "error" });
         span.record("duration_ms", &duration_ms);
         result
     }
 
-    #[tool(
-        name = "update_memory",
-        description = "Update existing knowledge in GNOME Tracker"
-    )]
-    async fn update_memory(&self, args: Parameters<UpdateMemoryArgs>) -> Result<String, String> {
+    #[tool(description = "Traverse the knowledge graph from a starting node")]
+    async fn traverse_graph(
+        &self,
+        Parameters(args): Parameters<TraverseGraphArgs>,
+    ) -> Result<Json<serde_json::Value>, String> {
         let span = info_span!(
             "mcp_tool",
-            tool = "update_memory",
-            correlation_id = &crate::new_correlation_id(),
-            args_hash = %args_hash(&args.0),
+            tool = "traverse_graph",
+            correlation_id = %crate::new_correlation_id(),
+            args_hash = %args_hash(&args),
             duration_ms = tracing::field::Empty,
             result = tracing::field::Empty,
         );
+        let _guard = span.enter();
         let start = Instant::now();
 
-        let id = args.0.id;
-        let text = args.0.text;
-        validate_not_empty(&id, "id")?;
-        validate_not_empty(&text, "text")?;
-
-        let propagate_span = span.clone();
-        let this = self.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            let _guard = propagate_span.enter();
-            crate::tracker_db::update_memory(&this.conn, &id, &text)
-        })
-        .await
-        .map_err(|e| format!("Task join error: {}", e))?;
+        let result = (|| -> Result<Json<serde_json::Value>, String> {
+            let sparql = tools::build_traverse_query(&args.start_id, args.depth, &args.edge_types);
+            match self.conn.query(&sparql, None::<&gio::Cancellable>) {
+                Ok(cursor) => {
+                    let mut triples = Vec::new();
+                    loop {
+                        match cursor.next(None::<&gio::Cancellable>) {
+                            Ok(true) => {
+                                let s = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
+                                let p = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
+                                let o = cursor.string(2).map(|s| s.to_string()).unwrap_or_default();
+                                triples.push(serde_json::json!({ "subject": s, "predicate": p, "object": o }));
+                            }
+                            Ok(false) => break,
+                            Err(e) => return Err(format!("Cursor error: {e}")),
+                        }
+                    }
+                    Ok(Json(serde_json::json!({ "triples": triples, "count": triples.len() })))
+                }
+                Err(e) => Ok(Json(serde_json::json!({ "triples": [], "count": 0, "warning": format!("Query issue: {e}") }))),
+            }
+        })();
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-        span.record("result", "success");
+        span.record("result", if result.is_ok() { "success" } else { "error" });
         span.record("duration_ms", &duration_ms);
         result
     }
 
-    #[tool(
-        name = "delete_memory",
-        description = "Delete knowledge from GNOME Tracker by ID"
-    )]
-    async fn delete_memory(&self, args: Parameters<DeleteMemoryArgs>) -> Result<String, String> {
+    #[tool(description = "Hybrid search across lexical and semantic indexes using RRF fusion")]
+    async fn search_hybrid(
+        &self,
+        Parameters(args): Parameters<SearchHybridArgs>,
+    ) -> Result<Json<serde_json::Value>, String> {
         let span = info_span!(
             "mcp_tool",
-            tool = "delete_memory",
-            correlation_id = &crate::new_correlation_id(),
-            args_hash = %args_hash(&args.0),
+            tool = "search_hybrid",
+            correlation_id = %crate::new_correlation_id(),
+            args_hash = %args_hash(&args),
             duration_ms = tracing::field::Empty,
             result = tracing::field::Empty,
         );
+        let _guard = span.enter();
         let start = Instant::now();
 
-        let id = args.0.id;
-        validate_not_empty(&id, "id")?;
-
-        let propagate_span = span.clone();
-        let this = self.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            let _guard = propagate_span.enter();
-            crate::tracker_db::delete_memory(&this.conn, &id)?;
-            Ok(format!("Deleted: {}", id))
-        })
-        .await
-        .map_err(|e| format!("Task join error: {}", e))?;
+        let result = (|| -> Result<Json<serde_json::Value>, String> {
+            match self.sync_mgr {
+                Some(ref sync_mgr) => {
+                    let mgr = sync_mgr.lock().unwrap();
+                    let results = tools::hybrid_search(
+                        &mgr.lexical,
+                        &mgr.semantic,
+                        &args.query,
+                        args.limit as usize,
+                    );
+                    let docs: Vec<serde_json::Value> = results
+                        .into_iter()
+                        .map(|d| serde_json::json!({ "id": d.id, "score": d.score }))
+                        .collect();
+                    Ok(Json(serde_json::json!({ "results": docs, "count": docs.len() })))
+                }
+                None => Ok(Json(serde_json::json!({ "results": [], "count": 0, "warning": "Indexes not available" }))),
+            }
+        })();
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-        span.record("result", "success");
+        span.record("result", if result.is_ok() { "success" } else { "error" });
+        span.record("duration_ms", &duration_ms);
+        result
+    }
+
+    #[tool(description = "Record a decision with context, alternatives, and rationale in the knowledge graph")]
+    async fn record_decision(
+        &self,
+        Parameters(args): Parameters<RecordDecisionArgs>,
+    ) -> Result<Json<serde_json::Value>, String> {
+        let span = info_span!(
+            "mcp_tool",
+            tool = "record_decision",
+            correlation_id = %crate::new_correlation_id(),
+            args_hash = %args_hash(&args),
+            duration_ms = tracing::field::Empty,
+            result = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+        let start = Instant::now();
+
+        let result = (|| -> Result<Json<serde_json::Value>, String> {
+            let uuid = tracker::functions::sparql_get_uuid_urn()
+                .ok_or_else(|| "Failed to generate UUID".to_string())?;
+            let decision_uri = uuid.to_string();
+
+            let sparql = tools::build_decision_insert(
+                &decision_uri,
+                &args.context,
+                &args.decision,
+                &args.alternatives,
+                &args.rationale,
+            );
+
+            self.conn
+                .update(&sparql, None::<&gio::Cancellable>)
+                .map_err(|e| format!("Failed to record decision: {e}"))?;
+
+            Ok(Json(serde_json::json!({ "decision_uri": decision_uri })))
+        })();
+
+        let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+        span.record("result", if result.is_ok() { "success" } else { "error" });
         span.record("duration_ms", &duration_ms);
         result
     }
@@ -226,13 +302,13 @@ impl MemoryHandler {
     )]
     async fn rebuild_indexes(
         &self,
-        _args: Parameters<RebuildIndexesArgs>,
+        Parameters(_args): Parameters<RebuildIndexesArgs>,
     ) -> Result<String, String> {
         let span = info_span!(
             "mcp_tool",
             tool = "rebuild_indexes",
             correlation_id = &crate::new_correlation_id(),
-            args_hash = %args_hash(&_args.0),
+            args_hash = %args_hash(&_args),
             duration_ms = tracing::field::Empty,
             result = tracing::field::Empty,
         );
@@ -269,8 +345,9 @@ mod tests {
 
     #[test]
     fn test_args_hash_deterministic() {
-        let args = StoreMemoryArgs {
-            text: "hello".into(),
+        let args = QueryEntitiesArgs {
+            pattern: "hello".into(),
+            limit: 10,
         };
         let h1 = args_hash(&args);
         let h2 = args_hash(&args);
@@ -280,15 +357,27 @@ mod tests {
 
     #[test]
     fn test_args_hash_different_args_differ() {
-        let a = StoreMemoryArgs { text: "foo".into() };
-        let b = StoreMemoryArgs { text: "bar".into() };
+        let a = QueryEntitiesArgs {
+            pattern: "foo".into(),
+            limit: 10,
+        };
+        let b = QueryEntitiesArgs {
+            pattern: "bar".into(),
+            limit: 10,
+        };
         assert_ne!(args_hash(&a), args_hash(&b));
     }
 
     #[test]
     fn test_args_hash_different_types_differ() {
-        let store = StoreMemoryArgs { text: "x".into() };
-        let read = ReadMemoryArgs { id: "x".into() };
+        let store = QueryEntitiesArgs {
+            pattern: "x".into(),
+            limit: 10,
+        };
+        let read = SearchHybridArgs {
+            query: "x".into(),
+            limit: 10,
+        };
         assert_ne!(args_hash(&store), args_hash(&read));
     }
 

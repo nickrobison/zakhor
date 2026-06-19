@@ -1,5 +1,7 @@
 use gio::Cancellable;
 use rdf_types::{IriBuf, Literal, LiteralType, RdfDisplay, XSD_STRING};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use tracker::prelude::SparqlConnectionExtManual;
 use tracker::SparqlConnection;
 
@@ -11,14 +13,14 @@ use crate::sparql::Prefix;
 // ---------------------------------------------------------------------------
 
 /// An entity reference associated with an observation.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct EntityRef {
     pub uri: String,
     pub label: String,
 }
 
 /// A relation between two entities.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Relation {
     pub subject_uri: String,
     pub predicate_uri: String,
@@ -27,7 +29,7 @@ pub struct Relation {
 }
 
 /// Arguments for storing a complete observation.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct StoreObservationArgs {
     pub text: String,
     pub entities: Vec<EntityRef>,
