@@ -45,7 +45,7 @@ fn prefix_declarations() -> String {
 /// Escape `text` as a SPARQL literal using `rdf_types::Literal` + `RdfDisplay`.
 /// The returned string includes the enclosing double quotes and any internal
 /// escaping — it is safe to interpolate directly into a SPARQL query string.
-fn escape_literal(text: &str) -> String {
+pub fn escape_literal(text: &str) -> String {
     let lit = Literal::new(text.to_string(), LiteralType::Any(XSD_STRING.to_owned()));
     lit.rdf_display().to_string()
 }
@@ -55,7 +55,7 @@ fn escape_literal(text: &str) -> String {
 /// # Panics
 /// Panics if `iri_str` is not a valid IRI (this is a programming error — all
 /// callers pass well-known literal URIs such as `urn:uuid:…`).
-fn format_iri(iri_str: &str) -> String {
+pub fn format_iri(iri_str: &str) -> String {
     let iri =
         IriBuf::new(iri_str.to_string()).expect("invalid IRI passed to format_iri — this is a bug");
     iri.rdf_display().to_string()
@@ -182,6 +182,14 @@ impl SparqlBuilder {
             triple.rdf_display(),
             where_clause,
         )
+    }
+
+    /// Build an `INSERT DATA { … }` query with arbitrary triple content.
+    ///
+    /// `triples` is a raw triple-pattern fragment (prefixed names are resolved
+    /// by the `PREFIX` declarations emitted automatically).
+    pub fn insert_data_raw(triples: &str) -> String {
+        format!("{}INSERT DATA {{\n{}\n}}", prefix_declarations(), triples,)
     }
 
     /// Build a SELECT query that returns all triples in a specific named graph.
@@ -436,6 +444,10 @@ mod tests {
             (
                 "construct",
                 SparqlBuilder::construct("?s ?p ?o .", "?s ?p ?o ."),
+            ),
+            (
+                "insert_data_raw",
+                SparqlBuilder::insert_data_raw("?s ?p ?o ."),
             ),
             (
                 "construct_triple",

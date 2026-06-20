@@ -48,70 +48,29 @@ pub fn hybrid_search(
 pub fn build_entity_query(pattern: &str, limit: u32) -> String {
     let safe_pattern = pattern.replace('\'', "\\'");
     format!(
-        "PREFIX zakhor: <https://zakhor.example/>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-SELECT ?entity ?label WHERE {{
-  ?entity rdf:type zakhor:Entity .
-  ?entity rdfs:label ?label .
-  FILTER(CONTAINS(LCASE(?label), LCASE('{}')))
-}}
-LIMIT {}",
+        "PREFIX zakhor: <http://zakhor/ns/>\nPREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT ?entity ?label WHERE {{\n  ?entity rdf:type zakhor:Entity .\n  ?entity rdfs:label ?label .\n  FILTER(CONTAINS(LCASE(?label), LCASE('{}')))\n}}\nLIMIT {}",
         safe_pattern, limit
     )
 }
 
-/// Build SPARQL CONSTRUCT for graph traversal at given depth
-pub fn build_traverse_query(start_id: &str, depth: u32, edge_types: &[String]) -> String {
+/// Build SPARQL SELECT for graph traversal (outgoing edges from start_id)
+pub fn build_traverse_query(start_id: &str, _depth: u32, edge_types: &[String]) -> String {
     let safe_start = start_id.replace('>', "").replace('<', "");
-    let edge_filter = if edge_types.is_empty() {
+
+    let filter_clause = if edge_types.is_empty() {
         String::new()
     } else {
         let types: Vec<String> = edge_types
             .iter()
             .map(|t| format!("<{}>", t.replace('>', "").replace('<', "")))
             .collect();
-        format!("VALUES ?p {{ {} }} ", types.join(" "))
+        format!("FILTER(?p IN ({})) ", types.join(" "))
     };
 
-    // Build depth levels - for each depth, we add property path of that length
-    let mut patterns = Vec::new();
-    for d in 1..=depth {
-        let path: String = std::iter::repeat("?p/")
-            .take(d as usize)
-            .collect::<Vec<_>>()
-            .join("");
-        let path = path.trim_end_matches('/');
-        patterns.push(format!(
-            "  {{ SELECT ?s ?p ?o WHERE {{ <{start}> {path} ?o . BIND(<{start}> AS ?s) }} }}",
-            path = path,
-            start = safe_start
-        ));
-        // Also reverse direction
-        let rpath: String = std::iter::repeat("!?p/")
-            .take(d as usize)
-            .collect::<Vec<_>>()
-            .join("");
-        let rpath = rpath.trim_end_matches('/');
-        patterns.push(format!(
-            "  {{ SELECT ?s ?p ?o WHERE {{ ?s {rpath} <{start}> . BIND(<{start}> AS ?o) }} }}",
-            rpath = rpath,
-            start = safe_start
-        ));
-    }
-
     format!(
-        "PREFIX zakhor: <https://zakhor.example/>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-CONSTRUCT {{ ?s ?p ?o }}
-WHERE {{
-  {edge_filter}
-  {{
-{patterns}
-  }}
-}}",
-        edge_filter = edge_filter,
-        patterns = patterns.join("\n  UNION\n")
+        "PREFIX zakhor: <http://zakhor/ns/>\nPREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nSELECT ?s ?p ?o WHERE {{\n  {{ ?s ?p ?o . FILTER(str(?s) = \"{start}\") . {filter} }}\n  UNION\n  {{ ?s ?p ?o . FILTER(str(?o) = \"{start}\") . {filter} }}\n}}",
+        start = safe_start,
+        filter = filter_clause
     )
 }
 
@@ -123,38 +82,31 @@ pub fn build_decision_insert(
     alternatives: &[String],
     rationale: &str,
 ) -> String {
-    let escape = |s: &str| {
+    fn escape_str(s: &str) -> String {
         s.replace('\\', "\\\\")
             .replace('\'', "\\'")
             .replace('\n', "\\n")
-    };
+    }
 
     let mut alternatives_triples = String::new();
-    for (_i, alt) in alternatives.iter().enumerate() {
+    for alt in alternatives.iter() {
         alternatives_triples.push_str(&format!(
-            "  <{uri}> zakhor:alternative \"\"\"{alt}\"\"\"@en .\n",
-            uri = decision_uri,
-            alt = escape(alt)
+            "<{}> zakhor:alternative \"{}\"@en .\n",
+            decision_uri,
+            escape_str(alt)
         ));
     }
 
     format!(
-        "PREFIX zakhor: <https://zakhor.example/>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-INSERT DATA {{
-  <{uri}> rdf:type zakhor:Decision .
-  <{uri}> zakhor:decisionContext \"\"\"{context}\"\"\"@en .
-  <{uri}> zakhor:decisionOutcome \"\"\"{decision}\"\"\"@en .
-  <{uri}> zakhor:decisionRationale \"\"\"{rationale}\"\"\"@en .
-{alts}
-}}
-",
-        uri = decision_uri,
-        context = escape(context),
-        decision = escape(decision),
-        rationale = escape(rationale),
-        alts = alternatives_triples,
+        "PREFIX zakhor: <http://zakhor/ns/>\nPREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nINSERT DATA {{\n  <{}> rdf:type zakhor:Decision .\n  <{}> zakhor:decisionContext \"{}\"@en .\n  <{}> zakhor:decisionOutcome \"{}\"@en .\n  <{}> zakhor:decisionRationale \"{}\"@en .\n{}}}\n",
+        decision_uri,
+        decision_uri,
+        escape_str(context),
+        decision_uri,
+        escape_str(decision),
+        decision_uri,
+        escape_str(rationale),
+        alternatives_triples
     )
 }
 
@@ -180,7 +132,7 @@ mod tests {
     #[test]
     fn test_build_traverse_query_depth_1() {
         let q = build_traverse_query("http://example.org/start", 1, &[]);
-        assert!(q.contains("CONSTRUCT"));
+        assert!(q.contains("SELECT"));
     }
 
     #[test]
@@ -197,7 +149,6 @@ mod tests {
     #[test]
     fn test_rrf_empty_returns_empty() {
         let result: Vec<ScoredDoc> = vec![];
-        let k = 60.0_f64;
         assert!(result.is_empty());
     }
 

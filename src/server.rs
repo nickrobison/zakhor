@@ -1,11 +1,9 @@
-use crate::config::Config;
 use crate::ingestion::{IngestionPipeline, StoreObservationArgs};
 use crate::sync::IndexSyncManager;
 use crate::tools;
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::tool;
 use rmcp::tool_router;
-use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
@@ -13,6 +11,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracing::info_span;
+use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 
 fn args_hash<T: Serialize>(args: &T) -> String {
     let json = serde_json::to_string(args).unwrap_or_default();
@@ -28,20 +27,14 @@ pub struct MemoryHandler {
 }
 
 impl MemoryHandler {
-    pub fn new() -> Self {
-        let conn = crate::tracker_db::init_db("./zakhor-db");
-        Self {
-            conn,
-            sync_mgr: None,
-        }
-    }
-
-    pub fn new_with_config(
-        cfg: &Config,
+    /// Create a handler with a pre-existing Tracker connection.
+    ///
+    /// Use this from `main.rs` to avoid calling `init_db` twice —
+    /// the caller already opened the DB, so we reuse it directly.
+    pub fn with_connection(
+        conn: tracker::SparqlConnection,
         sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,
     ) -> Self {
-        let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
-        let conn = crate::tracker_db::init_db(db_path);
         Self { conn, sync_mgr }
     }
 }
@@ -130,7 +123,9 @@ pub struct RecordDecisionResponse {
 
 #[tool_router(server_handler)]
 impl MemoryHandler {
-    #[tool(description = "Store an observation about entities and relations in the knowledge graph")]
+    #[tool(
+        description = "Store an observation about entities and relations in the knowledge graph"
+    )]
     async fn store_observation(
         &self,
         Parameters(args): Parameters<StoreObservationArgs>,
@@ -151,16 +146,15 @@ impl MemoryHandler {
             let entity_uris: Vec<String> = args.entities.iter().map(|e| e.uri.clone()).collect();
 
             let mut pipeline = IngestionPipeline::new();
-            let ingest_result = pipeline.ingest(&self.conn, args)
+            let ingest_result = pipeline
+                .ingest(&self.conn, args)
                 .map_err(|e| format!("Ingest failed: {e}"))?;
 
             if let Some(ref sync_mgr) = self.sync_mgr {
                 let mgr = sync_mgr.lock().expect("sync manager lock poisoned");
-                if let Err(e) = mgr.sync_observation(
-                    &ingest_result.observation_uri,
-                    &text,
-                    &entity_uris,
-                ) {
+                if let Err(e) =
+                    mgr.sync_observation(&ingest_result.observation_uri, &text, &entity_uris)
+                {
                     tracing::warn!(error = %e, "Failed to sync observation to indexes");
                 }
             }
@@ -173,7 +167,7 @@ impl MemoryHandler {
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
         span.record("result", if result.is_ok() { "success" } else { "error" });
-        span.record("duration_ms", &duration_ms);
+        span.record("duration_ms", duration_ms);
         result
     }
 
@@ -216,7 +210,7 @@ impl MemoryHandler {
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
         span.record("result", if result.is_ok() { "success" } else { "error" });
-        span.record("duration_ms", &duration_ms);
+        span.record("duration_ms", duration_ms);
         result
     }
 
@@ -247,14 +241,22 @@ impl MemoryHandler {
                                 let s = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
                                 let p = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
                                 let o = cursor.string(2).map(|s| s.to_string()).unwrap_or_default();
-                                triples.push(TripleResult { subject: s, predicate: p, object: o });
+                                triples.push(TripleResult {
+                                    subject: s,
+                                    predicate: p,
+                                    object: o,
+                                });
                             }
                             Ok(false) => break,
                             Err(e) => return Err(format!("Cursor error: {e}")),
                         }
                     }
                     let count = triples.len();
-                    Ok(Json(TraverseGraphResponse { triples, count, warning: None }))
+                    Ok(Json(TraverseGraphResponse {
+                        triples,
+                        count,
+                        warning: None,
+                    }))
                 }
                 Err(e) => Ok(Json(TraverseGraphResponse {
                     triples: vec![],
@@ -266,7 +268,7 @@ impl MemoryHandler {
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
         span.record("result", if result.is_ok() { "success" } else { "error" });
-        span.record("duration_ms", &duration_ms);
+        span.record("duration_ms", duration_ms);
         result
     }
 
@@ -286,38 +288,45 @@ impl MemoryHandler {
         let _guard = span.enter();
         let start = Instant::now();
 
-        let result = (|| -> Result<Json<SearchHybridResponse>, String> {
-            match self.sync_mgr {
-                Some(ref sync_mgr) => {
-                    let mgr = sync_mgr.lock().expect("sync manager lock poisoned");
-                    let results = tools::hybrid_search(
-                        &mgr.lexical,
-                        &mgr.semantic,
-                        &args.query,
-                        args.limit as usize,
-                    );
-                    let docs: Vec<SearchResult> = results
-                        .into_iter()
-                        .map(|d| SearchResult { id: d.id, score: d.score })
-                        .collect();
-                    let count = docs.len();
-                    Ok(Json(SearchHybridResponse { results: docs, count, warning: None }))
-                }
-                None => Ok(Json(SearchHybridResponse {
-                    results: vec![],
-                    count: 0,
-                    warning: Some("Indexes not available".to_string()),
-                })),
+        let result = match self.sync_mgr {
+            Some(ref sync_mgr) => {
+                let mgr = sync_mgr.lock().expect("sync manager lock poisoned");
+                let results = tools::hybrid_search(
+                    &mgr.lexical,
+                    &mgr.semantic,
+                    &args.query,
+                    args.limit as usize,
+                );
+                let docs: Vec<SearchResult> = results
+                    .into_iter()
+                    .map(|d| SearchResult {
+                        id: d.id,
+                        score: d.score,
+                    })
+                    .collect();
+                let count = docs.len();
+                Ok(Json(SearchHybridResponse {
+                    results: docs,
+                    count,
+                    warning: None,
+                }))
             }
-        })();
+            None => Ok(Json(SearchHybridResponse {
+                results: vec![],
+                count: 0,
+                warning: Some("Indexes not available".to_string()),
+            })),
+        };
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
         span.record("result", if result.is_ok() { "success" } else { "error" });
-        span.record("duration_ms", &duration_ms);
+        span.record("duration_ms", duration_ms);
         result
     }
 
-    #[tool(description = "Record a decision with context, alternatives, and rationale in the knowledge graph")]
+    #[tool(
+        description = "Record a decision with context, alternatives, and rationale in the knowledge graph"
+    )]
     async fn record_decision(
         &self,
         Parameters(args): Parameters<RecordDecisionArgs>,
@@ -355,7 +364,7 @@ impl MemoryHandler {
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
         span.record("result", if result.is_ok() { "success" } else { "error" });
-        span.record("duration_ms", &duration_ms);
+        span.record("duration_ms", duration_ms);
         result
     }
 
@@ -397,7 +406,7 @@ impl MemoryHandler {
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
         span.record("result", if result.is_ok() { "success" } else { "error" });
-        span.record("duration_ms", &duration_ms);
+        span.record("duration_ms", duration_ms);
         result
     }
 }

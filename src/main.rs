@@ -74,11 +74,9 @@ fn apply_cli_overrides(cfg: &mut config::Config) {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
-            "--db-path" => {
-                if i + 1 < args.len() {
-                    cfg.database.path = std::path::PathBuf::from(&args[i + 1]);
-                    i += 1;
-                }
+            "--db-path" if i + 1 < args.len() => {
+                cfg.database.path = std::path::PathBuf::from(&args[i + 1]);
+                i += 1;
             }
             other if other.starts_with("--db-path=") => {
                 cfg.database.path = std::path::PathBuf::from(&other["--db-path=".len()..]);
@@ -129,7 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let service = server::MemoryHandler::new_with_config(&cfg, sync_mgr);
+    let service = server::MemoryHandler::with_connection(conn, sync_mgr);
 
     if http_mode {
         serve_http(&cfg, service).await?;

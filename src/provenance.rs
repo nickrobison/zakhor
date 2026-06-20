@@ -1,5 +1,5 @@
-use rdf_types::dataset::{BTreeDataset, TraversableDataset};
 use rdf_types::Quad;
+use rdf_types::dataset::{BTreeDataset, TraversableDataset};
 
 const GRAPH_PREFIX: &str = "http://zakhor/ns/graph/";
 
@@ -63,12 +63,12 @@ impl ProvenanceTracker {
     pub fn all_observations(&self) -> Vec<String> {
         let mut uuids: Vec<String> = Vec::new();
         for quad in self.dataset.quads() {
-            if let Some(gn) = quad.graph() {
-                if let Some(uuid) = gn.strip_prefix(GRAPH_PREFIX) {
-                    let uuid = uuid.to_string();
-                    if !uuids.contains(&uuid) {
-                        uuids.push(uuid);
-                    }
+            if let Some(gn) = quad.graph()
+                && let Some(uuid) = gn.strip_prefix(GRAPH_PREFIX)
+            {
+                let uuid = uuid.to_string();
+                if !uuids.contains(&uuid) {
+                    uuids.push(uuid);
                 }
             }
         }

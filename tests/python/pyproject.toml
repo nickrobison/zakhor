@@ -1,0 +1,21 @@
+[project]
+name = "zakhor-integration-tests"
+version = "0.1.0"
+description = "Python MCP integration test suite for Zakhor"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["."]
+markers = [
+    "skipif_tracker_unavailable: skip test when GNOME Tracker is not available",
+]

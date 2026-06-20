@@ -2,8 +2,8 @@ use gio::Cancellable;
 use rdf_types::{IriBuf, Literal, LiteralType, RdfDisplay, XSD_STRING};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tracker::prelude::SparqlConnectionExtManual;
 use tracker::SparqlConnection;
+use tracker::prelude::SparqlConnectionExtManual;
 
 use crate::provenance::ProvenanceTracker;
 use crate::sparql::Prefix;
@@ -420,10 +420,16 @@ mod tests {
         let sparql = build_observation_sparql(&args, "urn:uuid:rel-test");
 
         // Both relation triples should appear
-        assert!(sparql
-            .contains("<http://example.com/s1> <http://example.com/p1> <http://example.com/o1>"));
-        assert!(sparql
-            .contains("<http://example.com/s2> <http://example.com/p2> <http://example.com/o2>"));
+        assert!(
+            sparql.contains(
+                "<http://example.com/s1> <http://example.com/p1> <http://example.com/o1>"
+            )
+        );
+        assert!(
+            sparql.contains(
+                "<http://example.com/s2> <http://example.com/p2> <http://example.com/o2>"
+            )
+        );
     }
 
     #[test]

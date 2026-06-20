@@ -45,12 +45,12 @@ impl Config {
         let mut config = Config::default();
 
         // Try to load TOML config file if it exists
-        if let Ok(content) = std::fs::read_to_string("./zakhor.toml") {
-            if let Ok(file_config) = toml::from_str::<Config>(&content) {
-                config.database.path = file_config.database.path;
-                config.http.host.clone_from(&file_config.http.host);
-                config.http.port = file_config.http.port;
-            }
+        if let Ok(content) = std::fs::read_to_string("./zakhor.toml")
+            && let Ok(file_config) = toml::from_str::<Config>(&content)
+        {
+            config.database.path = file_config.database.path;
+            config.http.host.clone_from(&file_config.http.host);
+            config.http.port = file_config.http.port;
         }
 
         // Environment variables override everything
@@ -60,10 +60,10 @@ impl Config {
         if let Ok(host) = std::env::var("ZAKHOR_HTTP_HOST") {
             config.http.host = host;
         }
-        if let Ok(port) = std::env::var("ZAKHOR_HTTP_PORT") {
-            if let Ok(p) = port.parse::<u16>() {
-                config.http.port = p;
-            }
+        if let Ok(port) = std::env::var("ZAKHOR_HTTP_PORT")
+            && let Ok(p) = port.parse::<u16>()
+        {
+            config.http.port = p;
         }
 
         config
