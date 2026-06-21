@@ -28,7 +28,7 @@ impl From<ZakhorError> for String {
     }
 }
 
-pub type ZakhorResult<T> = Result<T, ZakhorError>;
+pub type ZakhorResult<T> = anyhow::Result<T>;
 
 #[allow(dead_code)]
 pub async fn with_retry<F, Fut, T>(mut f: F, max_retries: u32) -> ZakhorResult<T>
@@ -36,14 +36,14 @@ where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = ZakhorResult<T>>,
 {
-    let mut last_error = None;
+    let mut last_error: Option<anyhow::Error> = None;
 
     for attempt in 0..=max_retries {
         let result = f().await;
         match result {
             Ok(result) => return Ok(result),
             Err(error) => {
-                if matches!(error, ZakhorError::Database(_)) {
+                if let Some(ZakhorError::Database(_)) = error.downcast_ref::<ZakhorError>() {
                     last_error = Some(error);
                     if attempt < max_retries {
                         let delay = Duration::from_millis(100 * 2u64.pow(attempt));
@@ -60,9 +60,7 @@ where
     if let Some(err) = last_error {
         Err(err)
     } else {
-        Err(ZakhorError::Internal(
-            "Retry failed unexpectedly".to_string(),
-        ))
+        Err(ZakhorError::Internal("Retry failed unexpectedly".to_string()).into())
     }
 }
 
@@ -111,7 +109,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_retry_success_first_try() {
-        let result = with_retry(|| async { Ok::<_, ZakhorError>(42) }, 3).await;
+        let result = with_retry(|| async { Ok::<_, anyhow::Error>(42) }, 3).await;
         assert_eq!(result.unwrap(), 42);
     }
 
@@ -122,7 +120,7 @@ mod tests {
             || async {
                 let n = attempts.fetch_add(1, Ordering::SeqCst);
                 if n < 2 {
-                    Err(ZakhorError::Database("transient".into()))
+                    Err(ZakhorError::Database("transient".into()).into())
                 } else {
                     Ok("done")
                 }
@@ -137,30 +135,38 @@ mod tests {
     #[tokio::test]
     async fn test_with_retry_exhausts_retries() {
         let result = with_retry(
-            || async { Err::<(), ZakhorError>(ZakhorError::Database("persistent".into())) },
+            || async {
+                Err::<(), anyhow::Error>(ZakhorError::Database("persistent".into()).into())
+            },
             2,
         )
         .await;
         let err = result.unwrap_err();
-        assert!(matches!(err, ZakhorError::Database(_)));
+        assert!(matches!(
+            err.downcast_ref::<ZakhorError>(),
+            Some(ZakhorError::Database(_))
+        ));
         assert_eq!(err.to_string(), "Database error: persistent");
     }
 
     #[tokio::test]
     async fn test_with_retry_propagates_non_database() {
         let result = with_retry(
-            || async { Err::<(), ZakhorError>(ZakhorError::NotFound("missing".into())) },
+            || async { Err::<(), anyhow::Error>(ZakhorError::NotFound("missing".into()).into()) },
             3,
         )
         .await;
         let err = result.unwrap_err();
-        assert!(matches!(err, ZakhorError::NotFound(_)));
+        assert!(matches!(
+            err.downcast_ref::<ZakhorError>(),
+            Some(ZakhorError::NotFound(_))
+        ));
     }
 
     #[tokio::test]
     async fn test_with_retry_zero_max_retries() {
         let result = with_retry(
-            || async { Err::<(), ZakhorError>(ZakhorError::Database("fail".into())) },
+            || async { Err::<(), anyhow::Error>(ZakhorError::Database("fail".into()).into()) },
             0,
         )
         .await;
