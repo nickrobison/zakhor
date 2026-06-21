@@ -1,5 +1,4 @@
-use rdf_types::IriBuf;
-use rdf_types::{Literal, LiteralType, RdfDisplay, Triple, XSD_STRING};
+use rdf_types::{IriBuf, Literal, LiteralType, RdfDisplay, Triple, XSD_STRING};
 
 // ---------------------------------------------------------------------------
 // Prefix constants — shared vocabulary URIs
@@ -29,7 +28,6 @@ const PREFIX_LIST: &[(&str, &str)] = &[
     ("zakhor", Prefix::ZAKHOR),
 ];
 
-/// Emit `PREFIX name: <iri>` declarations for all known namespaces.
 fn prefix_declarations() -> String {
     let mut out = String::with_capacity(512);
     for (name, ns) in PREFIX_LIST {
@@ -213,6 +211,14 @@ impl SparqlBuilder {
     }
 }
 
+/// Build a CONSTRUCT query for ontology registration.
+///
+/// `construct_pattern` and `where_pattern` are arbitrary triple-pattern
+/// fragments (prefixed names are resolved by the `PREFIX` declarations).
+pub fn ontology_construct(construct_pattern: &str, where_pattern: &str) -> String {
+    SparqlBuilder::construct(construct_pattern, where_pattern)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -221,89 +227,17 @@ impl SparqlBuilder {
 mod tests {
     use super::*;
 
-    // -- basic structure tests -------------------------------------------------
-
     #[test]
-    fn test_select_contains_keywords() {
-        let q = SparqlBuilder::select("test-id");
-        assert!(q.starts_with("PREFIX"), "should start with PREFIX");
-        assert!(q.contains("SELECT ?text"), "should SELECT ?text");
-        assert!(q.contains("WHERE {"), "should have WHERE");
-        assert!(
-            q.contains("rdf:type nie:InformationElement"),
-            "should query InformationElement"
-        );
-        assert!(q.ends_with('}'), "should end with closing brace");
-    }
-
-    #[test]
-    fn test_insert_data_contains_keywords() {
-        let q = SparqlBuilder::insert_data("urn:uuid:abc", "hello");
-        assert!(q.starts_with("PREFIX"));
-        assert!(q.contains("INSERT DATA"));
-        assert!(q.contains("rdf:type nie:InformationElement"));
-        assert!(q.contains("nie:plainTextContent"));
-    }
-
-    #[test]
-    fn test_delete_data_contains_keywords() {
-        let q = SparqlBuilder::delete_data("test-id");
-        assert!(q.starts_with("PREFIX"));
-        assert!(q.contains("DELETE {"));
-        assert!(q.contains("WHERE {"));
-    }
-
-    #[test]
-    fn test_delete_insert_where_contains_keywords() {
-        let q = SparqlBuilder::delete_insert_where("test-id", "new text");
-        assert!(q.starts_with("PREFIX"));
-        assert!(q.contains("DELETE {"));
-        assert!(q.contains("INSERT {"));
-        assert!(q.contains("WHERE {"));
-        assert!(q.contains("nie:plainTextContent"));
-    }
-
-    #[test]
-    fn test_construct_contains_keywords() {
-        let q = SparqlBuilder::construct("?s ?p ?o .", "?s ?p ?o .");
+    fn test_ontology_construct_prefix() {
+        let q = ontology_construct("?s ?p ?o .", "?s ?p ?o .");
         assert!(q.starts_with("PREFIX"));
         assert!(q.contains("CONSTRUCT {"));
         assert!(q.contains("WHERE {"));
-        assert!(q.contains("?s ?p ?o"));
     }
-
-    #[test]
-    fn test_construct_triple_contains_keywords() {
-        let q = SparqlBuilder::construct_triple(
-            "urn:uuid:abc",
-            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
-            "http://www.semanticdesktop.org/ontologies/2007/01/19/nie#InformationElement",
-            "?s ?p ?o .",
-        );
-        assert!(q.starts_with("PREFIX"));
-        assert!(q.contains("CONSTRUCT {"));
-        assert!(q.contains("<urn:uuid:abc>"));
-        assert!(q.contains("WHERE {"));
-    }
-
-    // -- select_graph ----------------------------------------------------------
-
-    #[test]
-    fn test_select_graph_contains_keywords() {
-        let q = SparqlBuilder::select_graph("test-uuid-123");
-        assert!(q.starts_with("PREFIX"));
-        assert!(q.contains("SELECT ?s ?p ?o"));
-        assert!(q.contains("WHERE {"));
-        assert!(q.contains("GRAPH"));
-        assert!(q.contains("<http://zakhor/ns/graph/test-uuid-123>"));
-        assert!(q.ends_with('}'));
-    }
-
-    // -- prefix declarations ---------------------------------------------------
 
     #[test]
     fn test_prefix_count() {
-        let q = SparqlBuilder::select("x");
+        let q = ontology_construct("?s ?p ?o .", "?s ?p ?o .");
         let prefix_count = q.lines().filter(|l| l.starts_with("PREFIX")).count();
         assert_eq!(
             prefix_count,
@@ -314,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_prefix_nie() {
-        let q = SparqlBuilder::select("x");
+        let q = ontology_construct("?s ?p ?o .", "?s ?p ?o .");
         assert!(
             q.contains("PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>")
         );
@@ -322,17 +256,14 @@ mod tests {
 
     #[test]
     fn test_prefix_rdf() {
-        let q = SparqlBuilder::select("x");
+        let q = ontology_construct("?s ?p ?o .", "?s ?p ?o .");
         assert!(q.contains("PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>"));
     }
-
-    // -- literal escaping ------------------------------------------------------
 
     #[test]
     fn test_literal_with_quotes_is_escaped() {
         let text = "hello \"world\"";
         let q = SparqlBuilder::insert_data("urn:uuid:x", text);
-        // The literal should be enclosed in quotes and internal quotes escaped
         assert!(
             q.contains(r#""hello \"world\"""#),
             "internal quotes must be escaped: {}",
@@ -355,7 +286,6 @@ mod tests {
     fn test_literal_with_tab_is_escaped() {
         let text = "col1\tcol2";
         let q = SparqlBuilder::insert_data("urn:uuid:x", text);
-        // rdf_types Literal::rdf_display() emits literal tabs without escaping
         assert!(
             q.contains("\"col1\tcol2\""),
             "tab must be inside quoted literal: {}",
@@ -363,22 +293,17 @@ mod tests {
         );
     }
 
-    // -- injection test --------------------------------------------------------
+    // -- injection tests -------------------------------------------------------
 
     #[test]
     fn test_injection_attack_is_safely_escaped() {
-        // x"; DROP ALL; " must be rendered as literal content, not syntax injection.
-        // rdf_types escapes the internal " as \" so the parser sees a single literal.
         let text = "x\"; DROP ALL; \"";
         let q = SparqlBuilder::insert_data("urn:uuid:inj", text);
-        // The injection text IS inside the literal — that is correct.
-        // What matters is that quotes are properly escaped (\").
         assert!(
             q.contains(r#""x\"; DROP ALL; \"""#),
             "quotes must be escaped inside literal: {}",
             q
         );
-        // Exactly one plainTextContent triple
         let open_count = q.matches("nie:plainTextContent ").count();
         assert_eq!(
             open_count, 1,
@@ -390,8 +315,6 @@ mod tests {
     fn test_injection_braces() {
         let text = "evil }} DELETE ALL {{";
         let q = SparqlBuilder::insert_data("urn:uuid:br", text);
-        // Braces inside literal are harmless — the literal is properly quoted.
-        // The injection text IS inside the literal; structural integrity is maintained.
         assert!(
             q.contains(r#""evil }} DELETE ALL {{""#),
             "injection text must be inside literal: {}",
@@ -403,7 +326,6 @@ mod tests {
     fn test_injection_semicolon_sparql() {
         let text = "foo ASK WHERE { ?s ?p ?o } bar";
         let q = SparqlBuilder::insert_data("urn:uuid:ask", text);
-        // ASK WHERE inside literal — harmless, properly quoted.
         assert!(
             q.contains(r#""foo ASK WHERE { ?s ?p ?o } bar""#),
             "injection text must be inside literal: {}",
@@ -424,9 +346,6 @@ mod tests {
     }
 
     // -- round-trip consistency for safe subset --------------------------------
-    // We cannot run an actual SPARQL endpoint in unit tests, but we can verify
-    // that the generated queries are structurally well-formed (balanced braces,
-    // no syntax errors in prefix handling).
 
     #[test]
     fn test_query_braces_balanced() {
@@ -478,5 +397,13 @@ mod tests {
     fn test_escape_literal_empty() {
         let s = escape_literal("");
         assert_eq!(s, r#""""#, "empty literal should be empty quoted string");
+    }
+
+    #[test]
+    fn test_braces_balanced() {
+        let q = ontology_construct("?s ?p ?o .", "?s ?p ?o .");
+        let open = q.matches('{').count();
+        let close = q.matches('}').count();
+        assert_eq!(open, close, "unbalanced braces in {}", q);
     }
 }

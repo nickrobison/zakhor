@@ -6,6 +6,8 @@ pub struct Config {
     pub database: DatabaseConfig,
     #[serde(default)]
     pub http: HttpConfig,
+    #[serde(default)]
+    pub api: ApiConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -19,11 +21,26 @@ pub struct HttpConfig {
     pub port: u16,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct ApiConfig {
+    pub host: String,
+    pub port: u16,
+}
+
 impl Default for HttpConfig {
     fn default() -> Self {
         Self {
             host: "127.0.0.1".to_string(),
             port: 3000,
+        }
+    }
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            host: "127.0.0.1".to_string(),
+            port: 8080,
         }
     }
 }
@@ -35,6 +52,7 @@ impl Default for Config {
                 path: PathBuf::from("./zakhor-db"),
             },
             http: HttpConfig::default(),
+            api: ApiConfig::default(),
         }
     }
 }
@@ -64,6 +82,14 @@ impl Config {
             && let Ok(p) = port.parse::<u16>()
         {
             config.http.port = p;
+        }
+        if let Ok(host) = std::env::var("TRESTLE_API_HOST") {
+            config.api.host = host;
+        }
+        if let Ok(port) = std::env::var("TRESTLE_API_PORT")
+            && let Ok(p) = port.parse::<u16>()
+        {
+            config.api.port = p;
         }
 
         config
@@ -108,6 +134,24 @@ mod tests {
         assert_eq!(config.http.port, 8080);
         unsafe { std::env::remove_var("ZAKHOR_HTTP_HOST") };
         unsafe { std::env::remove_var("ZAKHOR_HTTP_PORT") };
+    }
+
+    #[test]
+    fn test_api_default_config() {
+        let config = Config::default();
+        assert_eq!(config.api.host, "127.0.0.1");
+        assert_eq!(config.api.port, 8080);
+    }
+
+    #[test]
+    fn test_api_env_override() {
+        unsafe { std::env::set_var("TRESTLE_API_HOST", "0.0.0.0") };
+        unsafe { std::env::set_var("TRESTLE_API_PORT", "9090") };
+        let config = Config::load();
+        assert_eq!(config.api.host, "0.0.0.0");
+        assert_eq!(config.api.port, 9090);
+        unsafe { std::env::remove_var("TRESTLE_API_HOST") };
+        unsafe { std::env::remove_var("TRESTLE_API_PORT") };
     }
 
     #[test]

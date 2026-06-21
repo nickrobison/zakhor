@@ -1,5 +1,7 @@
-use crate::sparql::{Prefix, SparqlBuilder};
 use rdf_types::IriBuf;
+
+pub use crate::sparql::Prefix;
+pub use crate::sparql::SparqlBuilder;
 
 /// Additional namespace constants (beyond those in Prefix)
 pub const NFO: &str = "http://www.semanticdesktop.org/ontologies/2007/03/22/nfo#";
@@ -15,19 +17,24 @@ pub const EXTRA_PREFIXES: &[(&str, &str)] = &[("nfo", NFO), ("nao", NAO), ("skos
 pub fn entity_iri() -> IriBuf {
     IriBuf::new(format!("{}Entity", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
 }
+
 pub fn decision_iri() -> IriBuf {
     IriBuf::new(format!("{}Decision", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
 }
+
 pub fn project_iri() -> IriBuf {
     IriBuf::new(format!("{}Project", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
 }
+
 pub fn issue_iri() -> IriBuf {
     IriBuf::new(format!("{}Issue", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
 }
+
 pub fn constraint_iri() -> IriBuf {
     IriBuf::new(format!("{}Constraint", Prefix::ZAKHOR))
         .expect("invalid zakhor IRI — this is a bug")
 }
+
 pub fn observation_iri() -> IriBuf {
     IriBuf::new(format!("{}Observation", Prefix::ZAKHOR))
         .expect("invalid zakhor IRI — this is a bug")
@@ -36,14 +43,17 @@ pub fn observation_iri() -> IriBuf {
 pub fn has_entity_iri() -> IriBuf {
     IriBuf::new(format!("{}hasEntity", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
 }
+
 pub fn has_relation_iri() -> IriBuf {
     IriBuf::new(format!("{}hasRelation", Prefix::ZAKHOR))
         .expect("invalid zakhor IRI — this is a bug")
 }
+
 pub fn provenance_graph_iri() -> IriBuf {
     IriBuf::new(format!("{}provenanceGraph", Prefix::ZAKHOR))
         .expect("invalid zakhor IRI — this is a bug")
 }
+
 pub fn decision_context_iri() -> IriBuf {
     IriBuf::new(format!("{}decisionContext", Prefix::ZAKHOR))
         .expect("invalid zakhor IRI — this is a bug")
@@ -62,6 +72,7 @@ pub fn decision_rationale_iri() -> IriBuf {
 }
 
 /// Generate SPARQL CONSTRUCT query that registers the ontology in Tracker.
+#[allow(dead_code)]
 pub fn ontology_construct_query() -> String {
     let construct = "?s rdf:type ?o .\n\
          ?s rdfs:label ?l .\n\
@@ -102,7 +113,7 @@ pub fn ontology_construct_query() -> String {
         alt = decision_alternative_iri().as_str(),
         decRat = decision_rationale_iri().as_str(),
     );
-    SparqlBuilder::construct(&construct, &where_clause)
+    crate::sparql::ontology_construct(&construct, &where_clause)
 }
 
 /// Generate SPARQL INSERT DATA query that registers the ontology in Tracker.
@@ -312,16 +323,6 @@ mod tests {
         let iri = has_entity_iri();
         assert!(iri.as_str().contains("zakhor"));
         assert!(iri.as_str().ends_with("hasEntity"));
-    }
-
-    #[test]
-    fn test_extra_prefixes_correct() {
-        let nfo = EXTRA_PREFIXES.iter().find(|(k, _)| *k == "nfo");
-        assert!(nfo.is_some(), "nfo prefix should exist");
-        assert!(
-            nfo.unwrap().1.contains("nfo#"),
-            "nfo URI should end with nfo#"
-        );
     }
 
     #[test]

@@ -9,6 +9,7 @@
 
 use std::path::Path;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::error::{ZakhorError, ZakhorResult};
 use crate::lexical::LexicalIndex;
@@ -22,6 +23,8 @@ use crate::semantic::SemanticIndex;
 pub struct IndexSyncManager {
     pub lexical: LexicalIndex,
     pub semantic: Mutex<SemanticIndex>,
+    rebuild_in_progress: Mutex<bool>,
+    last_rebuild_finished_at_ms: Mutex<Option<u64>>,
 }
 
 impl std::fmt::Debug for IndexSyncManager {
@@ -44,29 +47,76 @@ impl IndexSyncManager {
         Ok(Self {
             lexical,
             semantic: Mutex::new(semantic),
+            rebuild_in_progress: Mutex::new(false),
+            last_rebuild_finished_at_ms: Mutex::new(None),
         })
     }
 
     /// Full rebuild: delete all docs from both indexes, re-query every
     /// `nie:InformationElement` from Tracker, re-index both Tantivy and
     /// Fastembed, then snapshot the semantic index to disk.
+    ///
+    /// Updates `rebuild_in_progress` and `last_rebuild_finished_at_ms`
+    /// automatically. Returns immediately with `Err` if a rebuild is already
+    /// in progress.
     pub fn rebuild_all(&self, conn: &tracker::SparqlConnection) -> ZakhorResult<()> {
-        // Lexical rebuild — uses &self, no mutex
-        self.lexical.rebuild_from_tracker(conn)?;
-
-        // Semantic rebuild — needs mutex lock for &mut self
-        {
-            let mut sem = self
-                .semantic
-                .lock()
-                .map_err(|e| ZakhorError::Internal(format!("Semantic lock poisoned: {e}")))?;
-            sem.rebuild_from_tracker(conn)
-                .map_err(|e| ZakhorError::Internal(format!("Semantic rebuild failed: {e}")))?;
-            sem.snapshot()
-                .map_err(|e| ZakhorError::Internal(format!("Semantic snapshot failed: {e}")))?;
+        let mut guard = self
+            .rebuild_in_progress
+            .lock()
+            .map_err(|e| ZakhorError::Internal(format!("Rebuild progress lock poisoned: {e}")))?;
+        if *guard {
+            return Err(ZakhorError::Internal(
+                "Rebuild already in progress".to_string(),
+            ));
         }
+        *guard = true;
 
-        Ok(())
+        let result = (|| -> ZakhorResult<()> {
+            // Lexical rebuild — uses &self, no mutex
+            self.lexical.rebuild_from_tracker(conn)?;
+
+            // Semantic rebuild — needs mutex lock for &mut self
+            {
+                let mut sem = self
+                    .semantic
+                    .lock()
+                    .map_err(|e| ZakhorError::Internal(format!("Semantic lock poisoned: {e}")))?;
+                sem.rebuild_from_tracker(conn)
+                    .map_err(|e| ZakhorError::Internal(format!("Semantic rebuild failed: {e}")))?;
+                sem.snapshot()
+                    .map_err(|e| ZakhorError::Internal(format!("Semantic snapshot failed: {e}")))?;
+            }
+
+            // Record the finish timestamp
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            if let Ok(mut ts) = self.last_rebuild_finished_at_ms.lock() {
+                *ts = Some(now);
+            }
+
+            Ok(())
+        })();
+
+        *guard = false;
+        drop(guard);
+
+        result
+    }
+
+    /// Returns `true` if a full-index rebuild is currently running.
+    pub fn is_rebuild_in_progress(&self) -> bool {
+        self.rebuild_in_progress.lock().map(|g| *g).unwrap_or(false)
+    }
+
+    /// Returns the UNIX-millis timestamp of the last completed rebuild, or
+    /// `None` if no rebuild has finished yet.
+    pub fn last_rebuild_ms(&self) -> Option<u64> {
+        self.last_rebuild_finished_at_ms
+            .lock()
+            .ok()
+            .and_then(|g| *g)
     }
 
     /// Incremental sync: add or update a single observation in both indexes.

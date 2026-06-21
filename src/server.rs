@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::ingestion::{IngestionPipeline, StoreObservationArgs};
 use crate::sync::IndexSyncManager;
 use crate::tools;
@@ -28,40 +29,47 @@ pub struct MemoryHandler {
 
 impl MemoryHandler {
     /// Create a handler with a pre-existing Tracker connection.
-    ///
-    /// Use this from `main.rs` to avoid calling `init_db` twice —
-    /// the caller already opened the DB, so we reuse it directly.
     pub fn with_connection(
         conn: tracker::SparqlConnection,
         sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,
     ) -> Self {
         Self { conn, sync_mgr }
     }
+
+    pub fn new_with_config(cfg: &Config, sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>) -> Self {
+        let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
+        let conn = crate::tracker_db::init_db(db_path);
+        Self { conn, sync_mgr }
+    }
+
+    pub fn api_state(&self) -> crate::api::ApiState {
+        crate::api::ApiState::new(self.conn.clone(), self.sync_mgr.clone())
+    }
 }
 
-#[derive(Deserialize, Serialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
 pub struct RebuildIndexesArgs {}
 
-#[derive(Deserialize, Serialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
 pub struct QueryEntitiesArgs {
     pub pattern: String,
     pub limit: u32,
 }
 
-#[derive(Deserialize, Serialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
 pub struct TraverseGraphArgs {
     pub start_id: String,
     pub depth: u32,
     pub edge_types: Vec<String>,
 }
 
-#[derive(Deserialize, Serialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
 pub struct SearchHybridArgs {
     pub query: String,
     pub limit: u32,
 }
 
-#[derive(Deserialize, Serialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
 pub struct RecordDecisionArgs {
     pub context: String,
     pub decision: String,
@@ -69,32 +77,32 @@ pub struct RecordDecisionArgs {
     pub rationale: String,
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct StoreObservationResponse {
     pub observation_uri: String,
     pub triple_count: usize,
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct EntityResult {
     pub uri: String,
     pub label: String,
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct QueryEntitiesResponse {
     pub entities: Vec<EntityResult>,
     pub count: usize,
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct TripleResult {
     pub subject: String,
     pub predicate: String,
     pub object: String,
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct TraverseGraphResponse {
     pub triples: Vec<TripleResult>,
     pub count: usize,
@@ -102,13 +110,13 @@ pub struct TraverseGraphResponse {
     pub warning: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct SearchResult {
     pub id: String,
     pub score: f64,
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct SearchHybridResponse {
     pub results: Vec<SearchResult>,
     pub count: usize,
@@ -116,7 +124,7 @@ pub struct SearchHybridResponse {
     pub warning: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct RecordDecisionResponse {
     pub decision_uri: String,
 }
@@ -549,7 +557,7 @@ mod tests {
             );
             // Exercise late-binding field recording (the real tool
             // methods call span.record for duration_ms and result).
-            span.record("duration_ms", &1.5f64);
+            span.record("duration_ms", 1.5f64);
             span.record("result", "success");
         });
 

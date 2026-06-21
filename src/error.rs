@@ -30,6 +30,42 @@ impl From<ZakhorError> for String {
 
 pub type ZakhorResult<T> = Result<T, ZakhorError>;
 
+#[allow(dead_code)]
+pub async fn with_retry<F, Fut, T>(mut f: F, max_retries: u32) -> ZakhorResult<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = ZakhorResult<T>>,
+{
+    let mut last_error = None;
+
+    for attempt in 0..=max_retries {
+        let result = f().await;
+        match result {
+            Ok(result) => return Ok(result),
+            Err(error) => {
+                if matches!(error, ZakhorError::Database(_)) {
+                    last_error = Some(error);
+                    if attempt < max_retries {
+                        let delay = Duration::from_millis(100 * 2u64.pow(attempt));
+                        sleep(delay).await;
+                        continue;
+                    }
+                } else {
+                    return Err(error);
+                }
+            }
+        }
+    }
+
+    if let Some(err) = last_error {
+        Err(err)
+    } else {
+        Err(ZakhorError::Internal(
+            "Retry failed unexpectedly".to_string(),
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,44 +165,5 @@ mod tests {
         )
         .await;
         assert!(result.is_err());
-    }
-}
-
-pub async fn with_retry<F, Fut, T>(mut f: F, max_retries: u32) -> ZakhorResult<T>
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = ZakhorResult<T>>,
-{
-    let mut last_error = None;
-
-    for attempt in 0..=max_retries {
-        let result = f().await;
-        match result {
-            Ok(result) => return Ok(result),
-            Err(error) => {
-                // Only retry on Database errors
-                if matches!(error, ZakhorError::Database(_)) {
-                    last_error = Some(error);
-                    if attempt < max_retries {
-                        let delay = Duration::from_millis(100 * 2u64.pow(attempt));
-                        sleep(delay).await;
-                        continue;
-                    }
-                } else {
-                    // Propagate other errors immediately
-                    return Err(error);
-                }
-            }
-        }
-    }
-
-    // If we get here, we exhausted retries on Database errors
-    if let Some(err) = last_error {
-        Err(err)
-    } else {
-        // This case shouldn't happen but just in case
-        Err(ZakhorError::Internal(
-            "Retry failed unexpectedly".to_string(),
-        ))
     }
 }
