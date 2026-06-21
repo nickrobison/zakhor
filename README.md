@@ -89,7 +89,7 @@ src/
 ├── server.rs       — MCP tool handler (rmcp router)
 ├── tracker_db.rs   — SPARQL CRUD operations
 ├── config.rs       — Config struct with TOML + env var support
-└── error.rs        — ZakhorError type, Display/Error impls, retry logic
+└── error.rs        — ZakhorError type + anyhow-based ZakhorResult and retry logic
 ```
 
 ## Development
