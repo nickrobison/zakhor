@@ -43,10 +43,7 @@ where
         match result {
             Ok(result) => return Ok(result),
             Err(error) => {
-                if error
-                    .downcast_ref::<ZakhorError>()
-                    .is_some_and(|err| matches!(err, ZakhorError::Database(_)))
-                {
+                if let Some(ZakhorError::Database(_)) = error.downcast_ref::<ZakhorError>() {
                     last_error = Some(error);
                     if attempt < max_retries {
                         let delay = Duration::from_millis(100 * 2u64.pow(attempt));
