@@ -1,5 +1,6 @@
 use gio::File;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tracker::{SparqlConnection, SparqlConnectionFlags};
 
 /// System ontology resource paths from libtracker-sparql-3.0.so.
@@ -77,32 +78,13 @@ fn warmup_gresources() {
     let _ = std::fs::remove_dir_all(&warmup_dir);
 }
 
-/// Open (or create) a Tracker SPARQL database at `path`, loading both the
-/// standard Nepomuk ontologies and Zakhor's custom ontology classes and
-/// properties into the SQL schema.
+/// Extract system ontologies from gresources and write the custom zakhor
+/// ontology into `db_path/ontologies/`. Returns the ontology source to pass
+/// to `SparqlConnection::new()`.
 ///
-/// The returned `SparqlConnection` provides full SPARQL read/write access
-/// to the RDF store, with Zakhor-specific types (`zakhor:Entity`,
-/// `zakhor:Decision`, …) registered as queryable classes.
-///
-/// # Gresource warmup
-///
-/// On the first call in a process, tracker's compiled-in ontology gresources
-/// may not be registered yet. This function transparently creates a short-lived
-/// temporary Tracker connection to force library initialisation, then retries
-/// the extraction, so callers always get a fully-populated combined ontology
-/// directory in a single invocation.
-pub fn init_db(path: &str) -> SparqlConnection {
-    let store = File::for_path(path);
-    let db_path = Path::new(path);
-    let _ = std::fs::create_dir_all(db_path);
-
-    // ── Phase 1: extract & combine ontologies ──────────────────────────
-    // Tracker requires `.ontology` files to live inside a directory; the
-    // GFile passed to SparqlConnection::new must point to that directory
-    // (or to a resource:// URI). We extract the built-in system ontologies
-    // from the tracker library's gresources and add our custom file.
-
+/// This may trigger a warmup connection if tracker's gresources aren't
+/// registered yet (first call per process lifetime).
+fn prepare_ontology_dir(db_path: &Path) -> Option<gio::File> {
     let ontology_dir = db_path.join("ontologies");
     let _ = std::fs::create_dir_all(&ontology_dir);
 
@@ -111,8 +93,6 @@ pub fn init_db(path: &str) -> SparqlConnection {
     if n_sys < SYSTEM_ONTOLOGY_RESOURCES.len() {
         tracing::info!("System ontology gresources not yet registered — performing warmup");
         warmup_gresources();
-
-        // Retry extraction — gresources should be registered now
         n_sys = write_system_ontologies(&ontology_dir);
     }
 
@@ -132,8 +112,7 @@ pub fn init_db(path: &str) -> SparqlConnection {
         tracing::warn!(error = %e, "Failed to write custom ontology file");
     }
 
-    // ── Phase 2: determine ontology source & open connection ───────────
-    let ontology_file: Option<gio::File> = if n_sys > 0 {
+    if n_sys > 0 {
         tracing::info!(
             dir = %ontology_dir.display(),
             "Using combined ontology directory ({} system + zakhor)",
@@ -146,15 +125,78 @@ pub fn init_db(path: &str) -> SparqlConnection {
              ontology. Zakhor-specific types will not have SQL tables."
         );
         tracker::functions::sparql_get_ontology_nepomuk()
-    };
+    }
+}
 
-    SparqlConnection::new(
+/// Track whether we've already performed an ontology-drift recovery in this
+/// process lifetime. Single retry is enough — if it fails again the error is
+/// real (e.g. corrupt disk) and should propagate.
+static DID_ONTOLOGY_RETRY: AtomicBool = AtomicBool::new(false);
+
+/// Open (or create) a Tracker SPARQL database at `path`, loading both the
+/// standard Nepomuk ontologies and Zakhor's custom ontology classes and
+/// properties into the SQL schema.
+///
+/// The returned `SparqlConnection` provides full SPARQL read/write access
+/// to the RDF store, with Zakhor-specific types (`zakhor:Entity`,
+/// `zakhor:Decision`, …) registered as queryable classes.
+///
+/// # Ontology schema drift recovery
+///
+/// Tracker does not support changing `rdfs:domain` or `rdfs:range` on an
+/// already-registered property. If the current code's ontology file disagrees
+/// with the persisted database, `init_db` automatically clears the stale
+/// store and retries once. If the retry also fails, the error is propagated.
+///
+/// # Gresource warmup
+///
+/// On the first call in a process, tracker's compiled-in ontology gresources
+/// may not be registered yet. This function transparently creates a short-lived
+/// temporary Tracker connection to force library initialisation, then retries
+/// the extraction, so callers always get a fully-populated combined ontology
+/// directory in a single invocation.
+pub fn init_db(path: &str) -> SparqlConnection {
+    let store = File::for_path(path);
+    let db_path = Path::new(path);
+    let _ = std::fs::create_dir_all(db_path);
+
+    let ontology_file = prepare_ontology_dir(db_path);
+
+    let result = SparqlConnection::new(
         SparqlConnectionFlags::empty(),
         Some(&store),
         ontology_file.as_ref(),
         None::<&gio::Cancellable>,
-    )
-    .expect("Failed to init Tracker DB")
+    );
+
+    match result {
+        Ok(conn) => conn,
+        Err(e) => {
+            let msg = format!("{e}");
+            // Tracker rejects ontology evolution (rdfs:domain / rdfs:range changes)
+            if msg.contains("is not supported") && !DID_ONTOLOGY_RETRY.swap(true, Ordering::SeqCst)
+            {
+                tracing::warn!(
+                    error = %e,
+                    "Ontology schema drift detected — clearing stale database and retrying"
+                );
+                // Nuke the entire store so Tracker can re-create it with the current ontology
+                let _ = std::fs::remove_dir_all(db_path);
+                let _ = std::fs::create_dir_all(db_path);
+                // Re-prepare ontology files in the clean directory
+                let ontology_file = prepare_ontology_dir(db_path);
+                SparqlConnection::new(
+                    SparqlConnectionFlags::empty(),
+                    Some(&store),
+                    ontology_file.as_ref(),
+                    None::<&gio::Cancellable>,
+                )
+                .expect("Failed to init Tracker DB after clearing stale store")
+            } else {
+                panic!("Failed to init Tracker DB: {e}");
+            }
+        }
+    }
 }
 
 #[cfg(test)]
