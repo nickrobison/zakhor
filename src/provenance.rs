@@ -42,6 +42,7 @@ impl ProvenanceTracker {
     /// `zakhor:graph/{uuid}`.
     ///
     /// Returns an empty `Vec` if the graph does not exist.
+    #[allow(dead_code)]
     pub fn get_observation_graph(&self, uuid: &str) -> Vec<(String, String, String)> {
         let graph_name = format!("{}{}", GRAPH_PREFIX, uuid);
         self.dataset
@@ -60,6 +61,7 @@ impl ProvenanceTracker {
     /// Returns the UUIDs of all observed (non-empty) named graphs.
     ///
     /// The order is **not** guaranteed.
+    #[allow(dead_code)]
     pub fn all_observations(&self) -> Vec<String> {
         let mut uuids: Vec<String> = Vec::new();
         for quad in self.dataset.quads() {
@@ -77,6 +79,7 @@ impl ProvenanceTracker {
 
     /// Returns `true` if the named graph `zakhor:graph/{uuid}` contains at
     /// least one quad.
+    #[allow(dead_code)]
     pub fn contains_observation(&self, uuid: &str) -> bool {
         let graph_name = format!("{}{}", GRAPH_PREFIX, uuid);
         self.dataset
@@ -85,6 +88,7 @@ impl ProvenanceTracker {
     }
 
     /// Removes all quads from the tracker.
+    #[allow(dead_code)]
     pub fn clear(&mut self) {
         let quads: Vec<Quad<String>> = self.dataset.quads().map(|q| q.cloned()).collect();
         for quad in quads {

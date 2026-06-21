@@ -8,6 +8,7 @@ use tokio::io::{stdin, stdout};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
+mod api;
 mod config;
 mod error;
 mod ingestion;
@@ -38,10 +39,21 @@ pub fn new_correlation_id() -> String {
     )
 }
 
+async fn serve_api(
+    cfg: config::Config,
+    state: api::ApiState,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let addr = format!("{}:{}", cfg.api.host, cfg.api.port);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    tracing::info!(addr = %addr, "Starting Web API transport");
+    axum::serve(listener, api::router(state)).await?;
+    Ok(())
+}
+
 async fn serve_http(
-    cfg: &config::Config,
+    cfg: config::Config,
     service: server::MemoryHandler,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = format!("{}:{}", cfg.http.host, cfg.http.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(addr = %addr, "Starting HTTP transport mode");
@@ -86,7 +98,6 @@ fn apply_cli_overrides(cfg: &mut config::Config) {
         i += 1;
     }
 }
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -127,14 +138,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let service = server::MemoryHandler::with_connection(conn, sync_mgr);
+    let service = server::MemoryHandler::new_with_config(&cfg, sync_mgr);
+    let api_task = tokio::spawn(serve_api(cfg.clone(), service.api_state()));
 
     if http_mode {
-        serve_http(&cfg, service).await?;
+        let http_task = tokio::spawn(serve_http(cfg, service));
+        tokio::select! {
+            result = api_task => match result {
+                Ok(Ok(())) => return Ok(()),
+                Ok(Err(error)) => return Err(error as Box<dyn std::error::Error>),
+                Err(error) => return Err::<(), Box<dyn std::error::Error>>(Box::new(error)),
+            },
+            result = http_task => match result {
+                Ok(Ok(())) => return Ok(()),
+                Ok(Err(error)) => return Err(error as Box<dyn std::error::Error>),
+                Err(error) => return Err::<(), Box<dyn std::error::Error>>(Box::new(error)),
+            },
+        }
     } else {
         let transport = (stdin(), stdout());
         let server = service.serve(transport).await?;
         server.waiting().await?;
+        api_task.abort();
+        if let Err(error) = api_task.await
+            && !error.is_cancelled()
+        {
+            return Err::<(), Box<dyn std::error::Error>>(Box::new(error));
+        }
     }
 
     Ok(())

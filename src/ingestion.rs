@@ -13,14 +13,14 @@ use crate::sparql::Prefix;
 // ---------------------------------------------------------------------------
 
 /// An entity reference associated with an observation.
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct EntityRef {
     pub uri: String,
     pub label: String,
 }
 
 /// A relation between two entities.
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct Relation {
     pub subject_uri: String,
     pub predicate_uri: String,
@@ -29,7 +29,7 @@ pub struct Relation {
 }
 
 /// Arguments for storing a complete observation.
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct StoreObservationArgs {
     pub text: String,
     pub entities: Vec<EntityRef>,
@@ -91,6 +91,7 @@ impl IngestionPipeline {
     }
 
     /// Get the provenance tracker (for querying graph history).
+    #[allow(dead_code)]
     pub fn provenance(&self) -> &ProvenanceTracker {
         &self.provenance
     }

@@ -114,6 +114,17 @@ impl SemanticIndex {
         scored
     }
 
+    /// Number of vectors currently in the index.
+    pub fn len(&self) -> usize {
+        self.vectors.len()
+    }
+
+    /// Returns `true` when the index has no vectors.
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.vectors.is_empty()
+    }
+
     /// Persist the vector index to disk via bincode.
     pub fn snapshot(&self) -> Result<(), String> {
         let data =

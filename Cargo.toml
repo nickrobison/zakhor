@@ -2,6 +2,7 @@
 name = "zakhor"
 version = "0.1.0"
 edition = "2024"
+build = "build.rs"
 
 [dependencies]
 async-trait = "0.1.89"
@@ -15,12 +16,18 @@ tantivy = "0.22"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 tokio = { version = "1.52.3", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
 toml = "0.8.22"
 tracker-rs = "0.8.0"
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "8", features = ["axum"] }
 
 # SPARQL / RDF dependencies
 rdf-types = "0.22"
 iref = "3"
 langtag = "0.4"
+
+[build-dependencies]
+serde_json = "1.0.150"

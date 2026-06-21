@@ -154,6 +154,23 @@ impl LexicalIndex {
         Ok(results)
     }
 
+    /// Number of documents currently in the index.
+    ///
+    /// Returns 0 if the reader cannot be opened (e.g. before any documents
+    /// have been indexed).
+    pub fn num_docs(&self) -> u64 {
+        let reader = match self.index.reader() {
+            Ok(r) => r,
+            Err(_) => return 0,
+        };
+        let searcher = reader.searcher();
+        searcher
+            .segment_readers()
+            .iter()
+            .map(|sr| sr.num_docs() as u64)
+            .sum()
+    }
+
     /// Rebuild the entire index from Tracker SPARQL data.
     ///
     /// This deletes all existing documents and re-indexes every

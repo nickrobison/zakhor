@@ -53,24 +53,48 @@ pub fn build_entity_query(pattern: &str, limit: u32) -> String {
     )
 }
 
-/// Build SPARQL SELECT for graph traversal (outgoing edges from start_id)
-pub fn build_traverse_query(start_id: &str, _depth: u32, edge_types: &[String]) -> String {
-    let safe_start = start_id.replace('>', "").replace('<', "");
+/// Build SPARQL SELECT for graph traversal at given depth
+pub fn build_traverse_query(start_id: &str, depth: u32, edge_types: &[String]) -> String {
+    let safe_start = start_id.replace(['>', '<'], "");
 
     let filter_clause = if edge_types.is_empty() {
         String::new()
     } else {
         let types: Vec<String> = edge_types
             .iter()
-            .map(|t| format!("<{}>", t.replace('>', "").replace('<', "")))
+            .map(|t| format!("<{}>", t.replace(['>', '<'], "")))
             .collect();
         format!("FILTER(?p IN ({})) ", types.join(" "))
     };
 
+    // Build depth levels - for each depth, add property path of that length
+    let mut patterns = Vec::new();
+    for d in 1..=depth {
+        let fpath = "?p/".repeat(d as usize).trim_end_matches('/').to_string();
+        patterns.push(format!(
+            "  {{ SELECT ?s ?p ?o WHERE {{ <{start}> {path} ?o . BIND(<{start}> AS ?s) }} }}",
+            path = fpath,
+            start = safe_start
+        ));
+        let bpath = "?p/".repeat(d as usize).trim_end_matches('/').to_string();
+        patterns.push(format!(
+            "  {{ SELECT ?s ?p ?o WHERE {{ ?s {path} <{start}> . BIND(<{start}> AS ?o) }} }}",
+            path = bpath,
+            start = safe_start
+        ));
+    }
+
+    let depth_section = if patterns.is_empty() {
+        String::new()
+    } else {
+        format!("\n  UNION\n{}", patterns.join("\n  UNION\n"))
+    };
+
     format!(
-        "PREFIX zakhor: <http://zakhor/ns/>\nPREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nSELECT ?s ?p ?o WHERE {{\n  {{ ?s ?p ?o . FILTER(str(?s) = \"{start}\") . {filter} }}\n  UNION\n  {{ ?s ?p ?o . FILTER(str(?o) = \"{start}\") . {filter} }}\n}}",
+        "PREFIX zakhor: <http://zakhor/ns/>\nPREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nSELECT ?s ?p ?o WHERE {{\n  {{ ?s ?p ?o . FILTER(str(?s) = \"{start}\") . {filter} }}\n  UNION\n  {{ ?s ?p ?o . FILTER(str(?o) = \"{start}\") . {filter} }}{depth}\n}}",
         start = safe_start,
-        filter = filter_clause
+        filter = filter_clause,
+        depth = depth_section
     )
 }
 
@@ -89,7 +113,7 @@ pub fn build_decision_insert(
     }
 
     let mut alternatives_triples = String::new();
-    for alt in alternatives.iter() {
+    for alt in alternatives {
         alternatives_triples.push_str(&format!(
             "<{}> zakhor:alternative \"{}\"@en .\n",
             decision_uri,
@@ -133,6 +157,13 @@ mod tests {
     fn test_build_traverse_query_depth_1() {
         let q = build_traverse_query("http://example.org/start", 1, &[]);
         assert!(q.contains("SELECT"));
+        assert!(!q.contains("!?p"));
+    }
+
+    #[test]
+    fn test_build_traverse_query_reverse_path() {
+        let q = build_traverse_query("http://example.org/start", 2, &[]);
+        assert!(q.contains("?s ?p/?p <http://example.org/start>"));
     }
 
     #[test]
@@ -149,15 +180,16 @@ mod tests {
     #[test]
     fn test_rrf_empty_returns_empty() {
         let result: Vec<ScoredDoc> = vec![];
+        let _k = 60.0_f64;
         assert!(result.is_empty());
     }
 
     #[test]
     fn test_hybrid_search_ordering_same_scores() {
         // unit test pure RRF math
-        let k = 60.0;
+        let _k = 60.0;
         // doc "a" rank 1 in lexical, rank 3 in semantic
-        let score_a = 1.0 / (k + 0.0) + 1.0 / (k + 2.0);
+        let score_a = 1.0 / (60.0 + 0.0) + 1.0 / (60.0 + 2.0);
         assert!(score_a > 0.0);
     }
 }

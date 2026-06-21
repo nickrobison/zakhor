@@ -3,4 +3,7 @@
 /logs/
 .omo/
 .fastembed_cache/
-
+/ui/node_modules/
+/ui/dist/
+/ui/zakhor-db/
+/ui/src/lib/api/generated/
