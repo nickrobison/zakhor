@@ -29,6 +29,7 @@ pub struct MemoryHandler {
 
 impl MemoryHandler {
     /// Create a handler with a pre-existing Tracker connection.
+    #[allow(dead_code)]
     pub fn with_connection(
         conn: tracker::SparqlConnection,
         sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,

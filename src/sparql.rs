@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use rdf_types::{IriBuf, Literal, LiteralType, RdfDisplay, Triple, XSD_STRING};
 
 // ---------------------------------------------------------------------------

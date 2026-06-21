@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use rdf_types::IriBuf;
 
 pub use crate::sparql::Prefix;
@@ -198,8 +200,7 @@ pub fn ontology_insert_query() -> String {
 /// Declares the `zakhor:` namespace as an `nrl:Ontology`, all custom classes
 /// (Entity, Decision, Project, Issue, Constraint, Observation) and properties
 /// (hasEntity, hasRelation, provenanceGraph, decisionContext, decisionRationale)
-/// that Zakhor uses. Each definition carries `nrl:deleted "false"^^xsd:boolean`
-/// so Tracker supports incremental ontology updates.
+/// that Zakhor uses.
 pub fn ontology_file_content() -> String {
     let mut buf = String::with_capacity(2048);
 
@@ -230,8 +231,7 @@ pub fn ontology_file_content() -> String {
             concat!(
                 "zakhor:{} a rdfs:Class ;\n",
                 "    rdfs:label \"{}\"@en ;\n",
-                "    rdfs:subClassOf rdfs:Resource ;\n",
-                "    nrl:deleted \"false\"^^xsd:boolean .\n",
+                "    rdfs:subClassOf rdfs:Resource .\n",
             ),
             name, label,
         ));
@@ -283,8 +283,7 @@ pub fn ontology_file_content() -> String {
                 "zakhor:{} a rdf:Property ;\n",
                 "    rdfs:label \"{}\"@en ;\n",
                 "    rdfs:domain {} ;\n",
-                "    rdfs:range {} ;\n",
-                "    nrl:deleted \"false\"^^xsd:boolean .\n",
+                "    rdfs:range {} .\n",
             ),
             name, label, domain, range,
         ));
@@ -511,17 +510,6 @@ mod tests {
                 prop
             );
         }
-    }
-
-    #[test]
-    fn test_ontology_file_nrl_deleted_on_every_resource() {
-        let ttl = ontology_file_content();
-        let count = ttl.matches("nrl:deleted \"false\"^^xsd:boolean").count();
-        assert_eq!(
-            count, 13,
-            "expected 13 nrl:deleted entries (6 classes + 7 properties), got {}",
-            count
-        );
     }
 
     #[test]
