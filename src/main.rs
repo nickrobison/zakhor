@@ -1,4 +1,5 @@
 use axum::{Router, routing::any_service};
+use clap::Parser;
 use rmcp::ServiceExt;
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
@@ -21,6 +22,29 @@ mod sparql;
 mod sync;
 mod tools;
 mod tracker_db;
+
+/// Zakhor MCP server
+#[derive(Parser)]
+#[command(
+    author,
+    version,
+    about,
+    long_about = None,
+    after_help = "Environment variables:\n  ZAKHOR_DB_PATH        Database path override\n  ZAKHOR_HTTP_HOST      HTTP bind host (default: 127.0.0.1)\n  ZAKHOR_HTTP_PORT      HTTP bind port (default: 3000)"
+)]
+struct Cli {
+    /// Serve MCP over Streamable HTTP/SSE instead of stdio
+    #[arg(long)]
+    http: bool,
+
+    /// Override the Tracker DB path
+    #[arg(long, value_name = "PATH")]
+    db_path: Option<std::path::PathBuf>,
+
+    /// Rebuild lexical and semantic indexes before serving
+    #[arg(long)]
+    rebuild_indexes: bool,
+}
 
 /// Correlation ID counter shared across MCP tool invocations.
 /// Each tool call gets a unique `mcp-<hex>` identifier that
@@ -72,32 +96,6 @@ async fn serve_http(
     Ok(())
 }
 
-fn print_help() {
-    println!(
-        "Zakhor MCP server\n\n\
-Usage:\n  zakhor [OPTIONS]\n\n\
-Options:\n  --http              Serve MCP over Streamable HTTP/SSE instead of stdio\n  --db-path <PATH>    Override the Tracker DB path\n  --rebuild-indexes   Rebuild lexical and semantic indexes before serving\n  -h, --help          Print this help text\n\n\
-Environment:\n  ZAKHOR_DB_PATH        Database path override\n  ZAKHOR_HTTP_HOST      HTTP bind host (default: 127.0.0.1)\n  ZAKHOR_HTTP_PORT      HTTP bind port (default: 3000)"
-    );
-}
-
-fn apply_cli_overrides(cfg: &mut config::Config) {
-    let args: Vec<String> = std::env::args().collect();
-    let mut i = 1;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--db-path" if i + 1 < args.len() => {
-                cfg.database.path = std::path::PathBuf::from(&args[i + 1]);
-                i += 1;
-            }
-            other if other.starts_with("--db-path=") => {
-                cfg.database.path = std::path::PathBuf::from(&other["--db-path=".len()..]);
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-}
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -109,21 +107,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
+    let cli = Cli::parse();
+
     let mut cfg = config::Config::load();
-    apply_cli_overrides(&mut cfg);
-    let args: Vec<String> = std::env::args().collect();
-    if args.iter().any(|a| a == "--help" || a == "-h") {
-        print_help();
-        return Ok(());
+    if let Some(db_path) = cli.db_path {
+        cfg.database.path = db_path;
     }
 
     let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
     let conn = tracker_db::init_db(db_path);
 
-    let rebuild = args.iter().any(|a| a == "--rebuild-indexes");
-    let http_mode = args.iter().any(|a| a == "--http");
-
-    let sync_mgr = if rebuild {
+    let sync_mgr = if cli.rebuild_indexes {
         let mgr = sync::IndexSyncManager::new(&cfg.database.path)?;
         mgr.rebuild_all(&conn)?;
         tracing::info!("Indexes rebuilt successfully");
@@ -141,7 +135,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let service = server::MemoryHandler::new_with_config(&cfg, sync_mgr);
     let api_task = tokio::spawn(serve_api(cfg.clone(), service.api_state()));
 
-    if http_mode {
+    if cli.http {
         let http_task = tokio::spawn(serve_http(cfg, service));
         tokio::select! {
             result = api_task => match result {
