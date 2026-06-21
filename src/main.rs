@@ -25,7 +25,13 @@ mod tracker_db;
 
 /// Zakhor MCP server
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[command(
+    author,
+    version,
+    about,
+    long_about = None,
+    after_help = "Environment variables:\n  ZAKHOR_DB_PATH        Database path override\n  ZAKHOR_HTTP_HOST      HTTP bind host (default: 127.0.0.1)\n  ZAKHOR_HTTP_PORT      HTTP bind port (default: 3000)"
+)]
 struct Cli {
     /// Serve MCP over Streamable HTTP/SSE instead of stdio
     #[arg(long)]
