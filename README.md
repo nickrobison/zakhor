@@ -32,8 +32,8 @@ ZAKHOR_DB_PATH=/path/to/db cargo run
 cargo run -- --http
 ```
 
-By default, stdio mode listens on stdin/stdout. Use `--http` to expose the same
-MCP tools over Streamable HTTP/SSE at `http://127.0.0.1:3000`.
+By default, stdio mode listens on stdin/stdout. Use `--http` to expose both
+MCP tools and REST API endpoints on a single HTTP server at `http://127.0.0.1:3000`.
 
 HTTP configuration can be overridden with environment variables:
 
@@ -45,6 +45,10 @@ Example:
 ```bash
 ZAKHOR_HTTP_HOST=0.0.0.0 ZAKHOR_HTTP_PORT=4000 cargo run -- --http
 ```
+
+Once running in HTTP mode, the server exposes:
+- MCP tools at the root (`/`) via Streamable HTTP/SSE
+- REST API at `/api/v1/` (with OpenAPI docs at `/api/v1/docs`)
 
 Once running, the MCP server listens on stdin/stdout or HTTP/SSE — connect any
 MCP-compatible host (Claude Desktop, OpenCode, etc.) to use the tools.

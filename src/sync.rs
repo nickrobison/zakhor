@@ -65,9 +65,7 @@ impl IndexSyncManager {
             .lock()
             .map_err(|e| ZakhorError::Internal(format!("Rebuild progress lock poisoned: {e}")))?;
         if *guard {
-            return Err(ZakhorError::Internal(
-                "Rebuild already in progress".to_string(),
-            ));
+            return Err(ZakhorError::Internal("Rebuild already in progress".to_string()).into());
         }
         *guard = true;
 

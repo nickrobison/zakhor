@@ -1,4 +1,4 @@
-use axum::{Router, routing::any_service};
+use axum::routing::any_service;
 use clap::Parser;
 use rmcp::ServiceExt;
 use rmcp::transport::streamable_http_server::{
@@ -63,34 +63,28 @@ pub fn new_correlation_id() -> String {
     )
 }
 
-async fn serve_api(
-    cfg: config::Config,
-    state: api::ApiState,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let addr = format!("{}:{}", cfg.api.host, cfg.api.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!(addr = %addr, "Starting Web API transport");
-    axum::serve(listener, api::router(state)).await?;
-    Ok(())
-}
-
-async fn serve_http(
+async fn serve_combined(
     cfg: config::Config,
     service: server::MemoryHandler,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let addr = format!("{}:{}", cfg.http.host, cfg.http.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!(addr = %addr, "Starting HTTP transport mode");
+    tracing::info!(addr = %addr, "Starting server");
 
-    let http_service = StreamableHttpService::new(
+    // Get API state before moving service into closure
+    let api_state = service.api_state();
+
+    // Create MCP HTTP service
+    let mcp_service = StreamableHttpService::new(
         move || Ok(service.clone()),
         Arc::new(LocalSessionManager::default()),
         StreamableHttpServerConfig::default().with_allowed_hosts([cfg.http.host.clone()]),
     );
 
-    let app = Router::new()
-        .route("/", any_service(http_service.clone()))
-        .route("/*path", any_service(http_service));
+    // Combine API router with MCP routes
+    let app = api::router(api_state)
+        .route("/", any_service(mcp_service.clone()))
+        .route("/*path", any_service(mcp_service));
 
     axum::serve(listener, app).await?;
     Ok(())
@@ -133,32 +127,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let service = server::MemoryHandler::new_with_config(&cfg, sync_mgr);
-    let api_task = tokio::spawn(serve_api(cfg.clone(), service.api_state()));
 
     if cli.http {
-        let http_task = tokio::spawn(serve_http(cfg, service));
-        tokio::select! {
-            result = api_task => match result {
-                Ok(Ok(())) => return Ok(()),
-                Ok(Err(error)) => return Err(error as Box<dyn std::error::Error>),
-                Err(error) => return Err::<(), Box<dyn std::error::Error>>(Box::new(error)),
-            },
-            result = http_task => match result {
-                Ok(Ok(())) => return Ok(()),
-                Ok(Err(error)) => return Err(error as Box<dyn std::error::Error>),
-                Err(error) => return Err::<(), Box<dyn std::error::Error>>(Box::new(error)),
-            },
-        }
+        serve_combined(cfg, service).await?;
     } else {
         let transport = (stdin(), stdout());
         let server = service.serve(transport).await?;
         server.waiting().await?;
-        api_task.abort();
-        if let Err(error) = api_task.await
-            && !error.is_cancelled()
-        {
-            return Err::<(), Box<dyn std::error::Error>>(Box::new(error));
-        }
     }
 
     Ok(())
