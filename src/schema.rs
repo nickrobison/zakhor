@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use rdf_types::IriBuf;
 
 pub use crate::sparql::Prefix;
