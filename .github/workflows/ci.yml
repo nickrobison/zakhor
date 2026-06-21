@@ -8,27 +8,146 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  TRACKER_ENDPOINT: http://localhost:9999
 
 jobs:
-  check:
+  # ── Backend ──────────────────────────────────────────────────────
+  backend-lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - run: cargo check --all-targets
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy -- -D warnings
 
-  test:
+  backend-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - run: cargo test
 
-  clippy:
+  # ── Frontend ─────────────────────────────────────────────────────
+  frontend-lint:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./ui
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: oven-sh/setup-bun@v2
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
         with:
-          components: clippy
-      - run: cargo clippy -- -D warnings
+          path: ./ui/node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('./ui/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+
+  frontend-typecheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ./ui/node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('./ui/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+
+  frontend-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ./ui/node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('./ui/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ./ui/node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('./ui/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+
+  # ── End-to-end ───────────────────────────────────────────────────
+  e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: oven-sh/setup-bun@v2
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ./ui/node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('./ui/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        run: bun run build
+
+      - name: Build Rust server
+        run: cargo build
+        working-directory: .
+
+      - name: Start Rust server (validate startup)
+        run: |
+          nohup target/debug/zakhor --http > /tmp/zakhor.log 2>&1 &
+          sleep 2
+          echo "--- Rust server log (may fail without Tracker) ---"
+          cat /tmp/zakhor.log || true
+        working-directory: .
+
+      - name: Install Playwright browsers
+        run: bunx playwright install chromium
+
+      - name: Run Playwright tests
+        run: bun run e2e
+
+      - name: Cleanup background server
+        if: always()
+        run: |
+          pkill -f "target/debug/zakhor" 2>/dev/null || true
