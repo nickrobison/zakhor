@@ -7,8 +7,8 @@
 //! decision to it.
 
 use gio::Cancellable;
-use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 use tracker::SparqlConnection;
+use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 
 use crate::sparql::Prefix;
 

@@ -6,8 +6,8 @@
 
 use gio::Cancellable;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracker::prelude::SparqlConnectionExtManual;
 use tracker::SparqlConnection;
+use tracker::prelude::SparqlConnectionExtManual;
 
 use crate::sparql::Prefix;
 

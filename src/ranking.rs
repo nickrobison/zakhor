@@ -7,8 +7,8 @@
 use gio::Cancellable;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use tracker::prelude::SparqlCursorExtManual;
 use tracker::SparqlConnection;
+use tracker::prelude::SparqlCursorExtManual;
 
 use crate::sparql::Prefix;
 
