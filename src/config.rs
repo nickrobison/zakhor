@@ -1,3 +1,5 @@
+#![expect(dead_code)]
+
 use serde::Deserialize;
 use std::path::PathBuf;
 

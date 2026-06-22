@@ -1,3 +1,5 @@
+#![expect(dead_code)]
+
 #[allow(unused_imports)]
 use gio::Cancellable;
 use rdf_types::Quad;

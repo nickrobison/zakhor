@@ -1,4 +1,5 @@
 //! Project Association (Phase 2.4)
+#![expect(dead_code)]
 //!
 //! Associates entities and decisions with `memory:Project` via
 //! `memory:belongsToProject`.  A project is a tagged collection of related
@@ -6,8 +7,8 @@
 //! decision to it.
 
 use gio::Cancellable;
-use tracker::SparqlConnection;
 use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
+use tracker::SparqlConnection;
 
 use crate::sparql::Prefix;
 

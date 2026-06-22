@@ -1,12 +1,13 @@
 //! ToolCall Capture (Phase 3.2)
+#![expect(dead_code)]
 //!
 //! Captures MCP tool call metadata (tool name, arguments, timestamp, session
 //! identifier) and stores it in the knowledge graph as a `zakhor:ToolCall`.
 
 use gio::Cancellable;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracker::SparqlConnection;
 use tracker::prelude::SparqlConnectionExtManual;
+use tracker::SparqlConnection;
 
 use crate::sparql::Prefix;
 

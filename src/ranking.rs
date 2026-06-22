@@ -7,8 +7,8 @@
 use gio::Cancellable;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use tracker::SparqlConnection;
 use tracker::prelude::SparqlCursorExtManual;
+use tracker::SparqlConnection;
 
 use crate::sparql::Prefix;
 
@@ -56,7 +56,7 @@ pub fn compute_importance(conn: &SparqlConnection) -> Result<Vec<ScoredEntity>, 
     }
 
     // Sort by connectivity descending
-    scored.sort_by(|a, b| b.connectivity.cmp(&a.connectivity));
+    scored.sort_by_key(|b| std::cmp::Reverse(b.connectivity));
     Ok(scored)
 }
 
@@ -179,6 +179,7 @@ SELECT (COUNT(?decision) AS ?count) WHERE {{
 ///
 /// `graph_weight` and `provenance_weight` control the contribution of each
 /// factor (default: 0.6 and 0.4 respectively).
+#[expect(dead_code)]
 pub fn compute_combined_score(
     graph_importance: f64,
     provenance_quality: f64,
@@ -201,6 +202,7 @@ use crate::semantic::ScoredDoc;
 ///
 /// `raw_results` — output of `tools::hybrid_search()`
 /// `conn` — SPARQL connection for ranking queries
+#[expect(dead_code)]
 pub fn rank_search_results(
     raw_results: Vec<ScoredDoc>,
     conn: &SparqlConnection,

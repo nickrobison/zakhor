@@ -3,8 +3,8 @@ use rdf_types::{IriBuf, Literal, LiteralType, RdfDisplay, XSD_STRING};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracker::SparqlConnection;
 use tracker::prelude::SparqlConnectionExtManual;
+use tracker::SparqlConnection;
 
 use crate::entity_resolver::EntityResolver;
 use crate::provenance::ProvenanceTracker;
@@ -95,6 +95,7 @@ impl IngestionPipeline {
     }
 
     /// Create a pipeline with an optional entity resolver.
+    #[expect(dead_code)]
     pub fn with_resolver(resolver: Option<Arc<EntityResolver>>) -> Self {
         Self {
             provenance: ProvenanceTracker::new(),
@@ -140,6 +141,7 @@ impl IngestionPipeline {
 
     /// Convenience: ingest + flush + return result.
     /// Flushes the in-memory provenance tracker to the SPARQL store.
+    #[expect(dead_code)]
     pub fn ingest_and_flush(
         &mut self,
         conn: &SparqlConnection,
@@ -153,6 +155,7 @@ impl IngestionPipeline {
     }
 
     /// Get the provenance tracker (for querying graph history).
+    #[expect(dead_code)]
     pub fn provenance(&self) -> &ProvenanceTracker {
         &self.provenance
     }
@@ -520,16 +523,10 @@ mod tests {
             ],
         };
         let sparql = build_observation_sparql(&args, "urn:uuid:rel-test");
-        assert!(
-            sparql.contains(
-                "<http://example.com/s1> <http://example.com/p1> <http://example.com/o1>"
-            )
-        );
-        assert!(
-            sparql.contains(
-                "<http://example.com/s2> <http://example.com/p2> <http://example.com/o2>"
-            )
-        );
+        assert!(sparql
+            .contains("<http://example.com/s1> <http://example.com/p1> <http://example.com/o1>"));
+        assert!(sparql
+            .contains("<http://example.com/s2> <http://example.com/p2> <http://example.com/o2>"));
     }
 
     #[test]

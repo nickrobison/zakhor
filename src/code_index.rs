@@ -1,4 +1,5 @@
 //! Code Indexing (Phase 2.5 / 2.6)
+#![expect(dead_code)]
 //!
 //! Tier 1: Containers auto-create — for each ingested code file, a
 //!   `code:Container` entity is created in the knowledge graph.
@@ -9,8 +10,8 @@
 //!   source of truth).
 
 use gio::Cancellable;
-use tracker::SparqlConnection;
 use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
+use tracker::SparqlConnection;
 
 use crate::sparql::Prefix;
 
