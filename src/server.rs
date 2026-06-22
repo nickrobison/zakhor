@@ -12,7 +12,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracing::info_span;
-use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
+use tracker::prelude::SparqlCursorExtManual;
 
 fn args_hash<T: Serialize>(args: &T) -> String {
     let json = serde_json::to_string(args).unwrap_or_default();
@@ -352,23 +352,23 @@ impl MemoryHandler {
         let start = Instant::now();
 
         let result = (|| -> Result<Json<RecordDecisionResponse>, String> {
-            let uuid = tracker::functions::sparql_get_uuid_urn()
-                .ok_or_else(|| "Failed to generate UUID".to_string())?;
-            let decision_uri = uuid.to_string();
+            let decision_args = crate::decision::CreateDecisionArgs {
+                context: args.context,
+                outcome: args.decision,
+                alternatives: args.alternatives,
+                rationale: args.rationale,
+                affects: vec![],
+                derived_from: vec![],
+                supersedes: None,
+                conflicts_with: vec![],
+                depends_on: vec![],
+                project_uri: None,
+            };
+            let create_result = crate::decision::DecisionModel::create(&self.conn, decision_args)?;
 
-            let sparql = tools::build_decision_insert(
-                &decision_uri,
-                &args.context,
-                &args.decision,
-                &args.alternatives,
-                &args.rationale,
-            );
-
-            self.conn
-                .update(&sparql, None::<&gio::Cancellable>)
-                .map_err(|e| format!("Failed to record decision: {e}"))?;
-
-            Ok(Json(RecordDecisionResponse { decision_uri }))
+            Ok(Json(RecordDecisionResponse {
+                decision_uri: create_result.decision_uri,
+            }))
         })();
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
