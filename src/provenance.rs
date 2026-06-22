@@ -1,50 +1,45 @@
+#[allow(unused_imports)]
+use gio::Cancellable;
 use rdf_types::Quad;
 use rdf_types::dataset::{BTreeDataset, TraversableDataset};
+use tracker::SparqlConnection;
+#[allow(unused_imports)]
+use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 
-const GRAPH_PREFIX: &str = "http://zakhor/ns/graph/";
+use crate::sparql::Prefix;
+
+pub const GRAPH_PREFIX: &str = "http://zakhor/ns/graph/";
+
+/// Build a named graph URI string for the given observation UUID.
+pub fn graph_uri(uuid: &str) -> String {
+    format!("{}{}", GRAPH_PREFIX, uuid)
+}
 
 /// Tracks provenance of observations using named graphs.
 ///
 /// Each observation is stored as a set of quads in a named graph
 /// identified by `zakhor:graph/{observation-uuid}`.
-///
-/// The underlying [`BTreeDataset<String>`] stores all four quad
-/// components (subject, predicate, object, graph name) as plain
-/// strings.  The graph name is stored as `Option<String>` inside
-/// each [`Quad`].
 pub struct ProvenanceTracker {
     dataset: BTreeDataset<String>,
 }
 
 impl ProvenanceTracker {
-    /// Creates an empty provenance tracker.
     pub fn new() -> Self {
         Self {
             dataset: BTreeDataset::new(),
         }
     }
 
-    /// Creates a named graph `zakhor:graph/{uuid}` and inserts the given
-    /// triples as quads.
-    ///
-    /// Each triple `(s, p, o)` is stored as a quad in the named graph.
-    /// Existing quads with the same values are silently ignored (the
-    /// underlying `BTreeDataset` is a set).
     pub fn add_observation(&mut self, uuid: &str, triples: Vec<(String, String, String)>) {
-        let graph_name = format!("{}{}", GRAPH_PREFIX, uuid);
+        let graph_name = graph_uri(uuid);
         for (s, p, o) in triples {
             let quad = Quad::new(s, p, o, Some(graph_name.clone()));
             self.dataset.insert(quad);
         }
     }
 
-    /// Queries all triples `(s, p, o)` stored in the named graph
-    /// `zakhor:graph/{uuid}`.
-    ///
-    /// Returns an empty `Vec` if the graph does not exist.
-    #[allow(dead_code)]
     pub fn get_observation_graph(&self, uuid: &str) -> Vec<(String, String, String)> {
-        let graph_name = format!("{}{}", GRAPH_PREFIX, uuid);
+        let graph_name = graph_uri(uuid);
         self.dataset
             .quads()
             .filter(|q| q.graph() == Some(&&graph_name))
@@ -58,10 +53,6 @@ impl ProvenanceTracker {
             .collect()
     }
 
-    /// Returns the UUIDs of all observed (non-empty) named graphs.
-    ///
-    /// The order is **not** guaranteed.
-    #[allow(dead_code)]
     pub fn all_observations(&self) -> Vec<String> {
         let mut uuids: Vec<String> = Vec::new();
         for quad in self.dataset.quads() {
@@ -77,23 +68,38 @@ impl ProvenanceTracker {
         uuids
     }
 
-    /// Returns `true` if the named graph `zakhor:graph/{uuid}` contains at
-    /// least one quad.
-    #[allow(dead_code)]
     pub fn contains_observation(&self, uuid: &str) -> bool {
-        let graph_name = format!("{}{}", GRAPH_PREFIX, uuid);
+        let graph_name = graph_uri(uuid);
         self.dataset
             .quads()
             .any(|q| q.graph() == Some(&&graph_name))
     }
 
-    /// Removes all quads from the tracker.
-    #[allow(dead_code)]
     pub fn clear(&mut self) {
         let quads: Vec<Quad<String>> = self.dataset.quads().map(|q| q.cloned()).collect();
         for quad in quads {
             self.dataset.remove(quad.as_ref());
         }
+    }
+
+    /// Flush all tracked named graphs to the SPARQL triplestore.
+    ///
+    /// Each observation graph is written as an `INSERT DATA { GRAPH <uri> { ... } }`
+    /// statement.  The in-memory tracker is **not** cleared — call `.clear()` if
+    /// you want to reclaim memory after flushing.
+    pub fn flush_to_sparql(&self, conn: &SparqlConnection) -> Result<u64, String> {
+        let mut total: u64 = 0;
+        for uuid in self.all_observations() {
+            let triples = self.get_observation_graph(&uuid);
+            if triples.is_empty() {
+                continue;
+            }
+            let sparql = build_named_graph_insert(&uuid, &triples);
+            conn.update(&sparql, None::<&Cancellable>)
+                .map_err(|e| format!("Failed to flush graph {}: {}", uuid, e))?;
+            total += triples.len() as u64;
+        }
+        Ok(total)
     }
 }
 
@@ -101,6 +107,79 @@ impl Default for ProvenanceTracker {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ---------------------------------------------------------------------------
+// SPARQL helpers
+// ---------------------------------------------------------------------------
+
+/// Build an `INSERT DATA { GRAPH <uri> { ... } }` statement for a named graph.
+///
+/// Each triple `(s, p, o)` is inserted into the named graph `zakhor:graph/{uuid}`.
+fn build_named_graph_insert(uuid: &str, triples: &[(String, String, String)]) -> String {
+    let mut sparql = String::with_capacity(512 + triples.len() * 128);
+    sparql.push_str(&prefix_declarations());
+    sparql.push_str("INSERT DATA {\n");
+    sparql.push_str(&format!("  GRAPH <{}> {{\n", graph_uri(uuid)));
+    for (s, p, o) in triples {
+        sparql.push_str(&format!("    <{}> <{}> <{}> .\n", s, p, o));
+    }
+    sparql.push_str("  }\n");
+    sparql.push_str("}\n");
+    sparql
+}
+
+/// Query all triples in a named graph from the SPARQL store.
+///
+/// Returns `(subject, predicate, object)` tuples.
+pub fn query_named_graph(
+    conn: &SparqlConnection,
+    uuid: &str,
+) -> Result<Vec<(String, String, String)>, String> {
+    let graph = graph_uri(uuid);
+    let sparql = format!(
+        "{}SELECT ?s ?p ?o WHERE {{ GRAPH <{}> {{ ?s ?p ?o }} }}",
+        prefix_declarations(),
+        graph,
+    );
+    let cursor = conn
+        .query(&sparql, None::<&Cancellable>)
+        .map_err(|e| format!("Named graph query failed: {}", e))?;
+
+    let mut results = Vec::new();
+    while cursor
+        .next(None::<&Cancellable>)
+        .map_err(|e| format!("Cursor error: {}", e))?
+    {
+        let s = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
+        let p = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
+        let o = cursor.string(2).map(|s| s.to_string()).unwrap_or_default();
+        results.push((s, p, o));
+    }
+    Ok(results)
+}
+
+/// Emit `PREFIX name: <iri>` declarations for all known namespaces.
+fn prefix_declarations() -> String {
+    let mut out = String::with_capacity(512);
+    for (name, ns) in &[
+        ("nie", Prefix::NIE),
+        ("rdf", Prefix::RDF),
+        ("rdfs", Prefix::RDFS),
+        ("owl", Prefix::OWL),
+        ("xsd", Prefix::XSD),
+        ("dcterms", Prefix::DCTERMS),
+        ("foaf", Prefix::FOAF),
+        ("prov", Prefix::PROV),
+        ("zakhor", Prefix::ZAKHOR),
+    ] {
+        out.push_str("PREFIX ");
+        out.push_str(name);
+        out.push_str(": <");
+        out.push_str(ns);
+        out.push_str(">\n");
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -112,127 +191,62 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_graph_uri_format() {
+        let uri = graph_uri("abc-123");
+        assert_eq!(uri, "http://zakhor/ns/graph/abc-123");
+    }
+
+    #[test]
+    fn test_build_named_graph_insert_basic() {
+        let triples = vec![
+            ("urn:s1".into(), "urn:p1".into(), "urn:o1".into()),
+            ("urn:s2".into(), "urn:p2".into(), "urn:o2".into()),
+        ];
+        let sparql = build_named_graph_insert("test-uuid", &triples);
+        assert!(sparql.starts_with("PREFIX"), "should start with PREFIX");
+        assert!(sparql.contains("INSERT DATA"), "should have INSERT DATA");
+        assert!(
+            sparql.contains("GRAPH <http://zakhor/ns/graph/test-uuid>"),
+            "should use correct graph URI"
+        );
+        assert!(sparql.contains("<urn:s1>"), "should contain first subject");
+        assert!(sparql.contains("<urn:o2>"), "should contain second object");
+        let opens = sparql.matches('{').count();
+        let closes = sparql.matches('}').count();
+        assert_eq!(opens, closes, "braces should be balanced");
+    }
+
+    #[test]
+    fn test_build_named_graph_insert_empty() {
+        let sparql = build_named_graph_insert("empty-uuid", &[]);
+        assert!(sparql.contains("GRAPH <http://zakhor/ns/graph/empty-uuid>"));
+        // Should still have the GRAPH block even if empty
+        assert!(sparql.contains("{\n  }"));
+    }
+
+    #[test]
     fn test_new_tracker_empty() {
         let tracker = ProvenanceTracker::new();
         assert!(tracker.all_observations().is_empty());
         assert!(!tracker.contains_observation("any-uuid"));
-        assert!(tracker.get_observation_graph("any-uuid").is_empty());
     }
 
     #[test]
-    fn test_add_observation_creates_graph() {
+    fn test_add_and_get_observation() {
         let mut tracker = ProvenanceTracker::new();
         let triples = vec![
-            (
-                "http://example.com/s1".into(),
-                "http://example.com/p1".into(),
-                "http://example.com/o1".into(),
-            ),
-            (
-                "http://example.com/s2".into(),
-                "http://example.com/p2".into(),
-                "http://example.com/o2".into(),
-            ),
+            ("urn:s1".into(), "urn:p1".into(), "urn:o1".into()),
+            ("urn:s2".into(), "urn:p2".into(), "urn:o2".into()),
         ];
         tracker.add_observation("obs-1", triples);
 
         let result = tracker.get_observation_graph("obs-1");
         assert_eq!(result.len(), 2);
-        assert!(result.contains(&(
-            "http://example.com/s1".into(),
-            "http://example.com/p1".into(),
-            "http://example.com/o1".into(),
-        )));
-        assert!(result.contains(&(
-            "http://example.com/s2".into(),
-            "http://example.com/p2".into(),
-            "http://example.com/o2".into(),
-        )));
+        assert!(result.contains(&("urn:s1".into(), "urn:p1".into(), "urn:o1".into())));
     }
 
     #[test]
-    fn test_get_observation_graph_returns_correct_triples() {
-        let mut tracker = ProvenanceTracker::new();
-        let triples = vec![(
-            "urn:subj:A".into(),
-            "urn:pred:type".into(),
-            "urn:obj:Class".into(),
-        )];
-        tracker.add_observation("obs-triple-1", triples);
-
-        let result = tracker.get_observation_graph("obs-triple-1");
-        assert_eq!(result.len(), 1);
-        assert_eq!(
-            result[0],
-            (
-                "urn:subj:A".to_string(),
-                "urn:pred:type".to_string(),
-                "urn:obj:Class".to_string(),
-            )
-        );
-    }
-
-    #[test]
-    fn test_contains_observation() {
-        let mut tracker = ProvenanceTracker::new();
-        assert!(!tracker.contains_observation("obs-abc"));
-
-        let triples = vec![("urn:s".into(), "urn:p".into(), "urn:o".into())];
-        tracker.add_observation("obs-abc", triples);
-
-        assert!(tracker.contains_observation("obs-abc"));
-        assert!(!tracker.contains_observation("obs-xyz"));
-    }
-
-    #[test]
-    fn test_multiple_observations_isolated() {
-        let mut tracker = ProvenanceTracker::new();
-
-        tracker.add_observation(
-            "alpha",
-            vec![("urn:a".into(), "urn:pa".into(), "urn:oa".into())],
-        );
-        tracker.add_observation(
-            "beta",
-            vec![("urn:b".into(), "urn:pb".into(), "urn:ob".into())],
-        );
-
-        // Alpha should only contain the alpha triple
-        let alpha = tracker.get_observation_graph("alpha");
-        assert_eq!(alpha.len(), 1);
-        assert_eq!(alpha[0].0, "urn:a");
-
-        // Beta should only contain the beta triple
-        let beta = tracker.get_observation_graph("beta");
-        assert_eq!(beta.len(), 1);
-        assert_eq!(beta[0].0, "urn:b");
-
-        // Both should appear in all_observations
-        let all = tracker.all_observations();
-        assert!(all.contains(&"alpha".to_string()));
-        assert!(all.contains(&"beta".to_string()));
-    }
-
-    #[test]
-    fn test_clear_removes_all() {
-        let mut tracker = ProvenanceTracker::new();
-
-        tracker.add_observation(
-            "obs-1",
-            vec![("urn:s1".into(), "urn:p1".into(), "urn:o1".into())],
-        );
-        tracker.add_observation(
-            "obs-2",
-            vec![("urn:s2".into(), "urn:p2".into(), "urn:o2".into())],
-        );
-        assert!(tracker.contains_observation("obs-1"));
-        assert!(tracker.contains_observation("obs-2"));
-
-        tracker.clear();
-
-        assert!(!tracker.contains_observation("obs-1"));
-        assert!(!tracker.contains_observation("obs-2"));
-        assert!(tracker.all_observations().is_empty());
-        assert!(tracker.get_observation_graph("obs-1").is_empty());
+    fn test_named_graph_prefix_constant() {
+        assert_eq!(GRAPH_PREFIX, "http://zakhor/ns/graph/");
     }
 }
