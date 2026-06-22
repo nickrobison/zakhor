@@ -10,18 +10,26 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 mod api;
+mod background;
+mod code_index;
 mod config;
+mod decision;
+mod entity_resolver;
 mod error;
 mod ingestion;
 mod lexical;
+mod project;
 mod provenance;
+mod ranking;
 mod schema;
 mod semantic;
 mod server;
 mod sparql;
 mod sync;
+mod tool_capture;
 mod tools;
 mod tracker_db;
+mod vocab;
 
 /// Zakhor MCP server
 #[derive(Parser)]
@@ -127,6 +135,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let service = server::MemoryHandler::new_with_config(&cfg, sync_mgr);
+
+    // Start background workers (ranking refresh, stale data cleanup)
+    let _bg_shutdown =
+        background::start_background_workers(conn.clone(), background::BackgroundConfig::default());
 
     if cli.http {
         serve_combined(cfg, service).await?;

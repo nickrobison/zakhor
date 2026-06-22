@@ -17,6 +17,9 @@ impl Prefix {
     pub const DCTERMS: &'static str = "http://purl.org/dc/terms/";
     pub const FOAF: &'static str = "http://xmlns.com/foaf/0.1/";
     pub const ZAKHOR: &'static str = "http://zakhor/ns/";
+    pub const MEMORY: &'static str = "http://zakhor/ns/";
+    pub const PROV: &'static str = "http://www.w3.org/ns/prov#";
+    pub const PROV_WAS_DERIVED_FROM: &'static str = "http://www.w3.org/ns/prov#wasDerivedFrom";
 }
 
 const PREFIX_LIST: &[(&str, &str)] = &[
@@ -28,9 +31,11 @@ const PREFIX_LIST: &[(&str, &str)] = &[
     ("dcterms", Prefix::DCTERMS),
     ("foaf", Prefix::FOAF),
     ("zakhor", Prefix::ZAKHOR),
+    ("memory", Prefix::MEMORY),
+    ("prov", Prefix::PROV),
 ];
 
-fn prefix_declarations() -> String {
+pub fn prefix_declarations() -> String {
     let mut out = String::with_capacity(512);
     for (name, ns) in PREFIX_LIST {
         out.push_str("PREFIX ");
