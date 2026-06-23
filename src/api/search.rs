@@ -86,7 +86,7 @@ pub async fn search(
             score: doc.score,
         })
         .collect::<Vec<_>>();
-    let count = results.len();
+    let count = results.len() as u64;
 
     Ok(Json(SearchHybridResponse {
         results,

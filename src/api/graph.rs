@@ -90,7 +90,7 @@ pub async fn traverse_graph(
         });
     }
 
-    let count = triples.len();
+    let count = triples.len() as u64;
     Ok(Json(TraverseGraphResponse {
         triples,
         count,
