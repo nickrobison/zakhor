@@ -164,7 +164,8 @@ impl ToolCallIndex {
             }
         };
 
-        let args_text = serde_json::to_string(&toolcall.arguments).unwrap_or_default();
+        let args_text = serde_json::to_string(&toolcall.arguments)
+            .map_err(|e| ZakhorError::Internal(format!("Failed to serialize arguments: {e}")))?;
 
         let mut doc = TantivyDocument::default();
         doc.add_text(self.id_field, &toolcall.uri);
