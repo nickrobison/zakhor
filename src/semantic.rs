@@ -329,6 +329,61 @@ impl SemanticIndex {
 mod tests {
     use super::*;
 
+    // ── QuickCheck property tests ──────────────────────────────────────────────
+
+    /// A pair of equal-length, non-zero f32 vectors suitable for cosine similarity.
+    ///
+    /// QuickCheck shrinks these by shrinking the inner vectors while preserving
+    /// the length-equality invariant. Zero-norm vectors are excluded because
+    /// cosine similarity is undefined for them.
+    #[cfg(test)]
+    #[derive(Clone, Debug)]
+    struct VecPair(Vec<f32>, Vec<f32>);
+
+    #[cfg(test)]
+    impl quickcheck::Arbitrary for VecPair {
+        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+            // Clamp the length to [1, 512] so tests stay fast.
+            let len = (usize::arbitrary(g) % 512) + 1;
+            let a: Vec<f32> = (0..len).map(|_| f32::arbitrary(g)).collect();
+            let b: Vec<f32> = (0..len).map(|_| f32::arbitrary(g)).collect();
+            VecPair(a, b)
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            let a = self.0.clone();
+            let b = self.1.clone();
+            // Shrink by dropping the last element from both vectors simultaneously.
+            Box::new(
+                (1..a.len())
+                    .rev()
+                    .map(move |len| VecPair(a[..len].to_vec(), b[..len].to_vec())),
+            )
+        }
+    }
+
+    /// Returns true when both vectors have non-zero norm (cosine similarity is
+    /// defined) and all values are finite (no NaN / Inf from arbitrary f32).
+    fn is_valid_pair(a: &[f32], b: &[f32]) -> bool {
+        let all_finite = a.iter().chain(b.iter()).all(|x| x.is_finite());
+        let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+        all_finite && norm_a > 0.0 && norm_b > 0.0
+    }
+
+    #[quickcheck_macros::quickcheck]
+    fn prop_simd_matches_scalar(pair: VecPair) -> quickcheck::TestResult {
+        let VecPair(a, b) = pair;
+        if !is_valid_pair(&a, &b) {
+            return quickcheck::TestResult::discard();
+        }
+        let simd = cosine_similarity(&a, &b);
+        let scalar = cosine_similarity_scalar(&a, &b);
+        quickcheck::TestResult::from_bool((simd - scalar).abs() < 1e-5)
+    }
+
+    // ── Deterministic unit tests ───────────────────────────────────────────────
+
     #[test]
     fn test_cosine_similarity_identical() {
         let a = vec![1.0, 0.0, 0.0];
