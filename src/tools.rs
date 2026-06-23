@@ -134,7 +134,7 @@ fn hop_chain_backward(start: &str, depth: u32) -> String {
     }
     let d = depth as usize;
     let mut parts = Vec::with_capacity(d);
-    parts.push(format!("?s ?p ?_mid0 ."));
+    parts.push("?s ?p ?_mid0 .".to_string());
     for i in 1..(d - 1) {
         parts.push(format!("?_mid{} ?_p{} ?_mid{} .", i - 1, i, i));
     }
