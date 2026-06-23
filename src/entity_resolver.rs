@@ -98,9 +98,9 @@ impl EntityResolver {
         // Tier 2: Tantivy lexical search
         if let Some(ref lexical) = self.lexical {
             let results = lexical.search(label, 5).unwrap_or_default();
-            if let Some(top) = results.first()
+            if let Some(top) = results.into_iter().next()
                 && top.score >= self.config.tantivy_threshold as f64
-                && let Ok(uri) = IriBuf::new(top.id.clone())
+                && let Ok(uri) = IriBuf::new(top.id)
             {
                 return ResolvedEntity {
                     extracted_label: label.to_string(),
@@ -117,9 +117,9 @@ impl EntityResolver {
             && let Ok(mut sem) = semantic.lock()
         {
             let results = sem.search(label, 5);
-            if let Some(top) = results.first()
+            if let Some(top) = results.into_iter().next()
                 && top.score >= self.config.fastembed_threshold as f64
-                && let Ok(uri) = IriBuf::new(top.id.clone())
+                && let Ok(uri) = IriBuf::new(top.id)
             {
                 return ResolvedEntity {
                     extracted_label: label.to_string(),
