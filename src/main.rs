@@ -147,7 +147,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn build_log_filter() -> EnvFilter {
-    EnvFilter::try_from_default_env().unwrap_or_else(|_| default_log_filter())
+    EnvFilter::try_from_default_env().unwrap_or_else(|_err| {
+        // Tracing isn't initialized yet, so we can't emit a warning here.
+        // Fall back to the default filter when RUST_LOG is unset or invalid.
+        default_log_filter()
+    })
 }
 
 fn default_log_filter() -> EnvFilter {
