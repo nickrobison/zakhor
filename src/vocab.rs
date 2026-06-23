@@ -1,75 +1,65 @@
 #![allow(dead_code)]
 
 use crate::sparql::Prefix;
-use rdf_types::IriBuf;
+use iref::Iri;
+use static_iref::iri;
 
 // --- Decision relations ---
 
-pub fn conflicts_with_iri() -> IriBuf {
-    IriBuf::new(format!("{}conflictsWith", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI -- this is a bug")
+pub fn conflicts_with_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/conflictsWith")
 }
 
-pub fn depends_on_iri() -> IriBuf {
-    IriBuf::new(format!("{}dependsOn", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI -- this is a bug")
+pub fn depends_on_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/dependsOn")
 }
 
-pub fn supersedes_iri() -> IriBuf {
-    IriBuf::new(format!("{}supersedes", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI -- this is a bug")
+pub fn supersedes_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/supersedes")
 }
 
 // --- Evidence / provenance ---
 
-pub fn evidence_for_iri() -> IriBuf {
-    IriBuf::new(format!("{}evidenceFor", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI -- this is a bug")
+pub fn evidence_for_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/evidenceFor")
 }
 
 // --- Project association ---
 
-pub fn belongs_to_project_iri() -> IriBuf {
-    IriBuf::new(format!("{}belongsToProject", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI -- this is a bug")
+pub fn belongs_to_project_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/belongsToProject")
 }
 
 // --- Code indexing ---
 
-pub fn code_location_iri() -> IriBuf {
-    IriBuf::new(format!("{}codeLocation", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI -- this is a bug")
+pub fn code_location_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/codeLocation")
 }
 
 // --- Observation properties ---
 
-pub fn observation_content_iri() -> IriBuf {
-    IriBuf::new(format!("{}observationContent", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI -- this is a bug")
+pub fn observation_content_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/observationContent")
 }
 
-pub fn observation_created_at_iri() -> IriBuf {
-    IriBuf::new(format!("{}observationCreatedAt", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI -- this is a bug")
+pub fn observation_created_at_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/observationCreatedAt")
 }
 
 // --- Decision properties ---
 
-pub fn decision_status_iri() -> IriBuf {
-    IriBuf::new(format!("{}decisionStatus", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI -- this is a bug")
+pub fn decision_status_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/decisionStatus")
 }
 
 // --- Ranking ---
 
-pub fn graph_importance_iri() -> IriBuf {
-    IriBuf::new(format!("{}graphImportance", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI -- this is a bug")
+pub fn graph_importance_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/graphImportance")
 }
 
-pub fn provenance_quality_iri() -> IriBuf {
-    IriBuf::new(format!("{}provenanceQuality", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI -- this is a bug")
+pub fn provenance_quality_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/provenanceQuality")
 }
 
 // --- Named graph prefix ---

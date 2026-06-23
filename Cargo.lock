@@ -1892,6 +1892,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b10559a0d518effd4f2cee107f40f83acf8583dcd3e6760b9b60293b0d2c2a70"
 dependencies = [
  "pct-str",
+ "serde",
  "smallvec",
  "static-regular-grammar",
  "thiserror 1.0.69",
@@ -4909,6 +4910,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "static-iref",
  "tantivy",
  "tokio",
  "toml 0.8.23",
