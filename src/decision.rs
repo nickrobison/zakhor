@@ -56,18 +56,13 @@ impl DecisionModel {
         conn: &SparqlConnection,
         args: CreateDecisionArgs,
     ) -> Result<CreateDecisionResult, String> {
-        let uuid = tracker::functions::sparql_get_uuid_urn()
+        let decision_uri_string = tracker::functions::sparql_get_uuid_urn()
             .ok_or_else(|| "Failed to generate UUID".to_string())?
             .to_string();
-        let decision_uri = format!(
-            "{}decision/{}",
-            Prefix::ZAKHOR,
-            uuid.trim_start_matches("urn:uuid:")
-        );
-        let decision_uri = IriBuf::new(decision_uri)
+        let decision_uri = IriBuf::new(decision_uri_string)
             .map_err(|e| format!("Generated invalid decision URI: {e}"))?;
 
-        let sparql = build_create_decision_sparql(&args, &decision_uri, &uuid);
+        let sparql = build_create_decision_sparql(&args, &decision_uri);
         conn.update(&sparql, None::<&Cancellable>)
             .map_err(|e| format!("Failed to create decision: {}", e))?;
 
@@ -130,11 +125,7 @@ impl DecisionModel {
 }
 
 /// Build SPARQL INSERT for creating a new Decision.
-fn build_create_decision_sparql(
-    args: &CreateDecisionArgs,
-    decision_uri: &IriBuf,
-    _uuid: &str,
-) -> String {
+fn build_create_decision_sparql(args: &CreateDecisionArgs, decision_uri: &IriBuf) -> String {
     let mut sparql = String::with_capacity(2048);
     sparql.push_str(&crate::sparql::prefix_declarations());
     sparql.push_str("INSERT DATA {\n");
@@ -270,8 +261,7 @@ mod tests {
             depends_on: vec![],
             project_uri: None,
         };
-        let sparql =
-            build_create_decision_sparql(&args, &iri("http://zakhor/ns/decision/test-1"), "");
+        let sparql = build_create_decision_sparql(&args, &iri("http://zakhor/ns/decision/test-1"));
         assert!(sparql.contains("INSERT DATA"));
         assert!(sparql.contains("rdf:type"));
         assert!(sparql.contains("decisionContext"));
@@ -296,8 +286,7 @@ mod tests {
             depends_on: vec![iri("http://zakhor/ns/decision/dep")],
             project_uri: Some(iri("http://zakhor/ns/project/p1")),
         };
-        let sparql =
-            build_create_decision_sparql(&args, &iri("http://zakhor/ns/decision/test-2"), "");
+        let sparql = build_create_decision_sparql(&args, &iri("http://zakhor/ns/decision/test-2"));
         assert!(sparql.contains("supersedes"));
         assert!(sparql.contains("conflictsWith"));
         assert!(sparql.contains("dependsOn"));
