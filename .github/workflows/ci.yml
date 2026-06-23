@@ -43,7 +43,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .fastembed_cache
-          key: ${{ runner.os }}-fastembed-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-fastembed-bge-small-en-v1.5
           restore-keys: |
             ${{ runner.os }}-fastembed-
       - run: cargo test
