@@ -100,15 +100,24 @@ impl EntityResolver {
             let results = lexical.search(label, 5).unwrap_or_default();
             if let Some(top) = results.first()
                 && top.score >= self.config.tantivy_threshold as f64
-                && let Ok(uri) = IriBuf::new(top.id.as_str().to_owned())
             {
-                return ResolvedEntity {
-                    extracted_label: label.to_string(),
-                    resolved_uri: Some(uri),
-                    resolution_tier: 2,
-                    score: top.score as f32,
-                    is_new: false,
-                };
+                match IriBuf::new(top.id.as_str().to_owned()) {
+                    Ok(uri) => {
+                        return ResolvedEntity {
+                            extracted_label: label.to_string(),
+                            resolved_uri: Some(uri),
+                            resolution_tier: 2,
+                            score: top.score as f32,
+                            is_new: false,
+                        };
+                    }
+                    Err(e) => tracing::warn!(
+                        entity_label = %label,
+                        candidate_uri = %top.id,
+                        error = %e,
+                        "Ignoring invalid lexical candidate URI"
+                    ),
+                }
             }
         }
 
@@ -119,15 +128,24 @@ impl EntityResolver {
             let results = sem.search(label, 5);
             if let Some(top) = results.first()
                 && top.score >= self.config.fastembed_threshold as f64
-                && let Ok(uri) = IriBuf::new(top.id.as_str().to_owned())
             {
-                return ResolvedEntity {
-                    extracted_label: label.to_string(),
-                    resolved_uri: Some(uri),
-                    resolution_tier: 3,
-                    score: top.score as f32,
-                    is_new: false,
-                };
+                match IriBuf::new(top.id.as_str().to_owned()) {
+                    Ok(uri) => {
+                        return ResolvedEntity {
+                            extracted_label: label.to_string(),
+                            resolved_uri: Some(uri),
+                            resolution_tier: 3,
+                            score: top.score as f32,
+                            is_new: false,
+                        };
+                    }
+                    Err(e) => tracing::warn!(
+                        entity_label = %label,
+                        candidate_uri = %top.id,
+                        error = %e,
+                        "Ignoring invalid semantic candidate URI"
+                    ),
+                }
             }
         }
 
