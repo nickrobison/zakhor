@@ -102,7 +102,7 @@ async def tracker_available() -> bool:
             stderr=asyncio.subprocess.DEVNULL,
         )
 
-        url = f"http://127.0.0.1:{port}/"
+        url = f"http://127.0.0.1:{port}/mcp"
         for _ in range(int(SERVER_START_TIMEOUT / POLL_INTERVAL)):
             await asyncio.sleep(POLL_INTERVAL)
             if await _is_server_ready(url):
@@ -150,7 +150,7 @@ async def zakhor_server(tmp_path: Path) -> AsyncIterator[str]:
     db_path = tmp_path / "zakhor-db"
     db_path.mkdir(parents=True, exist_ok=True)
     port = _find_free_port()
-    url = f"http://127.0.0.1:{port}/"
+    url = f"http://127.0.0.1:{port}/mcp"
 
     env = os.environ.copy()
     env["ZAKHOR_HTTP_PORT"] = str(port)
