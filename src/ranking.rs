@@ -5,8 +5,9 @@
 //! through a shared intermediary) receives a higher importance score.
 
 use gio::Cancellable;
+use iref::IriBuf;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use tracker::SparqlConnection;
 use tracker::prelude::SparqlCursorExtManual;
 
@@ -15,7 +16,7 @@ use crate::sparql::Prefix;
 /// A scored entity from the graph ranking.
 #[derive(Clone, Debug, Serialize)]
 pub struct ScoredEntity {
-    pub uri: String,
+    pub uri: IriBuf,
     pub label: String,
     /// Raw connectivity score (number of unique 2-hop connections).
     pub connectivity: u64,
@@ -35,13 +36,12 @@ pub fn compute_importance(conn: &SparqlConnection) -> Result<Vec<ScoredEntity>, 
         return Ok(Vec::new());
     }
 
-    let entity_set: HashSet<&str> = entities.keys().map(|s| s.as_str()).collect();
     let max_score = entities.len() as f64;
 
     let mut scored: Vec<ScoredEntity> = Vec::with_capacity(entities.len());
 
     for (uri, label) in &entities {
-        let connectivity = count_2hop_connections(conn, uri, &entity_set)?;
+        let connectivity = count_2hop_connections(conn, uri)?;
         let importance = if max_score > 0.0 {
             connectivity as f64 / max_score
         } else {
@@ -62,12 +62,8 @@ pub fn compute_importance(conn: &SparqlConnection) -> Result<Vec<ScoredEntity>, 
 
 /// Count how many other labeled entities are reachable from `uri` within
 /// 2 SPARQL hops.
-fn count_2hop_connections(
-    conn: &SparqlConnection,
-    uri: &str,
-    _entities: &HashSet<&str>,
-) -> Result<u64, String> {
-    let safe = uri.replace('>', "");
+fn count_2hop_connections(conn: &SparqlConnection, uri: &IriBuf) -> Result<u64, String> {
+    let safe = uri.as_str().replace('>', "");
     let sparql = format!(
         r#"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 
@@ -105,7 +101,7 @@ SELECT (COUNT(DISTINCT ?connected) AS ?count) WHERE {{
 }
 
 /// List all entities with an `rdfs:label`.
-fn list_labeled_entities(conn: &SparqlConnection) -> Result<HashMap<String, String>, String> {
+fn list_labeled_entities(conn: &SparqlConnection) -> Result<HashMap<IriBuf, String>, String> {
     let sparql = r#"PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
 SELECT DISTINCT ?entity ?label WHERE {
@@ -126,7 +122,14 @@ ORDER BY ?entity"#
         let uri = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
         let label = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
         if !uri.is_empty() {
-            entities.insert(uri, label);
+            match IriBuf::new(uri.clone()) {
+                Ok(iri) => {
+                    entities.insert(iri, label);
+                }
+                Err(e) => {
+                    tracing::warn!(uri = %uri, error = %e, "Skipping invalid entity URI in ranking");
+                }
+            }
         }
     }
 
@@ -143,9 +146,9 @@ ORDER BY ?entity"#
 /// `zakhor:provenanceGraph`) has higher provenance quality.
 pub fn compute_provenance_quality(
     conn: &SparqlConnection,
-    entity_uri: &str,
+    entity_uri: &IriBuf,
 ) -> Result<f64, String> {
-    let safe = entity_uri.replace('>', "");
+    let safe = entity_uri.as_str().replace('>', "");
     let sparql = format!(
         r#"PREFIX zakhor: <{ns}>
 
@@ -213,8 +216,16 @@ pub fn rank_search_results(
 
     let mut ranked: Vec<ScoredDoc> = Vec::with_capacity(raw_results.len());
     for doc in raw_results {
-        let graph_score = compute_provenance_quality(conn, &doc.id).unwrap_or(0.0);
-        let provenance_score = compute_provenance_quality(conn, &doc.id).unwrap_or(0.0);
+        let (graph_score, provenance_score) = match IriBuf::new(doc.id.clone()) {
+            Ok(entity_iri) => (
+                compute_provenance_quality(conn, &entity_iri).unwrap_or(0.0),
+                compute_provenance_quality(conn, &entity_iri).unwrap_or(0.0),
+            ),
+            Err(e) => {
+                tracing::warn!(id = %doc.id, error = %e, "Skipping ranking boosts for invalid entity URI");
+                (0.0, 0.0)
+            }
+        };
         let boost = 1.0 + graph_score * 0.3 + provenance_score * 0.2;
         ranked.push(ScoredDoc {
             id: doc.id,
@@ -237,12 +248,12 @@ mod tests {
     #[test]
     fn test_scored_entity_struct() {
         let e = ScoredEntity {
-            uri: "http://example.com/e1".into(),
+            uri: IriBuf::new("http://example.com/e1".to_string()).expect("valid test iri"),
             label: "Entity 1".into(),
             connectivity: 5,
             importance: 0.5,
         };
-        assert_eq!(e.uri, "http://example.com/e1");
+        assert_eq!(e.uri.as_str(), "http://example.com/e1");
         assert_eq!(e.connectivity, 5);
         assert_eq!(e.importance, 0.5);
     }
@@ -251,28 +262,28 @@ mod tests {
     fn test_scored_entity_sort_order() {
         let mut items = vec![
             ScoredEntity {
-                uri: "a".into(),
+                uri: IriBuf::new("http://example.com/a".to_string()).expect("valid test iri"),
                 label: "A".into(),
                 connectivity: 1,
                 importance: 0.1,
             },
             ScoredEntity {
-                uri: "b".into(),
+                uri: IriBuf::new("http://example.com/b".to_string()).expect("valid test iri"),
                 label: "B".into(),
                 connectivity: 10,
                 importance: 1.0,
             },
             ScoredEntity {
-                uri: "c".into(),
+                uri: IriBuf::new("http://example.com/c".to_string()).expect("valid test iri"),
                 label: "C".into(),
                 connectivity: 5,
                 importance: 0.5,
             },
         ];
         items.sort_by(|a, b| b.connectivity.cmp(&a.connectivity));
-        assert_eq!(items[0].uri, "b");
-        assert_eq!(items[1].uri, "c");
-        assert_eq!(items[2].uri, "a");
+        assert_eq!(items[0].uri.as_str(), "http://example.com/b");
+        assert_eq!(items[1].uri.as_str(), "http://example.com/c");
+        assert_eq!(items[2].uri.as_str(), "http://example.com/a");
     }
 
     #[test]
