@@ -131,15 +131,37 @@ impl IndexSyncManager {
         self.lexical.add(id, text, entity_refs)?;
 
         // Semantic add — needs mutex lock
-        {
-            let mut sem = self
-                .semantic
-                .lock()
-                .map_err(|e| ZakhorError::Internal(format!("Semantic lock poisoned: {e}")))?;
-            sem.add(id, text)
-                .map_err(|e| ZakhorError::Internal(format!("Semantic add failed: {e}")))?;
+        let mut sem = match self.semantic.lock() {
+            Ok(sem) => sem,
+            Err(e) => {
+                self.lexical.remove(id).map_err(|rollback_err| {
+                    ZakhorError::Internal(format!(
+                        "Semantic lock poisoned: {e}; lexical rollback failed: {rollback_err}"
+                    ))
+                })?;
+                return Err(ZakhorError::Internal(format!("Semantic lock poisoned: {e}")).into());
+            }
+        };
+        if let Err(e) = sem.add(id, text) {
+            self.lexical.remove(id).map_err(|rollback_err| {
+                ZakhorError::Internal(format!(
+                    "Semantic add failed: {e}; lexical rollback failed: {rollback_err}"
+                ))
+            })?;
+            return Err(ZakhorError::Internal(format!("Semantic add failed: {e}")).into());
         }
 
+        Ok(())
+    }
+
+    /// Compensating action for sync operations: remove the observation from both indexes.
+    pub fn rollback_observation(&self, id: &str) -> ZakhorResult<()> {
+        self.lexical.remove(id)?;
+        let mut sem = self
+            .semantic
+            .lock()
+            .map_err(|e| ZakhorError::Internal(format!("Semantic lock poisoned: {e}")))?;
+        sem.remove(id);
         Ok(())
     }
 }
@@ -147,6 +169,7 @@ impl IndexSyncManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::panic::AssertUnwindSafe;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -282,6 +305,34 @@ mod tests {
             debug.contains("IndexSyncManager"),
             "Debug should mention IndexSyncManager"
         );
+        let _ = std::fs::remove_dir_all(&path);
+    }
+
+    #[test]
+    fn test_sync_observation_rolls_back_lexical_when_semantic_lock_is_poisoned() {
+        let path = test_db_path();
+        let mgr = IndexSyncManager::new(&path).expect("Failed to create sync manager");
+
+        let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            let _guard = mgr.semantic.lock().expect("lock must be available");
+            panic!("poison semantic mutex");
+        }));
+
+        let err = mgr.sync_observation("poison-id", "poisoned content", &[]);
+        assert!(
+            err.is_err(),
+            "sync should fail when semantic lock is poisoned"
+        );
+
+        let results = mgr
+            .lexical
+            .search("poisoned", 10)
+            .expect("lexical search should still work");
+        assert!(
+            !results.iter().any(|d| d.id == "poison-id"),
+            "lexical insert should be rolled back on semantic failure"
+        );
+
         let _ = std::fs::remove_dir_all(&path);
     }
 }
