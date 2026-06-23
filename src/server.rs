@@ -81,7 +81,7 @@ pub struct RecordDecisionArgs {
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct StoreObservationResponse {
     pub observation_uri: String,
-    pub triple_count: usize,
+    pub triple_count: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
@@ -93,7 +93,7 @@ pub struct EntityResult {
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct QueryEntitiesResponse {
     pub entities: Vec<EntityResult>,
-    pub count: usize,
+    pub count: u64,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
@@ -106,7 +106,7 @@ pub struct TripleResult {
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct TraverseGraphResponse {
     pub triples: Vec<TripleResult>,
-    pub count: usize,
+    pub count: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
 }
@@ -120,7 +120,7 @@ pub struct SearchResult {
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct SearchHybridResponse {
     pub results: Vec<SearchResult>,
-    pub count: usize,
+    pub count: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
 }
@@ -170,7 +170,7 @@ impl MemoryHandler {
 
             Ok(Json(StoreObservationResponse {
                 observation_uri: ingest_result.observation_uri,
-                triple_count: ingest_result.triple_count,
+                triple_count: ingest_result.triple_count as u64,
             }))
         })();
 
@@ -213,7 +213,7 @@ impl MemoryHandler {
                 entities.push(EntityResult { uri, label });
             }
 
-            let count = entities.len();
+            let count = entities.len() as u64;
             Ok(Json(QueryEntitiesResponse { entities, count }))
         })();
 
@@ -260,7 +260,7 @@ impl MemoryHandler {
                             Err(e) => return Err(format!("Cursor error: {e}")),
                         }
                     }
-                    let count = triples.len();
+                    let count = triples.len() as u64;
                     Ok(Json(TraverseGraphResponse {
                         triples,
                         count,
@@ -313,7 +313,7 @@ impl MemoryHandler {
                         score: d.score,
                     })
                     .collect();
-                let count = docs.len();
+                let count = docs.len() as u64;
                 Ok(Json(SearchHybridResponse {
                     results: docs,
                     count,
