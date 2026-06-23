@@ -69,6 +69,7 @@ unsafe fn cosine_similarity_avx2(a: &[f32], b: &[f32]) -> f64 {
         b.len(),
         "cosine_similarity requires equal-length vectors"
     );
+    let mut dot = _mm256_setzero_ps();
     let mut sq_a = _mm256_setzero_ps();
     let mut sq_b = _mm256_setzero_ps();
 
@@ -138,6 +139,7 @@ unsafe fn cosine_similarity_neon(a: &[f32], b: &[f32]) -> f64 {
         b.len(),
         "cosine_similarity requires equal-length vectors"
     );
+    let mut dot = vdupq_n_f32(0.0);
     let mut sq_a = vdupq_n_f32(0.0);
     let mut sq_b = vdupq_n_f32(0.0);
 
