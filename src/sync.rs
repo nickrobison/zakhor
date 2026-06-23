@@ -139,7 +139,9 @@ impl IndexSyncManager {
                         "Semantic lock poisoned: {e}; lexical rollback failed: {rollback_err}"
                     ))
                 })?;
-                return Err(ZakhorError::Internal(format!("Semantic lock poisoned: {e}")).into());
+                return Err(anyhow::Error::from(ZakhorError::Internal(format!(
+                    "Semantic lock poisoned: {e}"
+                ))));
             }
         };
         if let Err(e) = sem.add(id, text) {
@@ -148,7 +150,9 @@ impl IndexSyncManager {
                     "Semantic add failed: {e}; lexical rollback failed: {rollback_err}"
                 ))
             })?;
-            return Err(ZakhorError::Internal(format!("Semantic add failed: {e}")).into());
+            return Err(anyhow::Error::from(ZakhorError::Internal(format!(
+                "Semantic add failed: {e}"
+            ))));
         }
 
         Ok(())

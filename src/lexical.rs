@@ -117,6 +117,7 @@ impl LexicalIndex {
             .index
             .writer(50_000_000)
             .map_err(|e| ZakhorError::Internal(format!("Failed to create writer: {e}")))?;
+        // delete_term is applied on commit; commit makes the deletion visible to readers.
         writer.delete_term(Term::from_field_text(self.id_field, id));
         writer
             .commit()

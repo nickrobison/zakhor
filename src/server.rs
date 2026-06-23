@@ -174,9 +174,9 @@ impl MemoryHandler {
                             "Sync failed: {e}; SPARQL rollback failed: {rollback_err}"
                         ));
                     }
+                    let observation_uri = &ingest_result.observation_uri;
                     return Err(format!(
-                        "Sync failed: {e}; observation {} rolled back",
-                        ingest_result.observation_uri
+                        "Index synchronization failed: {e}; observation {observation_uri} removed from SPARQL store"
                     ));
                 }
             }
