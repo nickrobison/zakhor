@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
-use rdf_types::IriBuf;
+use iref::Iri;
+use static_iref::iri;
 
-pub use crate::sparql::Prefix;
 pub use crate::sparql::SparqlBuilder;
 
 /// Additional namespace constants (beyond those in Prefix)
@@ -14,119 +14,101 @@ pub const NRL: &str = "http://tracker.api.gnome.org/ontology/v3/nrl#";
 /// All prefix entries for SPARQL queries (adds NFO, NAO, SKOS to basic set from sparql.rs)
 pub const EXTRA_PREFIXES: &[(&str, &str)] = &[("nfo", NFO), ("nao", NAO), ("skos", SKOS)];
 
-// IRI constructor functions — simple direct allocation for testability:
+// IRI constructor functions — compile-time parsed static IRIs:
 
-pub fn entity_iri() -> IriBuf {
-    IriBuf::new(format!("{}Entity", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
-}
-
-pub fn decision_iri() -> IriBuf {
-    IriBuf::new(format!("{}Decision", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
+pub fn entity_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/Entity")
 }
 
-pub fn project_iri() -> IriBuf {
-    IriBuf::new(format!("{}Project", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
+pub fn decision_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/Decision")
 }
 
-pub fn issue_iri() -> IriBuf {
-    IriBuf::new(format!("{}Issue", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
+pub fn project_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/Project")
 }
 
-pub fn constraint_iri() -> IriBuf {
-    IriBuf::new(format!("{}Constraint", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn issue_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/Issue")
 }
 
-pub fn observation_iri() -> IriBuf {
-    IriBuf::new(format!("{}Observation", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn constraint_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/Constraint")
 }
 
-pub fn has_entity_iri() -> IriBuf {
-    IriBuf::new(format!("{}hasEntity", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
+pub fn observation_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/Observation")
 }
 
-pub fn has_relation_iri() -> IriBuf {
-    IriBuf::new(format!("{}hasRelation", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn has_entity_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/hasEntity")
 }
 
-pub fn provenance_graph_iri() -> IriBuf {
-    IriBuf::new(format!("{}provenanceGraph", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn has_relation_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/hasRelation")
 }
 
-pub fn decision_context_iri() -> IriBuf {
-    IriBuf::new(format!("{}decisionContext", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn provenance_graph_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/provenanceGraph")
 }
-pub fn decision_outcome_iri() -> IriBuf {
-    IriBuf::new(format!("{}decisionOutcome", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+
+pub fn decision_context_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/decisionContext")
 }
-pub fn decision_alternative_iri() -> IriBuf {
-    IriBuf::new(format!("{}alternative", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn decision_outcome_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/decisionOutcome")
 }
-pub fn decision_rationale_iri() -> IriBuf {
-    IriBuf::new(format!("{}decisionRationale", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn decision_alternative_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/alternative")
+}
+pub fn decision_rationale_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/decisionRationale")
 }
 
 // --- v2 vocabulary additions (from vocab.rs) ---
 
-pub fn conflicts_with_iri() -> IriBuf {
-    IriBuf::new(format!("{}conflictsWith", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn conflicts_with_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/conflictsWith")
 }
 
-pub fn depends_on_iri() -> IriBuf {
-    IriBuf::new(format!("{}dependsOn", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
+pub fn depends_on_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/dependsOn")
 }
 
-pub fn supersedes_iri() -> IriBuf {
-    IriBuf::new(format!("{}supersedes", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn supersedes_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/supersedes")
 }
 
-pub fn evidence_for_iri() -> IriBuf {
-    IriBuf::new(format!("{}evidenceFor", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn evidence_for_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/evidenceFor")
 }
 
-pub fn belongs_to_project_iri() -> IriBuf {
-    IriBuf::new(format!("{}belongsToProject", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn belongs_to_project_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/belongsToProject")
 }
 
-pub fn code_location_iri() -> IriBuf {
-    IriBuf::new(format!("{}codeLocation", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn code_location_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/codeLocation")
 }
 
-pub fn observation_content_iri() -> IriBuf {
-    IriBuf::new(format!("{}observationContent", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn observation_content_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/observationContent")
 }
 
-pub fn observation_created_at_iri() -> IriBuf {
-    IriBuf::new(format!("{}observationCreatedAt", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn observation_created_at_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/observationCreatedAt")
 }
 
-pub fn decision_status_iri() -> IriBuf {
-    IriBuf::new(format!("{}decisionStatus", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn decision_status_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/decisionStatus")
 }
 
-pub fn graph_importance_iri() -> IriBuf {
-    IriBuf::new(format!("{}graphImportance", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn graph_importance_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/graphImportance")
 }
 
-pub fn provenance_quality_iri() -> IriBuf {
-    IriBuf::new(format!("{}provenanceQuality", Prefix::ZAKHOR))
-        .expect("invalid zakhor IRI — this is a bug")
+pub fn provenance_quality_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/provenanceQuality")
 }
 
 /// Generate SPARQL CONSTRUCT query that registers the ontology in Tracker.
@@ -174,8 +156,8 @@ pub fn ontology_construct_query() -> String {
     crate::sparql::ontology_construct(&construct, &where_clause)
 }
 
-pub fn schema_tool_call_iri() -> IriBuf {
-    IriBuf::new(format!("{}ToolCall", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
+pub fn schema_tool_call_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/ToolCall")
 }
 
 /// Generate SPARQL INSERT DATA query that registers the ontology in Tracker.
@@ -387,6 +369,7 @@ pub fn ontology_file_content() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sparql::Prefix;
 
     #[test]
     fn test_entity_iri_contains_zakhor() {

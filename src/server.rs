@@ -367,7 +367,7 @@ impl MemoryHandler {
             let create_result = crate::decision::DecisionModel::create(&self.conn, decision_args)?;
 
             Ok(Json(RecordDecisionResponse {
-                decision_uri: create_result.decision_uri,
+                decision_uri: create_result.decision_uri.as_str().to_string(),
             }))
         })();
 

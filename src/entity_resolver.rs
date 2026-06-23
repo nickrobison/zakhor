@@ -3,6 +3,7 @@
 use crate::config::EntityResolutionConfig;
 use crate::lexical::LexicalIndex;
 use crate::semantic::SemanticIndex;
+use iref::IriBuf;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -12,7 +13,7 @@ pub struct ResolvedEntity {
     /// The original extracted entity URI/label.
     pub extracted_label: String,
     /// The resolved (canonical) URI, or None if no match found.
-    pub resolved_uri: Option<String>,
+    pub resolved_uri: Option<IriBuf>,
     /// The tier that resolved this entity (1=alias, 2=tantivy, 3=fastembed, 0=unresolved).
     pub resolution_tier: u8,
     /// Similarity score of the match.
@@ -32,7 +33,7 @@ pub struct ResolvedEntity {
 pub struct EntityResolver {
     config: EntityResolutionConfig,
     /// Known entity aliases: label -> URI
-    aliases: HashMap<String, String>,
+    aliases: HashMap<String, IriBuf>,
     /// Tantivy index for lexical search
     lexical: Option<LexicalIndex>,
     /// fastembed index for semantic search
@@ -50,15 +51,19 @@ impl EntityResolver {
     }
 
     /// Register an alias for exact-match resolution (Tier 1).
-    pub fn register_alias(&mut self, label: &str, uri: &str) {
-        self.aliases.insert(label.to_lowercase(), uri.to_string());
+    pub fn register_alias(&mut self, label: &str, uri: &str) -> Result<(), String> {
+        let uri = IriBuf::new(uri.to_string())
+            .map_err(|e| format!("invalid URI for alias '{label}': {e}"))?;
+        self.aliases.insert(label.to_lowercase(), uri);
+        Ok(())
     }
 
     /// Register multiple aliases at once.
-    pub fn register_aliases(&mut self, pairs: &[(String, String)]) {
+    pub fn register_aliases(&mut self, pairs: &[(String, String)]) -> Result<(), String> {
         for (label, uri) in pairs {
-            self.register_alias(label, uri);
+            self.register_alias(label, uri)?;
         }
+        Ok(())
     }
 
     /// Attach a Tantivy lexical index for Tier 2 resolution.
@@ -96,13 +101,23 @@ impl EntityResolver {
             if let Some(top) = results.first()
                 && top.score >= self.config.tantivy_threshold as f64
             {
-                return ResolvedEntity {
-                    extracted_label: label.to_string(),
-                    resolved_uri: Some(top.id.clone()),
-                    resolution_tier: 2,
-                    score: top.score as f32,
-                    is_new: false,
-                };
+                match IriBuf::new(top.id.as_str().to_owned()) {
+                    Ok(uri) => {
+                        return ResolvedEntity {
+                            extracted_label: label.to_string(),
+                            resolved_uri: Some(uri),
+                            resolution_tier: 2,
+                            score: top.score as f32,
+                            is_new: false,
+                        };
+                    }
+                    Err(e) => tracing::warn!(
+                        entity_label = %label,
+                        candidate_uri = %top.id,
+                        error = %e,
+                        "Ignoring invalid lexical candidate URI"
+                    ),
+                }
             }
         }
 
@@ -114,13 +129,23 @@ impl EntityResolver {
             if let Some(top) = results.first()
                 && top.score >= self.config.fastembed_threshold as f64
             {
-                return ResolvedEntity {
-                    extracted_label: label.to_string(),
-                    resolved_uri: Some(top.id.clone()),
-                    resolution_tier: 3,
-                    score: top.score as f32,
-                    is_new: false,
-                };
+                match IriBuf::new(top.id.as_str().to_owned()) {
+                    Ok(uri) => {
+                        return ResolvedEntity {
+                            extracted_label: label.to_string(),
+                            resolved_uri: Some(uri),
+                            resolution_tier: 3,
+                            score: top.score as f32,
+                            is_new: false,
+                        };
+                    }
+                    Err(e) => tracing::warn!(
+                        entity_label = %label,
+                        candidate_uri = %top.id,
+                        error = %e,
+                        "Ignoring invalid semantic candidate URI"
+                    ),
+                }
             }
         }
 
@@ -158,14 +183,18 @@ mod tests {
     fn test_tier1_alias_match() {
         let config = EntityResolutionConfig::default();
         let mut resolver = EntityResolver::new(config);
-        resolver.register_alias("alice", "http://zakhor/ns/entity/alice");
-        resolver.register_alias("bob", "http://zakhor/ns/entity/bob");
+        resolver
+            .register_alias("alice", "http://zakhor/ns/entity/alice")
+            .expect("test URI should be valid");
+        resolver
+            .register_alias("bob", "http://zakhor/ns/entity/bob")
+            .expect("test URI should be valid");
 
         let result = resolver.resolve("Alice"); // case-insensitive
         assert!(!result.is_new);
         assert_eq!(result.resolution_tier, 1);
         assert_eq!(
-            result.resolved_uri.unwrap(),
+            result.resolved_uri.unwrap().as_str(),
             "http://zakhor/ns/entity/alice"
         );
     }
@@ -174,17 +203,19 @@ mod tests {
     fn test_register_aliases_batch() {
         let config = EntityResolutionConfig::default();
         let mut resolver = EntityResolver::new(config);
-        resolver.register_aliases(&[
-            ("foo".to_string(), "http://zakhor/ns/entity/foo".to_string()),
-            ("bar".to_string(), "http://zakhor/ns/entity/bar".to_string()),
-        ]);
+        resolver
+            .register_aliases(&[
+                ("foo".to_string(), "http://zakhor/ns/entity/foo".to_string()),
+                ("bar".to_string(), "http://zakhor/ns/entity/bar".to_string()),
+            ])
+            .expect("test URIs should be valid");
 
         assert_eq!(
-            resolver.resolve("foo").resolved_uri.unwrap(),
+            resolver.resolve("foo").resolved_uri.unwrap().as_str(),
             "http://zakhor/ns/entity/foo"
         );
         assert_eq!(
-            resolver.resolve("Bar").resolved_uri.unwrap(),
+            resolver.resolve("Bar").resolved_uri.unwrap().as_str(),
             "http://zakhor/ns/entity/bar"
         );
     }
@@ -193,8 +224,12 @@ mod tests {
     fn test_resolve_batch() {
         let config = EntityResolutionConfig::default();
         let mut resolver = EntityResolver::new(config);
-        resolver.register_alias("known1", "http://zakhor/ns/entity/k1");
-        resolver.register_alias("known2", "http://zakhor/ns/entity/k2");
+        resolver
+            .register_alias("known1", "http://zakhor/ns/entity/k1")
+            .expect("test URI should be valid");
+        resolver
+            .register_alias("known2", "http://zakhor/ns/entity/k2")
+            .expect("test URI should be valid");
 
         let labels = vec![
             "known1".to_string(),

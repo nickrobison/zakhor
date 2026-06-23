@@ -191,7 +191,7 @@ impl IngestionPipeline {
             if !entity.label.starts_with("http://") && !entity.label.starts_with("urn:") {
                 let result = resolver.resolve(&entity.label);
                 if let Some(ref uri) = result.resolved_uri {
-                    entity.uri = uri.clone();
+                    entity.uri = uri.as_str().to_string();
                 }
             }
         }

@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use gio::Cancellable;
+use iref::{Iri, IriBuf};
 use tracker::SparqlConnection;
 use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 
@@ -19,23 +20,23 @@ pub struct CreateDecisionArgs {
     /// Rationale for the decision.
     pub rationale: String,
     /// URIs of entities/observations affected by this decision.
-    pub affects: Vec<String>,
+    pub affects: Vec<IriBuf>,
     /// URIs of observations this decision derives from.
-    pub derived_from: Vec<String>,
+    pub derived_from: Vec<IriBuf>,
     /// Optional URI of a superseded decision.
-    pub supersedes: Option<String>,
+    pub supersedes: Option<IriBuf>,
     /// Optional URIs of conflicting decisions.
-    pub conflicts_with: Vec<String>,
+    pub conflicts_with: Vec<IriBuf>,
     /// Optional URIs of decisions this depends on.
-    pub depends_on: Vec<String>,
+    pub depends_on: Vec<IriBuf>,
     /// Optional project URI this decision belongs to.
-    pub project_uri: Option<String>,
+    pub project_uri: Option<IriBuf>,
 }
 
 /// Result of creating a Decision.
 #[derive(Clone, Debug)]
 pub struct CreateDecisionResult {
-    pub decision_uri: String,
+    pub decision_uri: IriBuf,
     pub status: String,
 }
 
@@ -55,33 +56,35 @@ impl DecisionModel {
         conn: &SparqlConnection,
         args: CreateDecisionArgs,
     ) -> Result<CreateDecisionResult, String> {
-        let uuid = tracker::functions::sparql_get_uuid_urn()
+        let decision_uri_string = tracker::functions::sparql_get_uuid_urn()
             .ok_or_else(|| "Failed to generate UUID".to_string())?
             .to_string();
+        let decision_uri = IriBuf::new(decision_uri_string)
+            .map_err(|e| format!("Generated invalid decision URI: {e}"))?;
 
-        let sparql = build_create_decision_sparql(&args, &uuid, &uuid);
+        let sparql = build_create_decision_sparql(&args, &decision_uri);
         conn.update(&sparql, None::<&Cancellable>)
             .map_err(|e| format!("Failed to create decision: {}", e))?;
 
         Ok(CreateDecisionResult {
-            decision_uri: uuid,
+            decision_uri,
             status: vocab::decision_status::ACTIVE.to_string(),
         })
     }
 
     /// Supersede an existing decision (set its status to superseded).
-    pub fn supersede(conn: &SparqlConnection, decision_uri: &str) -> Result<(), String> {
+    pub fn supersede(conn: &SparqlConnection, decision_uri: &Iri) -> Result<(), String> {
         let superseded_lit = crate::sparql::escape_literal(vocab::decision_status::SUPERSEDED);
         let sparql = format!(
             "{}DELETE {{ <{}> <{}> ?old_status . }} INSERT {{ <{}> <{}> {} . }} WHERE {{ <{}> <{}> ?old_status . }}",
             crate::sparql::prefix_declarations(),
-            decision_uri,
-            vocab::decision_status_iri(),
-            decision_uri,
-            vocab::decision_status_iri(),
+            decision_uri.as_str(),
+            vocab::decision_status_iri().as_str(),
+            decision_uri.as_str(),
+            vocab::decision_status_iri().as_str(),
             superseded_lit,
-            decision_uri,
-            vocab::decision_status_iri(),
+            decision_uri.as_str(),
+            vocab::decision_status_iri().as_str(),
         );
         conn.update(&sparql, None::<&Cancellable>)
             .map_err(|e| format!("Failed to supersede decision: {}", e))
@@ -92,13 +95,13 @@ impl DecisionModel {
         conn: &SparqlConnection,
         status: &str,
         limit: u32,
-    ) -> Result<Vec<String>, String> {
+    ) -> Result<Vec<IriBuf>, String> {
         let status_lit = crate::sparql::escape_literal(status);
         let sparql = format!(
             "{}SELECT ?d WHERE {{ ?d rdf:type <{}> ; <{}> {} . }} LIMIT {}",
             crate::sparql::prefix_declarations(),
-            crate::schema::decision_iri(),
-            vocab::decision_status_iri(),
+            crate::schema::decision_iri().as_str(),
+            vocab::decision_status_iri().as_str(),
             status_lit,
             limit,
         );
@@ -112,7 +115,9 @@ impl DecisionModel {
             .map_err(|e| format!("Cursor error: {}", e))?
         {
             if let Some(s) = cursor.string(0) {
-                results.push(s.to_string());
+                let iri = IriBuf::new(s.to_string())
+                    .map_err(|e| format!("Invalid decision URI returned from query: {e}"))?;
+                results.push(iri);
             }
         }
         Ok(results)
@@ -120,11 +125,7 @@ impl DecisionModel {
 }
 
 /// Build SPARQL INSERT for creating a new Decision.
-fn build_create_decision_sparql(
-    args: &CreateDecisionArgs,
-    decision_uri: &str,
-    _uuid: &str,
-) -> String {
+fn build_create_decision_sparql(args: &CreateDecisionArgs, decision_uri: &IriBuf) -> String {
     let mut sparql = String::with_capacity(2048);
     sparql.push_str(&crate::sparql::prefix_declarations());
     sparql.push_str("INSERT DATA {\n");
@@ -137,12 +138,12 @@ fn build_create_decision_sparql(
 
     sparql.push_str(&format!(
         "  <{}> rdf:type <{}> ;\n              <{}> {} ;\n              <{}> {} ;\n              <{}> {} ;\n              <{}> {} .\n",
-        decision_uri,
-        crate::schema::decision_iri(),
-        crate::schema::decision_context_iri(), context_lit,
-        crate::schema::decision_outcome_iri(), outcome_lit,
-        crate::schema::decision_rationale_iri(), rationale_lit,
-        vocab::decision_status_iri(), status_lit,
+        decision_uri.as_str(),
+        crate::schema::decision_iri().as_str(),
+        crate::schema::decision_context_iri().as_str(), context_lit,
+        crate::schema::decision_outcome_iri().as_str(), outcome_lit,
+        crate::schema::decision_rationale_iri().as_str(), rationale_lit,
+        vocab::decision_status_iri().as_str(), status_lit,
     ));
 
     // Alternatives
@@ -151,7 +152,7 @@ fn build_create_decision_sparql(
         sparql.push_str(&format!(
             "  <{}> <{}> {} .\n",
             decision_uri,
-            crate::schema::decision_alternative_iri(),
+            crate::schema::decision_alternative_iri().as_str(),
             alt_lit,
         ));
     }
@@ -160,9 +161,9 @@ fn build_create_decision_sparql(
     for aff in &args.affects {
         sparql.push_str(&format!(
             "  <{}> <{}> <{}> .\n",
-            decision_uri,
-            crate::schema::provenance_graph_iri(),
-            aff,
+            decision_uri.as_str(),
+            crate::schema::provenance_graph_iri().as_str(),
+            aff.as_str(),
         ));
     }
 
@@ -170,9 +171,9 @@ fn build_create_decision_sparql(
     for df in &args.derived_from {
         sparql.push_str(&format!(
             "  <{}> <{}> <{}> .\n",
-            decision_uri,
+            decision_uri.as_str(),
             Prefix::PROV_WAS_DERIVED_FROM,
-            df,
+            df.as_str(),
         ));
     }
 
@@ -180,9 +181,9 @@ fn build_create_decision_sparql(
     if let Some(ref s) = args.supersedes {
         sparql.push_str(&format!(
             "  <{}> <{}> <{}> .\n",
-            decision_uri,
-            vocab::supersedes_iri(),
-            s,
+            decision_uri.as_str(),
+            vocab::supersedes_iri().as_str(),
+            s.as_str(),
         ));
     }
 
@@ -190,9 +191,9 @@ fn build_create_decision_sparql(
     for cw in &args.conflicts_with {
         sparql.push_str(&format!(
             "  <{}> <{}> <{}> .\n",
-            decision_uri,
-            vocab::conflicts_with_iri(),
-            cw,
+            decision_uri.as_str(),
+            vocab::conflicts_with_iri().as_str(),
+            cw.as_str(),
         ));
     }
 
@@ -200,9 +201,9 @@ fn build_create_decision_sparql(
     for dpo in &args.depends_on {
         sparql.push_str(&format!(
             "  <{}> <{}> <{}> .\n",
-            decision_uri,
-            vocab::depends_on_iri(),
-            dpo,
+            decision_uri.as_str(),
+            vocab::depends_on_iri().as_str(),
+            dpo.as_str(),
         ));
     }
 
@@ -210,9 +211,9 @@ fn build_create_decision_sparql(
     if let Some(ref project) = args.project_uri {
         sparql.push_str(&format!(
             "  <{}> <{}> <{}> .\n",
-            decision_uri,
-            vocab::belongs_to_project_iri(),
-            project,
+            decision_uri.as_str(),
+            vocab::belongs_to_project_iri().as_str(),
+            project.as_str(),
         ));
     }
 
@@ -224,6 +225,10 @@ fn build_create_decision_sparql(
 mod tests {
     use super::*;
 
+    fn iri(value: &str) -> IriBuf {
+        IriBuf::new(value.to_owned()).expect("test IRIs should be valid")
+    }
+
     #[test]
     fn test_create_decision_args_struct() {
         let args = CreateDecisionArgs {
@@ -231,7 +236,7 @@ mod tests {
             outcome: "Approved".into(),
             alternatives: vec!["Alt A".into(), "Alt B".into()],
             rationale: "Because".into(),
-            affects: vec!["http://zakhor/ns/entity/e1".into()],
+            affects: vec![iri("http://zakhor/ns/entity/e1")],
             derived_from: vec![],
             supersedes: None,
             conflicts_with: vec![],
@@ -256,7 +261,7 @@ mod tests {
             depends_on: vec![],
             project_uri: None,
         };
-        let sparql = build_create_decision_sparql(&args, "http://zakhor/ns/decision/test-1", "");
+        let sparql = build_create_decision_sparql(&args, &iri("http://zakhor/ns/decision/test-1"));
         assert!(sparql.contains("INSERT DATA"));
         assert!(sparql.contains("rdf:type"));
         assert!(sparql.contains("decisionContext"));
@@ -274,14 +279,14 @@ mod tests {
             outcome: "Out".into(),
             alternatives: vec![],
             rationale: "Rat".into(),
-            affects: vec!["http://zakhor/ns/entity/e1".into()],
-            derived_from: vec!["urn:uuid:obs-1".into()],
-            supersedes: Some("http://zakhor/ns/decision/old".into()),
-            conflicts_with: vec!["http://zakhor/ns/decision/conflict".into()],
-            depends_on: vec!["http://zakhor/ns/decision/dep".into()],
-            project_uri: Some("http://zakhor/ns/project/p1".into()),
+            affects: vec![iri("http://zakhor/ns/entity/e1")],
+            derived_from: vec![iri("urn:uuid:obs-1")],
+            supersedes: Some(iri("http://zakhor/ns/decision/old")),
+            conflicts_with: vec![iri("http://zakhor/ns/decision/conflict")],
+            depends_on: vec![iri("http://zakhor/ns/decision/dep")],
+            project_uri: Some(iri("http://zakhor/ns/project/p1")),
         };
-        let sparql = build_create_decision_sparql(&args, "http://zakhor/ns/decision/test-2", "");
+        let sparql = build_create_decision_sparql(&args, &iri("http://zakhor/ns/decision/test-2"));
         assert!(sparql.contains("supersedes"));
         assert!(sparql.contains("conflictsWith"));
         assert!(sparql.contains("dependsOn"));
