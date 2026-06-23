@@ -3,7 +3,6 @@
 use iref::Iri;
 use static_iref::iri;
 
-pub use crate::sparql::Prefix;
 pub use crate::sparql::SparqlBuilder;
 
 /// Additional namespace constants (beyond those in Prefix)
@@ -339,6 +338,7 @@ pub fn ontology_file_content() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sparql::Prefix;
 
     #[test]
     fn test_entity_iri_contains_zakhor() {
