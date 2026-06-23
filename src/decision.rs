@@ -76,12 +76,12 @@ impl DecisionModel {
             "{}DELETE {{ <{}> <{}> ?old_status . }} INSERT {{ <{}> <{}> {} . }} WHERE {{ <{}> <{}> ?old_status . }}",
             crate::sparql::prefix_declarations(),
             decision_uri,
-            vocab::decision_status_iri(),
+            vocab::decision_status_iri().as_str(),
             decision_uri,
-            vocab::decision_status_iri(),
+            vocab::decision_status_iri().as_str(),
             superseded_lit,
             decision_uri,
-            vocab::decision_status_iri(),
+            vocab::decision_status_iri().as_str(),
         );
         conn.update(&sparql, None::<&Cancellable>)
             .map_err(|e| format!("Failed to supersede decision: {}", e))
@@ -97,8 +97,8 @@ impl DecisionModel {
         let sparql = format!(
             "{}SELECT ?d WHERE {{ ?d rdf:type <{}> ; <{}> {} . }} LIMIT {}",
             crate::sparql::prefix_declarations(),
-            crate::schema::decision_iri(),
-            vocab::decision_status_iri(),
+            crate::schema::decision_iri().as_str(),
+            vocab::decision_status_iri().as_str(),
             status_lit,
             limit,
         );
@@ -138,11 +138,11 @@ fn build_create_decision_sparql(
     sparql.push_str(&format!(
         "  <{}> rdf:type <{}> ;\n              <{}> {} ;\n              <{}> {} ;\n              <{}> {} ;\n              <{}> {} .\n",
         decision_uri,
-        crate::schema::decision_iri(),
-        crate::schema::decision_context_iri(), context_lit,
-        crate::schema::decision_outcome_iri(), outcome_lit,
-        crate::schema::decision_rationale_iri(), rationale_lit,
-        vocab::decision_status_iri(), status_lit,
+        crate::schema::decision_iri().as_str(),
+        crate::schema::decision_context_iri().as_str(), context_lit,
+        crate::schema::decision_outcome_iri().as_str(), outcome_lit,
+        crate::schema::decision_rationale_iri().as_str(), rationale_lit,
+        vocab::decision_status_iri().as_str(), status_lit,
     ));
 
     // Alternatives
@@ -151,7 +151,7 @@ fn build_create_decision_sparql(
         sparql.push_str(&format!(
             "  <{}> <{}> {} .\n",
             decision_uri,
-            crate::schema::decision_alternative_iri(),
+            crate::schema::decision_alternative_iri().as_str(),
             alt_lit,
         ));
     }
@@ -161,7 +161,7 @@ fn build_create_decision_sparql(
         sparql.push_str(&format!(
             "  <{}> <{}> <{}> .\n",
             decision_uri,
-            crate::schema::provenance_graph_iri(),
+            crate::schema::provenance_graph_iri().as_str(),
             aff,
         ));
     }
@@ -181,7 +181,7 @@ fn build_create_decision_sparql(
         sparql.push_str(&format!(
             "  <{}> <{}> <{}> .\n",
             decision_uri,
-            vocab::supersedes_iri(),
+            vocab::supersedes_iri().as_str(),
             s,
         ));
     }
@@ -191,7 +191,7 @@ fn build_create_decision_sparql(
         sparql.push_str(&format!(
             "  <{}> <{}> <{}> .\n",
             decision_uri,
-            vocab::conflicts_with_iri(),
+            vocab::conflicts_with_iri().as_str(),
             cw,
         ));
     }
@@ -201,7 +201,7 @@ fn build_create_decision_sparql(
         sparql.push_str(&format!(
             "  <{}> <{}> <{}> .\n",
             decision_uri,
-            vocab::depends_on_iri(),
+            vocab::depends_on_iri().as_str(),
             dpo,
         ));
     }
@@ -211,7 +211,7 @@ fn build_create_decision_sparql(
         sparql.push_str(&format!(
             "  <{}> <{}> <{}> .\n",
             decision_uri,
-            vocab::belongs_to_project_iri(),
+            vocab::belongs_to_project_iri().as_str(),
             project,
         ));
     }
