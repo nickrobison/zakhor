@@ -67,19 +67,21 @@ pub fn build_traverse_query(start_id: &str, depth: u32, edge_types: &[String]) -
         format!("FILTER(?p IN ({})) ", types.join(" "))
     };
 
-    // Build depth levels - for each depth, add property path of that length
+    // Build depth levels using intermediate variables to avoid SPARQL property
+    // paths with variable predicates (e.g. `?p/?p`), which are not valid SPARQL 1.1
+    // and are rejected by Tracker.
     let mut patterns = Vec::new();
     for d in 1..=depth {
-        let fpath = "?p/".repeat(d as usize).trim_end_matches('/').to_string();
+        let fwd = hop_chain_forward(&safe_start, d);
         patterns.push(format!(
-            "  {{ SELECT ?s ?p ?o WHERE {{ <{start}> {path} ?o . BIND(<{start}> AS ?s) }} }}",
-            path = fpath,
+            "  {{ SELECT ?s ?p ?o WHERE {{ {fwd} BIND(<{start}> AS ?s) }} }}",
+            fwd = fwd,
             start = safe_start
         ));
-        let bpath = "?p/".repeat(d as usize).trim_end_matches('/').to_string();
+        let bwd = hop_chain_backward(&safe_start, d);
         patterns.push(format!(
-            "  {{ SELECT ?s ?p ?o WHERE {{ ?s {path} <{start}> . BIND(<{start}> AS ?o) }} }}",
-            path = bpath,
+            "  {{ SELECT ?s ?p ?o WHERE {{ {bwd} BIND(<{start}> AS ?o) }} }}",
+            bwd = bwd,
             start = safe_start
         ));
     }
@@ -96,6 +98,48 @@ pub fn build_traverse_query(start_id: &str, depth: u32, edge_types: &[String]) -
         filter = filter_clause,
         depth = depth_section
     )
+}
+
+/// Build a forward hop chain of `depth` steps from `start`.
+///
+/// depth=1: `<start> ?p ?o .`
+/// depth=2: `<start> ?_p0 ?_mid0 . ?_mid0 ?p ?o .`
+///
+/// `?p` is always the last-hop predicate; intermediate predicates use
+/// anonymous variables (`?_p0`, `?_p1`, …) so they don't conflict with the
+/// outer query's `?p` binding.
+fn hop_chain_forward(start: &str, depth: u32) -> String {
+    if depth == 1 {
+        return format!("<{start}> ?p ?o .");
+    }
+    let d = depth as usize;
+    let mut parts = Vec::with_capacity(d);
+    parts.push(format!("<{start}> ?_p0 ?_mid0 ."));
+    for i in 1..(d - 1) {
+        parts.push(format!("?_mid{} ?_p{} ?_mid{} .", i - 1, i, i));
+    }
+    parts.push(format!("?_mid{} ?p ?o .", d - 2));
+    parts.join(" ")
+}
+
+/// Build a backward hop chain of `depth` steps ending at `start`.
+///
+/// depth=1: `?s ?p <start> .`
+/// depth=2: `?s ?p ?_mid0 . ?_mid0 ?_p1 <start> .`
+///
+/// `?p` is always the first-hop predicate.
+fn hop_chain_backward(start: &str, depth: u32) -> String {
+    if depth == 1 {
+        return format!("?s ?p <{start}> .");
+    }
+    let d = depth as usize;
+    let mut parts = Vec::with_capacity(d);
+    parts.push("?s ?p ?_mid0 .".to_string());
+    for i in 1..(d - 1) {
+        parts.push(format!("?_mid{} ?_p{} ?_mid{} .", i - 1, i, i));
+    }
+    parts.push(format!("?_mid{} ?_p{} <{start}> .", d - 2, d - 1));
+    parts.join(" ")
 }
 
 /// Build SPARQL INSERT for recording a decision
@@ -164,7 +208,11 @@ mod tests {
     #[test]
     fn test_build_traverse_query_reverse_path() {
         let q = build_traverse_query("http://example.org/start", 2, &[]);
-        assert!(q.contains("?s ?p/?p <http://example.org/start>"));
+        // Depth=2 uses intermediate variables instead of property paths
+        assert!(q.contains("?_mid0"));
+        assert!(q.contains("<http://example.org/start>"));
+        // Must NOT generate the invalid `?p/?p` property path syntax
+        assert!(!q.contains("?p/?p"));
     }
 
     #[test]

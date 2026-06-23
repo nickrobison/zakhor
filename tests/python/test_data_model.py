@@ -48,7 +48,7 @@ def _parse(text: str) -> dict:
 # Constants  (NIE / RDF ontology prefixes)
 # ---------------------------------------------------------------------------
 
-NIE = "http://www.semanticdesktop.org/ontologies/2007/01/19/nie#"
+NIE = "http://tracker.api.gnome.org/ontology/v3/nie#"
 RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 RDFS = "http://www.w3.org/2000/01/rdf-schema#"
 ZAKHOR = "http://zakhor/ns/"
@@ -206,7 +206,7 @@ async def test_relation_triple_stored(mcp_session: ClientSession) -> None:
             "relations": [
                 {
                     "subject_uri": "http://example.org/subj",
-                    "predicate_uri": "http://example.org/relatedTo",
+                    "predicate_uri": "http://zakhor/ns/hasRelation",
                     "object_uri": "http://example.org/obj",
                     "label": "related to",
                 },
@@ -232,7 +232,7 @@ async def test_relation_triple_stored(mcp_session: ClientSession) -> None:
         t
         for t in triples
         if t["subject"] == "http://example.org/subj"
-        and t["predicate"] == "http://example.org/relatedTo"
+        and t["predicate"] == "http://zakhor/ns/hasRelation"
         and t["object"] == "http://example.org/obj"
     ]
     assert len(relation_triples) >= 1, (

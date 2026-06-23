@@ -275,7 +275,7 @@ pub fn ontology_file_content() -> String {
     // -- Ontology declaration ----------------------------------------------------
     buf.push_str("zakhor: a nrl:Namespace, nrl:Ontology ;\n");
     buf.push_str("    nrl:prefix \"zakhor\" ;\n");
-    buf.push_str("    nrl:lastModified \"2026-06-19T00:00:00Z\"^^xsd:dateTime .\n");
+    buf.push_str("    nrl:lastModified \"2026-06-23T00:00:00Z\"^^xsd:dateTime .\n");
     buf.push('\n');
 
     // -- Class definitions -------------------------------------------------------
@@ -336,6 +336,37 @@ pub fn ontology_file_content() -> String {
             "decisionRationale",
             "zakhor:Decision",
             "xsd:string",
+        ),
+        (
+            "decisionStatus",
+            "decisionStatus",
+            "zakhor:Decision",
+            "xsd:string",
+        ),
+        (
+            "conflictsWith",
+            "conflictsWith",
+            "zakhor:Decision",
+            "rdfs:Resource",
+        ),
+        ("dependsOn", "dependsOn", "zakhor:Decision", "rdfs:Resource"),
+        (
+            "supersedes",
+            "supersedes",
+            "zakhor:Decision",
+            "rdfs:Resource",
+        ),
+        (
+            "belongsToProject",
+            "belongsToProject",
+            "rdfs:Resource",
+            "rdfs:Resource",
+        ),
+        (
+            "evidenceFor",
+            "evidenceFor",
+            "rdfs:Resource",
+            "rdfs:Resource",
         ),
     ] {
         buf.push_str(&format!(

@@ -225,10 +225,41 @@ async def mcp_session(zakhor_server: str) -> AsyncIterator[ClientSession]:
     """Yield an initialized MCP ClientSession connected to the zakhor server.
 
     The session is automatically initialized and closed.
+
+    The HTTP client and MCP session context managers are entered and exited
+    within a single dedicated asyncio Task to satisfy anyio 4.x cancel-scope
+    tracking (cancel scopes must be entered and exited in the same task).
     """
-    async with streamable_http_client(url=zakhor_server) as streams:
-        read_stream, write_stream, _ = streams
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            logger.info("MCP session initialized at %s", zakhor_server)
-            yield session
+    session_ready: asyncio.Event = asyncio.Event()
+    test_done: asyncio.Event = asyncio.Event()
+    session_holder: list[ClientSession] = []
+    error_holder: list[BaseException] = []
+
+    async def _run_session() -> None:
+        try:
+            async with streamable_http_client(url=zakhor_server) as streams:
+                read_stream, write_stream, _ = streams
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    logger.info("MCP session initialized at %s", zakhor_server)
+                    session_holder.append(session)
+                    session_ready.set()
+                    await test_done.wait()
+        except (Exception, asyncio.CancelledError) as exc:
+            error_holder.append(exc)
+            if not session_ready.is_set():
+                session_ready.set()
+
+    task = asyncio.create_task(_run_session())
+    await session_ready.wait()
+
+    if error_holder:
+        test_done.set()
+        await task
+        raise error_holder[0]
+
+    try:
+        yield session_holder[0]
+    finally:
+        test_done.set()
+        await task

@@ -115,6 +115,33 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
 
+  # ── Python integration tests ─────────────────────────────────────
+  python-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libglib2.0-dev libtracker-sparql-3.0-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build Rust binary
+        run: cargo build
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Python dependencies
+        working-directory: ./tests/python
+        run: uv sync --frozen
+
+      - name: Run Python tests
+        working-directory: ./tests/python
+        run: uv run pytest -v
+
   # ── End-to-end ───────────────────────────────────────────────────
   e2e:
     runs-on: ubuntu-latest
