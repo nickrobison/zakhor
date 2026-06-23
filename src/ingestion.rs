@@ -214,6 +214,18 @@ impl IngestionPipeline {
         conn.update(sparql, None::<&Cancellable>)
             .map_err(|e| IngestionError::Persist(format!("SPARQL update failed: {}", e)))
     }
+
+    /// Compensation for Stage 4: remove a persisted observation by identifier.
+    pub fn rollback_persist(
+        &self,
+        conn: &SparqlConnection,
+        observation_uri: &str,
+    ) -> Result<(), IngestionError> {
+        let rollback = build_observation_rollback_sparql(observation_uri);
+        conn.update(&rollback, None::<&Cancellable>).map_err(|e| {
+            IngestionError::Persist(format!("SPARQL rollback failed for {observation_uri}: {e}"))
+        })
+    }
 }
 
 impl Default for IngestionPipeline {
@@ -298,6 +310,22 @@ pub fn build_observation_sparql(args: &StoreObservationArgs, uuid_urn: &str) -> 
         sparql.push_str(&format!("  {} {} {} .\n", subj_iri, pred_iri, obj_iri,));
     }
 
+    sparql.push_str("}\n");
+    sparql
+}
+
+pub fn build_observation_rollback_sparql(uuid_urn: &str) -> String {
+    let mut sparql = String::with_capacity(512);
+    sparql.push_str(&prefix_declarations());
+    sparql.push_str("DELETE {\n");
+    sparql.push_str("  ?obs ?p ?o .\n");
+    sparql.push_str("}\n");
+    sparql.push_str("WHERE {\n");
+    sparql.push_str(&format!(
+        "  ?obs nie:identifier {} .\n",
+        escape_literal(uuid_urn)
+    ));
+    sparql.push_str("  ?obs ?p ?o .\n");
     sparql.push_str("}\n");
     sparql
 }
@@ -549,6 +577,16 @@ mod tests {
         assert!(sparql.contains("<urn:uuid:bare>"));
         assert!(!sparql.contains("zakhor:hasEntity"));
         assert!(!sparql.contains("zakhor:Entity"));
+    }
+
+    #[test]
+    fn test_build_observation_rollback_sparql_by_identifier() {
+        let sparql = build_observation_rollback_sparql("urn:uuid:rollback-test");
+        assert!(sparql.starts_with("PREFIX"));
+        assert!(sparql.contains("DELETE {"));
+        assert!(sparql.contains("WHERE {"));
+        assert!(sparql.contains("?obs nie:identifier"));
+        assert!(sparql.contains("urn:uuid:rollback-test"));
     }
 
     // -- Data structure construction -----------------------------------------

@@ -151,8 +151,9 @@ impl MemoryHandler {
         let start = Instant::now();
 
         let result = (|| -> Result<Json<StoreObservationResponse>, String> {
-            let text = args.text.clone();
-            let entity_uris: Vec<String> = args.entities.iter().map(|e| e.uri.clone()).collect();
+            let sync_text = args.text.clone();
+            let sync_entity_uris: Vec<String> =
+                args.entities.iter().map(|e| e.uri.clone()).collect();
 
             let mut pipeline = IngestionPipeline::new();
             let ingest_result = pipeline
@@ -161,10 +162,22 @@ impl MemoryHandler {
 
             if let Some(ref sync_mgr) = self.sync_mgr {
                 let mgr = sync_mgr.lock().expect("sync manager lock poisoned");
-                if let Err(e) =
-                    mgr.sync_observation(&ingest_result.observation_uri, &text, &entity_uris)
-                {
-                    tracing::warn!(error = %e, "Failed to sync observation to indexes");
+                if let Err(e) = mgr.sync_observation(
+                    &ingest_result.observation_uri,
+                    &sync_text,
+                    &sync_entity_uris,
+                ) {
+                    if let Err(rollback_err) =
+                        pipeline.rollback_persist(&self.conn, &ingest_result.observation_uri)
+                    {
+                        return Err(format!(
+                            "Sync failed: {e}; SPARQL rollback failed: {rollback_err}"
+                        ));
+                    }
+                    let observation_uri = &ingest_result.observation_uri;
+                    return Err(format!(
+                        "Index synchronization failed: {e}; observation {observation_uri} removed from SPARQL store"
+                    ));
                 }
             }
 

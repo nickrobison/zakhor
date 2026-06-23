@@ -238,6 +238,11 @@ impl SemanticIndex {
         Ok(())
     }
 
+    /// Remove all vectors for a given document id.
+    pub fn remove(&mut self, id: &str) {
+        self.vectors.retain(|(doc_id, _)| doc_id != id);
+    }
+
     /// Search the index by cosine similarity.
     ///
     /// Returns up to `limit` results sorted by descending score.

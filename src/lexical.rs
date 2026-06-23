@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
-use tantivy::{Index, IndexWriter, TantivyDocument, doc};
+use tantivy::{Index, IndexWriter, TantivyDocument, Term, doc};
 use tracker::prelude::SparqlCursorExtManual;
 
 use crate::error::{ZakhorError, ZakhorResult};
@@ -108,6 +108,20 @@ impl LexicalIndex {
             .commit()
             .map_err(|e| ZakhorError::Internal(format!("Failed to commit: {e}")))?;
 
+        Ok(())
+    }
+
+    /// Remove documents whose `id` field matches `id`.
+    pub fn remove(&self, id: &str) -> ZakhorResult<()> {
+        let mut writer: IndexWriter = self
+            .index
+            .writer(50_000_000)
+            .map_err(|e| ZakhorError::Internal(format!("Failed to create writer: {e}")))?;
+        // delete_term is applied on commit; commit makes the deletion visible to readers.
+        writer.delete_term(Term::from_field_text(self.id_field, id));
+        writer
+            .commit()
+            .map_err(|e| ZakhorError::Internal(format!("Failed to commit delete: {e}")))?;
         Ok(())
     }
 
@@ -374,6 +388,27 @@ mod tests {
         let results = index.search("entity", 10).expect("Failed to search");
         assert!(!results.is_empty(), "Expected result for 'entity'");
         assert_eq!(results[0].id, "doc-1");
+
+        let _ = std::fs::remove_dir_all(&path);
+    }
+
+    #[test]
+    fn test_remove_document() {
+        let path = test_index_path();
+        let index = LexicalIndex::new(&path).expect("Failed to create index");
+        index.add("doc-1", "remove me", &[]).unwrap();
+        index.add("doc-2", "keep me", &[]).unwrap();
+
+        index.remove("doc-1").expect("Failed to remove document");
+
+        let removed = index.search("remove", 10).expect("Failed to search");
+        assert!(
+            removed.is_empty(),
+            "Removed document should not be returned"
+        );
+        let kept = index.search("keep", 10).expect("Failed to search");
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].id, "doc-2");
 
         let _ = std::fs::remove_dir_all(&path);
     }
