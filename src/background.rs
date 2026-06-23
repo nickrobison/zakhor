@@ -72,7 +72,7 @@ pub fn start_background_workers(conn: SparqlConnection, config: BackgroundConfig
 fn refresh_ranking(conn: &SparqlConnection) -> Result<(), String> {
     let entities = crate::ranking::compute_importance(conn)?;
     for entity in &entities {
-        let safe_uri = entity.uri.replace('>', "");
+        let safe_uri = entity.uri.as_str().replace('>', "");
         let sparql = format!(
             r#"PREFIX zakhor: <{ns}>
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
