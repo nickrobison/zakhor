@@ -379,10 +379,6 @@ mod tests {
     /// Also rejects inputs whose sum-of-squares overflows f32 to infinity,
     /// which would produce a NaN cosine result.
     fn is_valid_pair(a: &[f32], b: &[f32]) -> bool {
-        let all_finite = a.iter().chain(b.iter()).all(|x| x.is_finite());
-        if !all_finite {
-            return false;
-        }
         let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
         let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
         norm_a > 0.0 && norm_a.is_finite() && norm_b > 0.0 && norm_b.is_finite()
