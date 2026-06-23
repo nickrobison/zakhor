@@ -122,12 +122,12 @@ ORDER BY ?entity"#
         let uri = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
         let label = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
         if !uri.is_empty() {
-            match IriBuf::new(uri.clone()) {
+            match IriBuf::new(uri) {
                 Ok(iri) => {
                     entities.insert(iri, label);
                 }
                 Err(e) => {
-                    tracing::warn!(uri = %uri, error = %e, "Skipping invalid entity URI in ranking");
+                    tracing::warn!(error = %e, "Skipping invalid entity URI in ranking");
                 }
             }
         }
@@ -218,8 +218,9 @@ pub fn rank_search_results(
     for doc in raw_results {
         let (graph_score, provenance_score) = match IriBuf::new(doc.id.clone()) {
             Ok(entity_iri) => {
-                let provenance_score = compute_provenance_quality(conn, &entity_iri).unwrap_or(0.0);
-                (provenance_score, provenance_score)
+                let provenance_quality =
+                    compute_provenance_quality(conn, &entity_iri).unwrap_or(0.0);
+                (provenance_quality, provenance_quality)
             }
             Err(e) => {
                 tracing::warn!(id = %doc.id, error = %e, "Skipping ranking boosts for invalid entity URI");
