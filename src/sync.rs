@@ -134,22 +134,23 @@ impl IndexSyncManager {
         let mut sem = match self.semantic.lock() {
             Ok(sem) => sem,
             Err(e) => {
-                self.lexical.remove(id).map_err(|rollback_err| {
-                    ZakhorError::Internal(format!(
-                        "Semantic lock poisoned: {e}; lexical rollback failed: {rollback_err}"
-                    ))
-                })?;
+                if let Err(rollback_err) = self.rollback_observation(id) {
+                    return Err(anyhow::Error::from(ZakhorError::Internal(format!(
+                        "Semantic lock poisoned: {e}; rollback failed: {rollback_err}"
+                    ))));
+                }
                 return Err(anyhow::Error::from(ZakhorError::Internal(format!(
                     "Semantic lock poisoned: {e}"
                 ))));
             }
         };
         if let Err(e) = sem.add(id, text) {
-            self.lexical.remove(id).map_err(|rollback_err| {
-                ZakhorError::Internal(format!(
-                    "Semantic add failed: {e}; lexical rollback failed: {rollback_err}"
-                ))
-            })?;
+            drop(sem);
+            if let Err(rollback_err) = self.rollback_observation(id) {
+                return Err(anyhow::Error::from(ZakhorError::Internal(format!(
+                    "Semantic add failed: {e}; rollback failed: {rollback_err}"
+                ))));
+            }
             return Err(anyhow::Error::from(ZakhorError::Internal(format!(
                 "Semantic add failed: {e}"
             ))));
