@@ -58,18 +58,13 @@ impl DecisionModel {
         let uuid = tracker::functions::sparql_get_uuid_urn()
             .ok_or_else(|| "Failed to generate UUID".to_string())?
             .to_string();
-        let decision_uri = format!(
-            "{}decision/{}",
-            Prefix::ZAKHOR,
-            uuid.trim_start_matches("urn:uuid:")
-        );
 
-        let sparql = build_create_decision_sparql(&args, &decision_uri, &uuid);
+        let sparql = build_create_decision_sparql(&args, &uuid, &uuid);
         conn.update(&sparql, None::<&Cancellable>)
             .map_err(|e| format!("Failed to create decision: {}", e))?;
 
         Ok(CreateDecisionResult {
-            decision_uri,
+            decision_uri: uuid,
             status: vocab::decision_status::ACTIVE.to_string(),
         })
     }

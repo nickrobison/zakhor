@@ -349,12 +349,7 @@ pub fn ontology_file_content() -> String {
             "zakhor:Decision",
             "rdfs:Resource",
         ),
-        (
-            "dependsOn",
-            "dependsOn",
-            "zakhor:Decision",
-            "rdfs:Resource",
-        ),
+        ("dependsOn", "dependsOn", "zakhor:Decision", "rdfs:Resource"),
         (
             "supersedes",
             "supersedes",
