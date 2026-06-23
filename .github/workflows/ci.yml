@@ -43,7 +43,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .fastembed_cache
-          key: ${{ runner.os }}-fastembed-${{ hashFiles('Cargo.lock', 'src/semantic.rs') }}
+          key: ${{ runner.os }}-fastembed-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-fastembed-
       - run: cargo test
