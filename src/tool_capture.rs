@@ -17,7 +17,7 @@ use serde_json::Value as JsonValue;
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::{
-    JsonObjectOptions, NumericOptions, OwnedValue, Schema, Value, STORED, STRING, TEXT,
+    JsonObjectOptions, NumericOptions, OwnedValue, STORED, STRING, Schema, TEXT, Value,
 };
 use tantivy::{Index, IndexWriter, TantivyDocument};
 use tracker::SparqlConnection;
@@ -49,8 +49,8 @@ pub struct ToolCall {
 /// - `tool_name`: TEXT + STORED — tokenized for BM25, retrievable
 /// - `session_id`: STRING + STORED — exact-match, retrievable
 /// - `timestamp_ms`: u64, STORED — wall-clock milliseconds since UNIX epoch
-/// - `arguments`: JSON + TEXT + STORED — structured JSON arguments, indexed
-///   for full-text search over nested keys and values
+/// - `arguments`: JSON + STORED — structured JSON arguments, stored for retrieval
+/// - `arguments_text`: TEXT — serialized JSON string, indexed for full-text search
 pub struct ToolCallIndex {
     index: Index,
     index_path: PathBuf,
@@ -59,6 +59,7 @@ pub struct ToolCallIndex {
     session_id_field: tantivy::schema::Field,
     timestamp_ms_field: tantivy::schema::Field,
     arguments_field: tantivy::schema::Field,
+    arguments_text_field: tantivy::schema::Field,
 }
 
 impl std::fmt::Debug for ToolCallIndex {
@@ -78,8 +79,9 @@ impl ToolCallIndex {
         builder.add_text_field("session_id", STRING | STORED);
         let ts_opts = NumericOptions::default().set_stored();
         builder.add_u64_field("timestamp_ms", ts_opts);
-        let json_opts = JsonObjectOptions::from(TEXT | STORED);
+        let json_opts = JsonObjectOptions::from(STORED);
         builder.add_json_field("arguments", json_opts);
+        builder.add_text_field("arguments_text", TEXT);
         builder.build()
     }
 
@@ -91,9 +93,8 @@ impl ToolCallIndex {
         let index_path = db_path.join("toolcalls");
 
         let index: Index = if index_path.exists() {
-            Index::open_in_dir(&index_path).map_err(|e| {
-                ZakhorError::Internal(format!("Failed to open ToolCallIndex: {e}"))
-            })?
+            Index::open_in_dir(&index_path)
+                .map_err(|e| ZakhorError::Internal(format!("Failed to open ToolCallIndex: {e}")))?
         } else {
             std::fs::create_dir_all(&index_path).map_err(|e| {
                 ZakhorError::Internal(format!("Failed to create ToolCallIndex dir: {e}"))
@@ -111,14 +112,17 @@ impl ToolCallIndex {
         let tool_name_field = schema
             .get_field("tool_name")
             .map_err(|e| ZakhorError::Internal(format!("Schema missing tool_name field: {e}")))?;
-        let session_id_field = schema.get_field("session_id").map_err(|e| {
-            ZakhorError::Internal(format!("Schema missing session_id field: {e}"))
-        })?;
+        let session_id_field = schema
+            .get_field("session_id")
+            .map_err(|e| ZakhorError::Internal(format!("Schema missing session_id field: {e}")))?;
         let timestamp_ms_field = schema.get_field("timestamp_ms").map_err(|e| {
             ZakhorError::Internal(format!("Schema missing timestamp_ms field: {e}"))
         })?;
-        let arguments_field = schema.get_field("arguments").map_err(|e| {
-            ZakhorError::Internal(format!("Schema missing arguments field: {e}"))
+        let arguments_field = schema
+            .get_field("arguments")
+            .map_err(|e| ZakhorError::Internal(format!("Schema missing arguments field: {e}")))?;
+        let arguments_text_field = schema.get_field("arguments_text").map_err(|e| {
+            ZakhorError::Internal(format!("Schema missing arguments_text field: {e}"))
         })?;
 
         Ok(Self {
@@ -129,15 +133,19 @@ impl ToolCallIndex {
             session_id_field,
             timestamp_ms_field,
             arguments_field,
+            arguments_text_field,
         })
     }
 
     /// Add a [`ToolCall`] to the index.
     ///
     /// The document is immediately committed so it becomes visible to
-    /// subsequent searches. The `arguments` JSON value is stored and indexed
-    /// using Tantivy's native JSON field type; if the value is not an object
-    /// it is wrapped as `{"value": <v>}` before indexing.
+    /// subsequent searches. The `arguments` JSON value is stored via Tantivy's
+    /// native JSON field; a serialised string copy is also indexed in
+    /// `arguments_text` (a plain TEXT field) so that simple term queries such
+    /// as `search("rusty", 10)` match against argument values without requiring
+    /// path notation. Non-object JSON arguments are wrapped as `{"value": …}`
+    /// before being stored in the JSON field.
     pub fn add(&self, toolcall: &ToolCall) -> ZakhorResult<()> {
         let mut writer: IndexWriter = self
             .index
@@ -156,12 +164,15 @@ impl ToolCallIndex {
             }
         };
 
+        let args_text = serde_json::to_string(&toolcall.arguments).unwrap_or_default();
+
         let mut doc = TantivyDocument::default();
         doc.add_text(self.id_field, &toolcall.uri);
         doc.add_text(self.tool_name_field, &toolcall.tool_name);
         doc.add_text(self.session_id_field, &toolcall.session_id);
         doc.add_u64(self.timestamp_ms_field, toolcall.timestamp_ms);
         doc.add_object(self.arguments_field, args_obj);
+        doc.add_text(self.arguments_text_field, &args_text);
 
         writer
             .add_document(doc)
@@ -188,7 +199,7 @@ impl ToolCallIndex {
 
         let query_parser = QueryParser::for_index(
             &self.index,
-            vec![self.tool_name_field, self.arguments_field],
+            vec![self.tool_name_field, self.arguments_text_field],
         );
         let query = query_parser
             .parse_query(query_str)
