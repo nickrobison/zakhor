@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use crate::sparql::Prefix;
 use iref::Iri;
 use static_iref::iri;
 
@@ -78,6 +77,7 @@ pub mod decision_status {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sparql::Prefix;
 
     #[test]
     fn test_conflicts_with_iri() {
