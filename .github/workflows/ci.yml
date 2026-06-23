@@ -32,6 +32,8 @@ jobs:
 
   backend-test:
     runs-on: ubuntu-latest
+    env:
+      FASTEMBED_CACHE_DIR: ${{ github.workspace }}/.fastembed_cache
     steps:
       - uses: actions/checkout@v4
       - name: Install native dependencies
@@ -42,7 +44,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: actions/cache@v4
         with:
-          path: .fastembed_cache
+          path: ${{ github.workspace }}/.fastembed_cache
           key: ${{ runner.os }}-fastembed-bge-small-en-v1.5
           restore-keys: |
             ${{ runner.os }}-fastembed-
