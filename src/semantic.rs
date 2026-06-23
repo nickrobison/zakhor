@@ -64,7 +64,11 @@ unsafe fn cosine_similarity_avx2(a: &[f32], b: &[f32]) -> f64 {
     let n = a.len().min(b.len());
     let chunks = n / 8;
 
-    let mut dot = _mm256_setzero_ps();
+    debug_assert_eq!(
+        a.len(),
+        b.len(),
+        "cosine_similarity requires equal-length vectors"
+    );
     let mut sq_a = _mm256_setzero_ps();
     let mut sq_b = _mm256_setzero_ps();
 
@@ -129,7 +133,11 @@ unsafe fn cosine_similarity_neon(a: &[f32], b: &[f32]) -> f64 {
     let n = a.len().min(b.len());
     let chunks = n / 4;
 
-    let mut dot = vdupq_n_f32(0.0);
+    debug_assert_eq!(
+        a.len(),
+        b.len(),
+        "cosine_similarity requires equal-length vectors"
+    );
     let mut sq_a = vdupq_n_f32(0.0);
     let mut sq_b = vdupq_n_f32(0.0);
 
@@ -346,7 +354,7 @@ mod tests {
     }
 
     /// Verify that the SIMD path produces the same result as the scalar fallback
-    /// for a 384-element vector (the BGE-small embedding dimension).  A tolerance
+    /// for a 384-element vector (the BGE-small embedding dimension). A tolerance
     /// of 1e-5 is used to accommodate floating-point reordering across SIMD lanes.
     #[test]
     fn test_cosine_similarity_simd_matches_scalar() {
