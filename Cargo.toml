@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2024"
 build = "build.rs"
 
+[features]
+# Build TinySPARQL from source during the Cargo build (using meson/ninja) rather
+# than relying on a system-installed package.  Useful on macOS where
+# `libtracker-sparql-3.0-dev` is not available as a system package.  Requires
+# meson, ninja, pkg-config, and the following libraries to be installed:
+# glib, libxml2, json-glib, libsoup (3.x), and icu4c (or libunistring).
+vendored = ["tracker-sys/vendored"]
+
 [dependencies]
 anyhow = "1.0.102"
 async-trait = "0.1.89"
@@ -23,6 +31,7 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
 toml = "0.8.22"
 tracker-rs = "0.8.0"
+tracker-sys = "0.8.0"
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "8", features = ["axum"] }
 
@@ -38,3 +47,8 @@ serde_json = "1.0.150"
 [dev-dependencies]
 quickcheck = "1.1.0"
 quickcheck_macros = "1.2.0"
+
+# Replace the published tracker-sys with our local fork that adds the
+# `vendored` feature for Homebrew-based discovery on macOS.
+[patch.crates-io]
+tracker-sys = { path = "vendor/tracker-sys" }

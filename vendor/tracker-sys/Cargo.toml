@@ -1,0 +1,86 @@
+[package]
+name = "tracker-sys"
+version = "0.8.0"
+edition = "2024"
+build = "build.rs"
+links = "tracker-sparql-3.0"
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "FFI bindings to libtracker-3.0 (with optional vendored/Homebrew support)"
+homepage = "https://gitlab.gnome.org/World/Rust/tracker-rs/"
+documentation = "https://dleggo.gitlab.io/tracker-rs/tracker/"
+license = "MIT"
+repository = "https://gitlab.gnome.org/World/Rust/tracker-rs/"
+
+[package.metadata.system-deps.tracker_sparql_3_0]
+name = "tracker-sparql-3.0"
+version = "3.0"
+
+[package.metadata.system-deps.tracker_sparql_3_0.v3_1]
+version = "3.1"
+
+[package.metadata.system-deps.tracker_sparql_3_0.v3_2]
+version = "3.2"
+
+[package.metadata.system-deps.tracker_sparql_3_0.v3_3]
+version = "3.3"
+
+[package.metadata.system-deps.tracker_sparql_3_0.v3_4]
+version = "3.4"
+
+[package.metadata.system-deps.tracker_sparql_3_0.v3_5]
+version = "3.5"
+
+[package.metadata.system-deps.tracker_sparql_3_0.v3_6]
+version = "3.6"
+
+[package.metadata.system-deps.tracker_sparql_3_0.v3_7]
+version = "3.7"
+
+[features]
+v3_1 = []
+v3_2 = ["v3_1"]
+v3_3 = ["v3_2"]
+v3_4 = ["v3_3"]
+v3_5 = ["v3_4"]
+v3_6 = ["v3_5"]
+v3_7 = ["v3_6"]
+# When enabled, TinySPARQL 3.7.1 is downloaded and compiled from source
+# (using meson/ninja) as part of the Cargo build.  No pre-installed
+# TinySPARQL package is required.  The following build tools and dependency
+# libraries must be available: meson (>=0.62), ninja, pkg-config, glib,
+# libxml2, json-glib, libsoup (>=3.x), and icu4c or libunistring.
+vendored = []
+
+[lib]
+name = "tracker_sys"
+path = "src/lib.rs"
+
+[[test]]
+name = "abi"
+path = "tests/abi.rs"
+
+[dependencies]
+libc = "0.2"
+
+[dependencies.gio_sys]
+version = "0.22"
+package = "gio-sys"
+
+[dependencies.glib_sys]
+version = "0.22"
+package = "glib-sys"
+
+[dependencies.gobject_sys]
+version = "0.22"
+package = "gobject-sys"
+
+[build-dependencies]
+system-deps = "7"
+
+[dev-dependencies]
+shell-words = "1.0.0"
+tempfile = "3"

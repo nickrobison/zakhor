@@ -14,7 +14,7 @@ env:
   TRACKER_ENDPOINT: http://localhost:9999
 
 jobs:
-  # ── Backend ──────────────────────────────────────────────────────
+  # ── Backend (Linux) ───────────────────────────────────────────────
   backend-lint:
     runs-on: ubuntu-latest
     steps:
@@ -50,6 +50,39 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-fastembed-
       - run: cargo test
+
+  # ── Backend (macOS arm64 – builds TinySPARQL from source) ───────
+  backend-lint-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install TinySPARQL build dependencies
+        run: brew install meson ninja pkg-config glib libxml2 json-glib libsoup icu4c
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --features vendored -- -D warnings
+
+  backend-test-macos:
+    runs-on: macos-14
+    env:
+      FASTEMBED_CACHE_DIR: ${{ github.workspace }}/.fastembed_cache
+      FASTEMBED_MODEL_CACHE_KEY: bge-small-en-v1.5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install TinySPARQL build dependencies
+        run: brew install meson ninja pkg-config glib libxml2 json-glib libsoup icu4c
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.fastembed_cache
+          key: ${{ runner.os }}-fastembed-${{ env.FASTEMBED_MODEL_CACHE_KEY }}
+          restore-keys: |
+            ${{ runner.os }}-fastembed-
+      - run: cargo test --features vendored
 
   # ── Frontend ─────────────────────────────────────────────────────
   frontend-lint:
