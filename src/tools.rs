@@ -99,6 +99,7 @@ pub fn build_traverse_query(start_id: &str, depth: u32, edge_types: &[String]) -
 }
 
 /// Build SPARQL INSERT for recording a decision
+#[expect(dead_code)]
 pub fn build_decision_insert(
     decision_uri: &str,
     context: &str,

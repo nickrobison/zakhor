@@ -153,7 +153,7 @@ fn build_list_query(
     };
 
     format!(
-        "PREFIX zakhor: <https://zakhor.example/>
+        "PREFIX zakhor: <http://zakhor/ns/>
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 SELECT ?id ?outcome
 WHERE {{
@@ -174,7 +174,7 @@ fn build_count_query(q: Option<&str>, status: Option<&str>) -> String {
     let filter_clause = build_filter_clauses(q, status);
 
     format!(
-        "PREFIX zakhor: <https://zakhor.example/>
+        "PREFIX zakhor: <http://zakhor/ns/>
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 SELECT (COUNT(?id) AS ?total)
 WHERE {{
@@ -191,7 +191,7 @@ WHERE {{
 fn build_properties_query(decision_id: &str) -> String {
     let safe_id = decision_id.replace(['>', '<'], "");
     format!(
-        "PREFIX zakhor: <https://zakhor.example/>
+        "PREFIX zakhor: <http://zakhor/ns/>
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 SELECT ?p ?o
 WHERE {{
@@ -205,10 +205,10 @@ WHERE {{
 fn build_alternatives_query(decision_id: &str) -> String {
     let safe_id = decision_id.replace(['>', '<'], "");
     format!(
-        "PREFIX zakhor: <https://zakhor.example/>
+        "PREFIX zakhor: <http://zakhor/ns/>
 SELECT ?alt
 WHERE {{
-  <{id}> zakhor:alternative ?alt .
+  <{id}> zakhor:decisionAlternative ?alt .
 }}",
         id = safe_id,
     )
@@ -344,7 +344,7 @@ pub async fn get_decision(
         .query(&sparql, None::<&gio::Cancellable>)
         .map_err(|e| crate::api::error::ApiError::internal(format!("SPARQL error: {e}")))?;
 
-    let zakhor_prefix = "https://zakhor.example/";
+    let zakhor_prefix = "http://zakhor/ns/";
     let rdf_type = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
     let mut outcome = String::new();
     let mut context = String::new();
@@ -507,7 +507,7 @@ mod tests {
     #[test]
     fn test_is_missing_schema_error() {
         assert!(is_missing_schema_error(
-            "Unknown class 'https://zakhor.example/Decision'"
+            "Unknown class 'http://zakhor/ns/Decision'"
         ));
         assert!(is_missing_schema_error(
             "Unknown property 'zakhor:decisionOutcome'"
@@ -583,7 +583,7 @@ mod tests {
     #[test]
     fn test_build_alternatives_query() {
         let q = build_alternatives_query("urn:uuid:xyz");
-        assert!(q.contains("zakhor:alternative"));
+        assert!(q.contains("zakhor:decisionAlternative"));
         assert!(q.contains("<urn:uuid:xyz>"));
     }
 

@@ -5,6 +5,7 @@ mod entities;
 mod error;
 mod graph;
 mod observations;
+mod projects;
 mod search;
 
 use crate::api::error::ErrorBody;
@@ -76,6 +77,8 @@ struct HealthResponse {
         admin::rebuild_indexes,
         admin::admin_status,
         code::get_code,
+        projects::list_projects,
+        projects::ranking_importance,
     ),
     components(schemas(
         HealthResponse,
@@ -119,6 +122,8 @@ struct HealthResponse {
         code::CodeRepository,
         code::CodeFile,
         code::CodeSymbol,
+        projects::ProjectItem,
+        projects::ProjectListResponse,
     ))
 )]
 pub struct ApiDoc;
@@ -162,6 +167,8 @@ fn routes() -> Router<ApiState> {
         .route("/admin/rebuild-indexes", post(admin::rebuild_indexes))
         .route("/admin/status", get(admin::admin_status))
         .route("/code", get(code::get_code))
+        .route("/projects", get(projects::list_projects))
+        .route("/ranking/importance", get(projects::ranking_importance))
 }
 
 #[allow(dead_code)]

@@ -73,6 +73,62 @@ pub fn decision_rationale_iri() -> IriBuf {
         .expect("invalid zakhor IRI — this is a bug")
 }
 
+// --- v2 vocabulary additions (from vocab.rs) ---
+
+pub fn conflicts_with_iri() -> IriBuf {
+    IriBuf::new(format!("{}conflictsWith", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
+}
+
+pub fn depends_on_iri() -> IriBuf {
+    IriBuf::new(format!("{}dependsOn", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
+}
+
+pub fn supersedes_iri() -> IriBuf {
+    IriBuf::new(format!("{}supersedes", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
+}
+
+pub fn evidence_for_iri() -> IriBuf {
+    IriBuf::new(format!("{}evidenceFor", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
+}
+
+pub fn belongs_to_project_iri() -> IriBuf {
+    IriBuf::new(format!("{}belongsToProject", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
+}
+
+pub fn code_location_iri() -> IriBuf {
+    IriBuf::new(format!("{}codeLocation", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
+}
+
+pub fn observation_content_iri() -> IriBuf {
+    IriBuf::new(format!("{}observationContent", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
+}
+
+pub fn observation_created_at_iri() -> IriBuf {
+    IriBuf::new(format!("{}observationCreatedAt", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
+}
+
+pub fn decision_status_iri() -> IriBuf {
+    IriBuf::new(format!("{}decisionStatus", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
+}
+
+pub fn graph_importance_iri() -> IriBuf {
+    IriBuf::new(format!("{}graphImportance", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
+}
+
+pub fn provenance_quality_iri() -> IriBuf {
+    IriBuf::new(format!("{}provenanceQuality", Prefix::ZAKHOR))
+        .expect("invalid zakhor IRI — this is a bug")
+}
+
 /// Generate SPARQL CONSTRUCT query that registers the ontology in Tracker.
 #[allow(dead_code)]
 pub fn ontology_construct_query() -> String {
@@ -116,6 +172,10 @@ pub fn ontology_construct_query() -> String {
         decRat = decision_rationale_iri().as_str(),
     );
     crate::sparql::ontology_construct(&construct, &where_clause)
+}
+
+pub fn schema_tool_call_iri() -> IriBuf {
+    IriBuf::new(format!("{}ToolCall", Prefix::ZAKHOR)).expect("invalid zakhor IRI — this is a bug")
 }
 
 /// Generate SPARQL INSERT DATA query that registers the ontology in Tracker.
