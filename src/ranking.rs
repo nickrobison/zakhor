@@ -217,10 +217,10 @@ pub fn rank_search_results(
     let mut ranked: Vec<ScoredDoc> = Vec::with_capacity(raw_results.len());
     for doc in raw_results {
         let (graph_score, provenance_score) = match IriBuf::new(doc.id.clone()) {
-            Ok(entity_iri) => (
-                compute_provenance_quality(conn, &entity_iri).unwrap_or(0.0),
-                compute_provenance_quality(conn, &entity_iri).unwrap_or(0.0),
-            ),
+            Ok(entity_iri) => {
+                let provenance_score = compute_provenance_quality(conn, &entity_iri).unwrap_or(0.0);
+                (provenance_score, provenance_score)
+            }
             Err(e) => {
                 tracing::warn!(id = %doc.id, error = %e, "Skipping ranking boosts for invalid entity URI");
                 (0.0, 0.0)
