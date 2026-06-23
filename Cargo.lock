@@ -4300,8 +4300,6 @@ dependencies = [
 [[package]]
 name = "tracker-sys"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "092b9fc2d0b7adfab330bddca4ed0d23267817a12ef76aa7f98835d9c3f10254"
 dependencies = [
  "gio-sys",
  "glib-sys",
@@ -4962,6 +4960,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tracker-rs",
+ "tracker-sys",
  "utoipa",
  "utoipa-swagger-ui",
 ]
