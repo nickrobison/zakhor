@@ -12,6 +12,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(&target_dir)?;
     fs::write(target_dir.join("openapi.json"), OPENAPI_JSON)?;
     println!("cargo:rerun-if-changed=build.rs");
+
+    // When tracker-sys was compiled with the `vendored` feature it builds
+    // TinySPARQL from source and exposes the library directory via Cargo's
+    // DEP_ metadata mechanism.  Embed that directory as an RPATH so the
+    // zakhor binary can find the shared library at runtime without requiring
+    // LD_LIBRARY_PATH / DYLD_LIBRARY_PATH to be set.
+    if let Ok(lib_dir) = env::var("DEP_TRACKER_SPARQL_3_0_LIB_DIR") {
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{lib_dir}");
+    }
+
     Ok(())
 }
 

@@ -5,11 +5,11 @@ edition = "2024"
 build = "build.rs"
 
 [features]
-# Build and link against TinySPARQL installed via Homebrew on macOS instead of
-# relying on a system-wide pkg-config installation.  On Linux the distro-
-# provided `libtracker-sparql-3.0-dev` package is used and this flag is not
-# needed.  Enabling this feature propagates down to the vendored tracker-sys
-# build script which auto-detects the Homebrew installation prefix.
+# Build TinySPARQL from source during the Cargo build (using meson/ninja) rather
+# than relying on a system-installed package.  Useful on macOS where
+# `libtracker-sparql-3.0-dev` is not available as a system package.  Requires
+# meson, ninja, pkg-config, and the following libraries to be installed:
+# glib, libxml2, json-glib, libsoup (3.x), and icu4c (or libunistring).
 vendored = ["tracker-sys/vendored"]
 
 [dependencies]

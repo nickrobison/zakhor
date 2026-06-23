@@ -48,9 +48,11 @@ v3_4 = ["v3_3"]
 v3_5 = ["v3_4"]
 v3_6 = ["v3_5"]
 v3_7 = ["v3_6"]
-# When enabled, the build script will auto-detect TinySPARQL installed via
-# Homebrew on macOS and add its pkg-config path so that system-deps can find
-# the library without requiring the user to set PKG_CONFIG_PATH manually.
+# When enabled, TinySPARQL 3.7.1 is downloaded and compiled from source
+# (using meson/ninja) as part of the Cargo build.  No pre-installed
+# TinySPARQL package is required.  The following build tools and dependency
+# libraries must be available: meson (>=0.62), ninja, pkg-config, glib,
+# libxml2, json-glib, libsoup (>=3.x), and icu4c or libunistring.
 vendored = []
 
 [lib]
