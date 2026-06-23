@@ -71,9 +71,10 @@ fn extend_pkg_config_path_from_homebrew() {
         format!("{}:{}", extra_paths.join(":"), existing)
     };
 
-    // SAFETY: build scripts are single-threaded, so modifying the process
-    // environment here is safe.
-    #[allow(unused_unsafe)]
+    // Build scripts are single-threaded, so modifying the process environment
+    // here does not cause data races.
+    // SAFETY: This build script is single-threaded; no other thread reads the
+    // environment concurrently, making `set_var` safe to call.
     unsafe {
         std::env::set_var("PKG_CONFIG_PATH", &new_path);
     }
