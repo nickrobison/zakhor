@@ -18,7 +18,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: process.env.CI ? "bun run preview" : "bun run dev",
+    command: process.env.CI ? "pnpm run preview" : "pnpm run dev",
     url: "http://127.0.0.1:5173",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
