@@ -6,7 +6,6 @@ use rmcp::transport::streamable_http_server::{
 };
 use std::sync::{Arc, Mutex};
 use tokio::io::{stdin, stdout};
-use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 mod api;
@@ -102,11 +101,7 @@ async fn serve_combined(
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .json()
-        .with_env_filter(
-            EnvFilter::builder()
-                .with_default_directive(LevelFilter::INFO.into())
-                .from_env_lossy(),
-        )
+        .with_env_filter(build_log_filter())
         .init();
 
     let cli = Cli::parse();
@@ -149,4 +144,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn build_log_filter() -> EnvFilter {
+    EnvFilter::try_from_default_env().unwrap_or_else(|_| default_log_filter())
+}
+
+fn default_log_filter() -> EnvFilter {
+    EnvFilter::new("info,rmcp::service=warn")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::default_log_filter;
+
+    #[test]
+    fn default_log_filter_suppresses_rmcp_service_info() {
+        let filter = default_log_filter();
+        let rendered = filter.to_string();
+        assert!(
+            rendered.contains("info"),
+            "missing info directive: {rendered}"
+        );
+        assert!(
+            rendered.contains("rmcp::service=warn"),
+            "missing rmcp::service override: {rendered}"
+        );
+    }
 }
