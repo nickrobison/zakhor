@@ -1012,9 +1012,9 @@ dependencies = [
 
 [[package]]
 name = "env_filter"
-version = "1.0.1"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32e90c2accc4b07a8456ea0debdc2e7587bdd890680d71173a15d4ae604f6eef"
+checksum = "900d271a03799a1ee8d1ca9b19893b48ca674a9284fefcfb85f05e74ed314217"
 dependencies = [
  "log",
  "regex",
@@ -1022,9 +1022,9 @@ dependencies = [
 
 [[package]]
 name = "env_logger"
-version = "0.11.10"
+version = "0.11.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0621c04f2196ac3f488dd583365b9c09be011a4ab8b9f37248ffcc8f6198b56a"
+checksum = "de671bd27a75a797dc9ae289ba1e77276e75e2026408aab65185384e2d5cd3f6"
 dependencies = [
  "env_filter",
  "log",
@@ -4938,57 +4938,110 @@ dependencies = [
 name = "zakhor"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "async-trait",
  "axum",
- "bincode",
  "clap",
- "fastembed",
  "gio",
- "iref",
- "langtag",
- "quickcheck",
- "quickcheck_macros",
- "rdf-types",
  "rmcp",
- "schemars",
- "serde",
  "serde_json",
- "static-iref",
- "tantivy",
  "tokio",
- "toml 0.8.23",
- "tower-http",
  "tracing",
  "tracing-subscriber",
  "tracker-rs",
- "utoipa",
- "utoipa-swagger-ui",
+ "zakhor-api",
+ "zakhor-common",
+ "zakhor-model",
+ "zakhor-search",
+ "zakhor-storage",
 ]
 
 [[package]]
 name = "zakhor-api"
 version = "0.1.0"
+dependencies = [
+ "axum",
+ "gio",
+ "rmcp",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tantivy",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracker-rs",
+ "utoipa",
+ "utoipa-swagger-ui",
+ "zakhor-common",
+ "zakhor-model",
+ "zakhor-search",
+ "zakhor-storage",
+]
 
 [[package]]
 name = "zakhor-code"
 version = "0.1.0"
+dependencies = [
+ "gio",
+ "tracker-rs",
+ "zakhor-storage",
+]
 
 [[package]]
 name = "zakhor-common"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "iref",
+ "serde",
+ "static-iref",
+ "tokio",
+ "toml 0.8.23",
+]
 
 [[package]]
 name = "zakhor-model"
 version = "0.1.0"
+dependencies = [
+ "gio",
+ "iref",
+ "rdf-types",
+ "schemars",
+ "serde",
+ "tokio",
+ "tracing",
+ "tracker-rs",
+ "utoipa",
+ "zakhor-common",
+ "zakhor-search",
+ "zakhor-storage",
+]
 
 [[package]]
 name = "zakhor-search"
 version = "0.1.0"
+dependencies = [
+ "bincode",
+ "fastembed",
+ "gio",
+ "quickcheck",
+ "quickcheck_macros",
+ "tantivy",
+ "tracker-rs",
+ "zakhor-common",
+]
 
 [[package]]
 name = "zakhor-storage"
 version = "0.1.0"
+dependencies = [
+ "gio",
+ "iref",
+ "rdf-types",
+ "static-iref",
+ "tracing",
+ "tracker-rs",
+ "zakhor-common",
+]
 
 [[package]]
 name = "zerocopy"

@@ -4,3 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
+
+[dependencies]
+anyhow = "1.0.102"
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1.52.3", features = ["full"] }
+toml = "0.8.22"
+iref = { version = "3", features = ["serde"] }
+static-iref = "3"

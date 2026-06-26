@@ -4,3 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
+
+[dependencies]
+zakhor-common = { path = "../zakhor-common" }
+gio = "0.22.6"
+tracker-rs = "0.8.0"
+rdf-types = "0.22"
+iref = { version = "3", features = ["serde"] }
+static-iref = "3"
+tracing = "0.1.41"

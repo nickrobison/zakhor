@@ -8,27 +8,12 @@ use std::sync::{Arc, Mutex};
 use tokio::io::{stdin, stdout};
 use tracing_subscriber::EnvFilter;
 
-mod api;
-mod background;
-mod code_index;
-mod config;
-mod decision;
-mod entity_resolver;
-mod error;
-mod ingestion;
-mod lexical;
-mod project;
-mod provenance;
-mod ranking;
-mod schema;
-mod semantic;
-mod server;
-mod sparql;
-mod sync;
-mod tool_capture;
-mod tools;
-mod tracker_db;
-mod vocab;
+use zakhor_api::api::router;
+use zakhor_api::server::MemoryHandler;
+use zakhor_common::config::Config;
+use zakhor_model::background::{self, BackgroundConfig};
+use zakhor_search::IndexSyncManager;
+use zakhor_storage::tracker_db;
 
 /// Zakhor MCP server
 #[derive(Parser)]
@@ -53,26 +38,9 @@ struct Cli {
     rebuild_indexes: bool,
 }
 
-/// Correlation ID counter shared across MCP tool invocations.
-/// Each tool call gets a unique `mcp-<hex>` identifier that
-/// propagates through the tracing span tree.
-static CORRELATION_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-/// Generate a unique correlation ID for an MCP request.
-///
-/// Format: `mcp-000001`, `mcp-000002`, … monotonically increasing
-/// within a single server process.
-pub fn new_correlation_id() -> String {
-    use std::sync::atomic::Ordering;
-    format!(
-        "mcp-{:06x}",
-        CORRELATION_COUNTER.fetch_add(1, Ordering::Relaxed)
-    )
-}
-
 async fn serve_combined(
-    cfg: config::Config,
-    service: server::MemoryHandler,
+    cfg: Config,
+    service: MemoryHandler,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = format!("{}:{}", cfg.http.host, cfg.http.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -89,7 +57,7 @@ async fn serve_combined(
     );
 
     // Combine API router with MCP routes
-    let app = api::router(api_state)
+    let app = router(api_state)
         .route("/", any_service(mcp_service.clone()))
         .route("/*path", any_service(mcp_service));
 
@@ -106,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse();
 
-    let mut cfg = config::Config::load();
+    let mut cfg = Config::load();
     if let Some(db_path) = cli.db_path {
         cfg.database.path = db_path;
     }
@@ -115,12 +83,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = tracker_db::init_db(db_path);
 
     let sync_mgr = if cli.rebuild_indexes {
-        let mgr = sync::IndexSyncManager::new(&cfg.database.path)?;
+        let mgr = IndexSyncManager::new(&cfg.database.path)?;
         mgr.rebuild_all(&conn)?;
         tracing::info!("Indexes rebuilt successfully");
         Some(Arc::new(Mutex::new(mgr)))
     } else {
-        match sync::IndexSyncManager::new(&cfg.database.path) {
+        match IndexSyncManager::new(&cfg.database.path) {
             Ok(mgr) => Some(Arc::new(Mutex::new(mgr))),
             Err(e) => {
                 tracing::warn!("Failed to init sync manager (indexes unavailable): {e}");
@@ -129,11 +97,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let service = server::MemoryHandler::new_with_config(&cfg, sync_mgr);
+    let service = MemoryHandler::new_with_config(&cfg, sync_mgr);
 
     // Start background workers (ranking refresh, stale data cleanup)
     let _bg_shutdown =
-        background::start_background_workers(conn.clone(), background::BackgroundConfig::default());
+        background::start_background_workers(conn.clone(), BackgroundConfig::default());
 
     if cli.http {
         serve_combined(cfg, service).await?;

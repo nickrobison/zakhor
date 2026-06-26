@@ -4,3 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
+
+[dependencies]
+zakhor-storage = { path = "../zakhor-storage" }
+
+gio = "0.22.6"
+tracker-rs = "0.8.0"

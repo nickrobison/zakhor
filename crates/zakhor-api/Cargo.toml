@@ -4,3 +4,23 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
+
+[dependencies]
+zakhor-common = { path = "../zakhor-common" }
+zakhor-storage = { path = "../zakhor-storage" }
+zakhor-search = { path = "../zakhor-search" }
+zakhor-model = { path = "../zakhor-model" }
+
+axum = { version = "0.7", features = ["http1", "http2", "macros", "tokio", "json"] }
+rmcp = { version = "1.7.0", features = ["server", "transport-io", "transport-streamable-http-server"] }
+schemars = "1.2.1"
+tantivy = "0.22"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tokio = { version = "1.52.3", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors"] }
+tracing = "0.1.41"
+tracker-rs = "0.8.0"
+gio = "0.22.6"
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "8", features = ["axum"] }
