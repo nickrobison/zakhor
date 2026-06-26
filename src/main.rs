@@ -1,12 +1,12 @@
 use axum::routing::any_service;
 use clap::Parser;
 use rmcp::ServiceExt;
-use tower_http::services::{ServeDir, ServeFile};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
 use std::sync::{Arc, Mutex};
 use tokio::io::{stdin, stdout};
+use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::EnvFilter;
 
 mod api;
@@ -91,10 +91,12 @@ async fn serve_combined(
 
     // SPA static file service: serve ui/dist with index.html fallback for client-side routing
     if !std::path::Path::new("ui/dist/index.html").exists() {
-        tracing::warn!("ui/dist/index.html not found; UI will not be served. Build the frontend first (cd ui && pnpm run build).");
+        tracing::warn!(
+            "ui/dist/index.html not found; UI will not be served. Build the frontend first (cd ui && pnpm run build)."
+        );
     }
-    let spa_service = ServeDir::new("ui/dist")
-        .not_found_service(ServeFile::new("ui/dist/index.html"));
+    let spa_service =
+        ServeDir::new("ui/dist").not_found_service(ServeFile::new("ui/dist/index.html"));
 
     // Combine API router with MCP routes and SPA fallback
     let app = api::router(api_state)
