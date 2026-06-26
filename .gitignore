@@ -7,3 +7,6 @@
 /ui/dist/
 /ui/zakhor-db/
 /ui/src/lib/api/generated/
+**/__pycache__/
+**/*.pyc
+tests/python/.pytest_cache/
