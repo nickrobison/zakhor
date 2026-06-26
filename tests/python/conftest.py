@@ -2,8 +2,9 @@
 
 Fixtures:
     tracker_available -- session-scoped, checks if zakhor binary can start
-    zakhor_server -- function-scoped, starts zakhor with --http, yields URL
+    zakhor_server -- function-scoped, starts zakhor with --http --ephemeral, yields URL
     mcp_session -- function-scoped, returns initialized MCP ClientSession
+    sparql_client -- module-scoped, returns SPARQLWrapper for direct SPARQL queries
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ import pytest
 import pytest_asyncio
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from SPARQLWrapper import JSON, SPARQLWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 ZAKHOR_BINARY = PROJECT_ROOT / "target" / "debug" / "zakhor"
 SERVER_START_TIMEOUT = 10.0  # seconds to wait for server readiness
 POLL_INTERVAL = 0.1  # seconds between readiness checks
+
+# SPARQL endpoint for direct queries (e.g., tracker3 endpoint or tinysparql)
+SPARQL_ENDPOINT = os.environ.get("ZAKHOR_SPARQL_ENDPOINT", "http://localhost:7200")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -72,6 +77,28 @@ async def _is_server_ready(url: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Module-scoped: SPARQL client for direct database queries
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def sparql_client() -> SPARQLWrapper:
+    """Return a SPARQLWrapper connected to the configured SPARQL endpoint.
+
+    The endpoint URL defaults to http://localhost:7200 and can be overridden
+    via the ``ZAKHOR_SPARQL_ENDPOINT`` environment variable.
+
+    Use this fixture when tests need to verify data directly in the Tracker
+    SPARQL store (e.g., assert triples were written correctly).
+    """
+    client = SPARQLWrapper(SPARQL_ENDPOINT)
+    client.setReturnFormat(JSON)
+    # Use POST for query execution to avoid URL-length limits
+    client.setMethod("POST")
+    return client
+
+
+# ---------------------------------------------------------------------------
 # Session-scoped: check if zakhor binary works
 # ---------------------------------------------------------------------------
 
@@ -96,6 +123,7 @@ async def tracker_available() -> bool:
         proc = await asyncio.create_subprocess_exec(
             str(ZAKHOR_BINARY),
             "--http",
+            "--ephemeral",
             f"--db-path={db_path}",
             env=env,
             stdout=asyncio.subprocess.DEVNULL,
@@ -159,6 +187,7 @@ async def zakhor_server(tmp_path: Path) -> AsyncIterator[str]:
     proc = await asyncio.create_subprocess_exec(
         str(ZAKHOR_BINARY),
         "--http",
+        "--ephemeral",
         f"--db-path={db_path}",
         env=env,
         stdout=asyncio.subprocess.PIPE,

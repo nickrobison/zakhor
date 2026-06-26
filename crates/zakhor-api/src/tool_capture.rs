@@ -258,7 +258,10 @@ pub fn capture_tool_call(
         .unwrap_or_default()
         .as_millis();
     let call_uri = format!("{}toolcall/{:016x}", Prefix::ZAKHOR, ts);
-    let escaped_args_json = arguments.to_string().replace('\'', "\\'");
+    let escaped_args_json = arguments
+        .to_string()
+        .replace('\\', "\\\\")
+        .replace('\'', "\\'");
 
     let sparql = format!(
         r#"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -266,16 +269,16 @@ PREFIX zakhor: <{ns}>
 
 INSERT DATA {{
   <{uri}> rdf:type zakhor:ToolCall .
-  <{uri}> zakhor:toolName "{name}"@en .
-  <{uri}> zakhor:toolArguments "{args}"@en .
-  <{uri}> zakhor:sessionId "{session}"@en .
+  <{uri}> zakhor:toolName '{name}'@en .
+  <{uri}> zakhor:toolArguments '{args}'@en .
+  <{uri}> zakhor:sessionId '{session}'@en .
   <{uri}> zakhor:timestamp {ts} .
 }}"#,
         ns = Prefix::ZAKHOR,
         uri = call_uri,
-        name = tool_name.replace('\'', "\\'"),
+        name = tool_name.replace('\\', "\\\\").replace('\'', "\\'"),
         args = escaped_args_json,
-        session = session_id.replace('\'', "\\'"),
+        session = session_id.replace('\\', "\\\\").replace('\'', "\\'"),
         ts = ts,
     );
 

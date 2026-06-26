@@ -111,6 +111,22 @@ pub fn provenance_quality_iri() -> &'static Iri {
     iri!("http://zakhor/ns/provenanceQuality")
 }
 
+pub fn tool_name_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/toolName")
+}
+
+pub fn tool_arguments_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/toolArguments")
+}
+
+pub fn session_id_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/sessionId")
+}
+
+pub fn timestamp_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/timestamp")
+}
+
 /// Generate SPARQL CONSTRUCT query that registers the ontology in Tracker.
 #[allow(dead_code)]
 pub fn ontology_construct_query() -> String {
@@ -128,23 +144,29 @@ pub fn ontology_construct_query() -> String {
          ({project} rdf:type rdfs:Class \"Project\"@en rdfs:Resource)\n\
          ({issue} rdf:type rdfs:Class \"Issue\"@en rdfs:Resource)\n\
          ({constraint} rdf:type rdfs:Class \"Constraint\"@en rdfs:Resource)\n\
-         ({observation} rdf:type rdfs:Class \"Observation\"@en rdfs:Resource)\n\
-         }}\n\
-         VALUES (?p ?d ?r) {{\n\
-         ({hasEnt} rdfs:Resource zakhor:Entity)\n\
-         ({hasRel} rdfs:Resource rdfs:Resource)\n\
-         ({prov} rdfs:Resource rdfs:Resource)\n\
-         ({decCtx} zakhor:Decision xsd:string)\n\
-         ({decOut} zakhor:Decision xsd:string)\n\
-         ({alt} zakhor:Decision xsd:string)\n\
-         ({decRat} zakhor:Decision xsd:string)\n\
-         }}",
+          ({observation} rdf:type rdfs:Class \"Observation\"@en rdfs:Resource)\n\
+          ({toolCall} rdf:type rdfs:Class \"ToolCall\"@en rdfs:Resource)\n\
+          }}\n\
+          VALUES (?p ?d ?r) {{\n\
+          ({hasEnt} rdfs:Resource zakhor:Entity)\n\
+          ({hasRel} rdfs:Resource rdfs:Resource)\n\
+          ({prov} rdfs:Resource rdfs:Resource)\n\
+          ({decCtx} zakhor:Decision xsd:string)\n\
+          ({decOut} zakhor:Decision xsd:string)\n\
+          ({alt} zakhor:Decision xsd:string)\n\
+          ({decRat} zakhor:Decision xsd:string)\n\
+          ({toolName} zakhor:ToolCall xsd:string)\n\
+          ({toolArgs} zakhor:ToolCall xsd:string)\n\
+          ({sessionId} zakhor:ToolCall xsd:string)\n\
+          ({timestamp} zakhor:ToolCall xsd:integer)\n\
+          }}",
         entity = entity_iri().as_str(),
         decision = decision_iri().as_str(),
         project = project_iri().as_str(),
         issue = issue_iri().as_str(),
         constraint = constraint_iri().as_str(),
         observation = observation_iri().as_str(),
+        toolCall = schema_tool_call_iri().as_str(),
         hasEnt = has_entity_iri().as_str(),
         hasRel = has_relation_iri().as_str(),
         prov = provenance_graph_iri().as_str(),
@@ -152,6 +174,10 @@ pub fn ontology_construct_query() -> String {
         decOut = decision_outcome_iri().as_str(),
         alt = decision_alternative_iri().as_str(),
         decRat = decision_rationale_iri().as_str(),
+        toolName = tool_name_iri().as_str(),
+        toolArgs = tool_arguments_iri().as_str(),
+        sessionId = session_id_iri().as_str(),
+        timestamp = timestamp_iri().as_str(),
     );
     crate::sparql::ontology_construct(&construct, &where_clause)
 }
@@ -171,6 +197,7 @@ pub fn ontology_insert_query() -> String {
     let i = issue_iri();
     let c = constraint_iri();
     let o = observation_iri();
+    let tc = schema_tool_call_iri();
     let he = has_entity_iri();
     let hr = has_relation_iri();
     let pg = provenance_graph_iri();
@@ -178,6 +205,10 @@ pub fn ontology_insert_query() -> String {
     let do_ = decision_outcome_iri();
     let alt = decision_alternative_iri();
     let dr = decision_rationale_iri();
+    let tn = tool_name_iri();
+    let ta = tool_arguments_iri();
+    let si = session_id_iri();
+    let ts_iri = timestamp_iri();
 
     let triples = format!(
         "<{e}> rdf:type rdfs:Class ;\n\
@@ -198,33 +229,49 @@ pub fn ontology_insert_query() -> String {
           <{o}> rdf:type rdfs:Class ;\n\
                rdfs:label \"Observation\"@en ;\n\
                rdfs:subClassOf rdfs:Resource .\n\
+          <{tc}> rdf:type rdfs:Class ;\n\
+               rdfs:label \"ToolCall\"@en ;\n\
+               rdfs:subClassOf rdfs:Resource .\n\
           <{he}> rdf:type rdf:Property ;\n\
-                 rdfs:domain rdfs:Resource ;\n\
-                 rdfs:range zakhor:Entity .\n\
+                  rdfs:domain rdfs:Resource ;\n\
+                  rdfs:range zakhor:Entity .\n\
           <{hr}> rdf:type rdf:Property ;\n\
-                 rdfs:domain rdfs:Resource ;\n\
-                 rdfs:range rdfs:Resource .\n\
+                  rdfs:domain rdfs:Resource ;\n\
+                  rdfs:range rdfs:Resource .\n\
           <{pg}> rdf:type rdf:Property ;\n\
-                 rdfs:domain rdfs:Resource ;\n\
-                 rdfs:range rdfs:Resource .\n\
+                  rdfs:domain rdfs:Resource ;\n\
+                  rdfs:range rdfs:Resource .\n\
           <{dc}> rdf:type rdf:Property ;\n\
-                 rdfs:domain zakhor:Decision ;\n\
-                 rdfs:range xsd:string .\n\
+                  rdfs:domain zakhor:Decision ;\n\
+                  rdfs:range xsd:string .\n\
           <{do_}> rdf:type rdf:Property ;\n\
-                  rdfs:domain zakhor:Decision ;\n\
-                  rdfs:range xsd:string .\n\
+                   rdfs:domain zakhor:Decision ;\n\
+                   rdfs:range xsd:string .\n\
           <{alt}> rdf:type rdf:Property ;\n\
-                  rdfs:domain zakhor:Decision ;\n\
-                  rdfs:range xsd:string .\n\
+                   rdfs:domain zakhor:Decision ;\n\
+                   rdfs:range xsd:string .\n\
           <{dr}> rdf:type rdf:Property ;\n\
-                  rdfs:domain zakhor:Decision ;\n\
-                  rdfs:range xsd:string .",
+                   rdfs:domain zakhor:Decision ;\n\
+                   rdfs:range xsd:string .\n\
+          <{tn}> rdf:type rdf:Property ;\n\
+                  rdfs:domain zakhor:ToolCall ;\n\
+                  rdfs:range xsd:string .\n\
+          <{ta}> rdf:type rdf:Property ;\n\
+                  rdfs:domain zakhor:ToolCall ;\n\
+                  rdfs:range xsd:string .\n\
+          <{si}> rdf:type rdf:Property ;\n\
+                  rdfs:domain zakhor:ToolCall ;\n\
+                  rdfs:range xsd:string .\n\
+          <{ts_iri}> rdf:type rdf:Property ;\n\
+                  rdfs:domain zakhor:ToolCall ;\n\
+                  rdfs:range xsd:integer .",
         e = e.as_str(),
         d = d.as_str(),
         p = p.as_str(),
         i = i.as_str(),
         c = c.as_str(),
         o = o.as_str(),
+        tc = tc.as_str(),
         he = he.as_str(),
         hr = hr.as_str(),
         pg = pg.as_str(),
@@ -232,6 +279,10 @@ pub fn ontology_insert_query() -> String {
         do_ = do_.as_str(),
         alt = alt.as_str(),
         dr = dr.as_str(),
+        tn = tn.as_str(),
+        ta = ta.as_str(),
+        si = si.as_str(),
+        ts_iri = ts_iri.as_str(),
     );
 
     SparqlBuilder::insert_data_raw(&triples)
@@ -268,6 +319,7 @@ pub fn ontology_file_content() -> String {
         ("Issue", "Issue"),
         ("Constraint", "Constraint"),
         ("Observation", "Observation"),
+        ("ToolCall", "ToolCall"),
     ] {
         buf.push_str(&format!(
             concat!(
@@ -350,6 +402,15 @@ pub fn ontology_file_content() -> String {
             "rdfs:Resource",
             "rdfs:Resource",
         ),
+        ("toolName", "toolName", "zakhor:ToolCall", "xsd:string"),
+        (
+            "toolArguments",
+            "toolArguments",
+            "zakhor:ToolCall",
+            "xsd:string",
+        ),
+        ("sessionId", "sessionId", "zakhor:ToolCall", "xsd:string"),
+        ("timestamp", "timestamp", "zakhor:ToolCall", "xsd:integer"),
     ] {
         buf.push_str(&format!(
             concat!(

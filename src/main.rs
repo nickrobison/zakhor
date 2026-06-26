@@ -22,7 +22,7 @@ use zakhor_storage::tracker_db;
     version,
     about,
     long_about = None,
-    after_help = "Environment variables:\n  ZAKHOR_DB_PATH        Database path override\n  ZAKHOR_HTTP_HOST      HTTP bind host (default: 127.0.0.1)\n  ZAKHOR_HTTP_PORT      HTTP bind port (default: 3000)"
+    after_help = "Environment variables:\n  ZAKHOR_DB_PATH        Database path override\n  ZAKHOR_HTTP_HOST      HTTP bind host (default: 127.0.0.1)\n  ZAKHOR_HTTP_PORT      HTTP bind port (default: 3000)\n\nEphemeral mode:\n  --ephemeral           Creates a fresh Tracker DB in a temp directory (wiped on each startup)"
 )]
 struct Cli {
     /// Serve MCP over Streamable HTTP/SSE instead of stdio
@@ -36,6 +36,10 @@ struct Cli {
     /// Rebuild lexical and semantic indexes before serving
     #[arg(long)]
     rebuild_indexes: bool,
+
+    /// Use a fresh Tracker DB in a temp directory (wiped on each startup)
+    #[arg(long)]
+    ephemeral: bool,
 }
 
 async fn serve_combined(
@@ -79,6 +83,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cfg.database.path = db_path;
     }
 
+    if cli.ephemeral {
+        let tmp = std::env::temp_dir().join(format!("zakhor-ephemeral-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp)?;
+        cfg.database.path = tmp;
+        tracing::info!(path = %cfg.database.path.display(), "Ephemeral mode — fresh Tracker DB created in temp dir");
+    }
+
     let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
     let conn = tracker_db::init_db(db_path);
 
@@ -97,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let service = MemoryHandler::new_with_config(&cfg, sync_mgr);
+    let service = MemoryHandler::new_with_config(&cfg, sync_mgr, cli.ephemeral);
 
     // Start background workers (ranking refresh, stale data cleanup)
     let _bg_shutdown =

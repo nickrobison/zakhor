@@ -104,3 +104,32 @@ cargo test         # Run unit tests
 cargo clippy       # Lint
 cargo build        # Release build: cargo build --release
 ```
+
+### Integration Tests
+
+Python integration tests are in [`tests/python/`](tests/python/) and exercise the full
+MCP tool surface against a live Zakhor server. They require a debug build, Python 3.12+,
+and the `uv` package manager.
+
+```bash
+# Prerequisite: compile the debug binary
+cargo build
+
+# Run full integration test suite (via Make):
+make test-integration
+
+# Or run directly:
+./tests/python/run_tests.sh
+
+# Filter by test keyword:
+./tests/python/run_tests.sh traverse
+
+# Pass extra arguments to pytest:
+./tests/python/run_tests.sh -- -x --tb=short
+```
+
+Each integration test starts an ephemeral Zakhor server on a random port, runs
+assertions over MCP and SPARQL, and tears down the server afterward. The suite
+requires a running Tracker SPARQL endpoint (`tracker3 endpoint` or `tinysparql`).
+
+See [`tests/python/pyproject.toml`](tests/python/pyproject.toml) for test configuration and dependencies.

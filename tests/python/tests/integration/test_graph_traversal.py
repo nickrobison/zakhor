@@ -69,16 +69,18 @@ async def test_traverse_from_observation(mcp_session: ClientSession) -> None:
 @pytest.mark.asyncio
 async def test_traverse_depth_two(mcp_session: ClientSession) -> None:
     """Traverse with depth=2 returns multi-hop edges."""
-    # Store entities with a relation
     await mcp_session.call_tool(
         "store_observation",
         {
             "text": "Depth 2 test",
-            "entities": [],
+            "entities": [
+                {"uri": TRAVERSE_ENTITY_A, "label": "TraverseA"},
+                {"uri": TRAVERSE_ENTITY_B, "label": "TraverseB"},
+            ],
             "relations": [
                 {
                     "subject_uri": TRAVERSE_ENTITY_A,
-                    "predicate_uri": "http://zakhor/ns/connectsTo",
+                    "predicate_uri": "http://zakhor/ns/hasRelation",
                     "object_uri": TRAVERSE_ENTITY_B,
                     "label": "connects to",
                 },
@@ -107,7 +109,7 @@ async def test_traverse_with_edge_filter(mcp_session: ClientSession) -> None:
             "relations": [
                 {
                     "subject_uri": TRAVERSE_ENTITY_A,
-                    "predicate_uri": "http://zakhor/ns/connectsTo",
+                    "predicate_uri": "http://zakhor/ns/hasRelation",
                     "object_uri": TRAVERSE_ENTITY_B,
                     "label": "connects",
                 },
@@ -120,7 +122,7 @@ async def test_traverse_with_edge_filter(mcp_session: ClientSession) -> None:
         {
             "start_id": TRAVERSE_ENTITY_A,
             "depth": 1,
-            "edge_types": ["http://zakhor/ns/connectsTo"],
+            "edge_types": ["http://zakhor/ns/hasRelation"],
         },
     )
     traverse_data = _parse_json(_get_text(traverse_result))

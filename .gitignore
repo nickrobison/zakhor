@@ -10,3 +10,4 @@
 **/__pycache__/
 **/*.pyc
 tests/python/.pytest_cache/
+tests/python/*.egg-info/

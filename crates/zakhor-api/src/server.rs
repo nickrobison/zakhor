@@ -1,8 +1,16 @@
+use rmcp::ErrorData as McpError;
+use rmcp::handler::server::ServerHandler;
+use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::{Json, Parameters};
+use rmcp::model::{
+    CallToolRequestParams, CallToolResult, ListToolsResult, PaginatedRequestParams, Tool,
+};
+use rmcp::service::RequestContext;
 use rmcp::tool;
 use rmcp::tool_router;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
@@ -14,6 +22,7 @@ use zakhor_model::decision::{CreateDecisionArgs, DecisionModel};
 use zakhor_model::ingestion::{IngestionPipeline, StoreObservationArgs};
 use zakhor_search::IndexSyncManager;
 
+use crate::tool_capture;
 use crate::tools;
 
 fn args_hash<T: Serialize>(args: &T) -> String {
@@ -27,6 +36,7 @@ fn args_hash<T: Serialize>(args: &T) -> String {
 pub struct MemoryHandler {
     conn: tracker::SparqlConnection,
     pub sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,
+    pub is_ephemeral: bool,
 }
 
 impl MemoryHandler {
@@ -36,13 +46,25 @@ impl MemoryHandler {
         conn: tracker::SparqlConnection,
         sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,
     ) -> Self {
-        Self { conn, sync_mgr }
+        Self {
+            conn,
+            sync_mgr,
+            is_ephemeral: false,
+        }
     }
 
-    pub fn new_with_config(cfg: &Config, sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>) -> Self {
+    pub fn new_with_config(
+        cfg: &Config,
+        sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,
+        is_ephemeral: bool,
+    ) -> Self {
         let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
         let conn = zakhor_storage::tracker_db::init_db(db_path);
-        Self { conn, sync_mgr }
+        Self {
+            conn,
+            sync_mgr,
+            is_ephemeral,
+        }
     }
 
     pub fn api_state(&self) -> crate::api::ApiState {
@@ -98,11 +120,47 @@ pub struct QueryEntitiesResponse {
     pub count: u64,
 }
 
-#[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct TripleResult {
     pub subject: String,
     pub predicate: String,
     pub object: String,
+}
+
+/// Check if a string looks like a resource IRI (not an internal Tracker ID or literal).
+pub fn is_resource_iri(s: &str) -> bool {
+    s.starts_with("http://") || s.starts_with("https://") || s.starts_with("urn:")
+}
+
+/// Execute a depth-1 SPARQL traversal query and return the result triples.
+pub fn query_depth1(
+    conn: &tracker::SparqlConnection,
+    start_id: &str,
+    edge_types: &[String],
+) -> Result<Vec<TripleResult>, String> {
+    let sparql = tools::build_traverse_query(start_id, 1, edge_types);
+    let cursor = conn
+        .query(&sparql, None::<&gio::Cancellable>)
+        .map_err(|e| format!("Query failed: {e}"))?;
+
+    let mut triples = Vec::new();
+    loop {
+        match cursor.next(None::<&gio::Cancellable>) {
+            Ok(true) => {
+                let s = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
+                let p = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
+                let o = cursor.string(2).map(|s| s.to_string()).unwrap_or_default();
+                triples.push(TripleResult {
+                    subject: s,
+                    predicate: p,
+                    object: o,
+                });
+            }
+            Ok(false) => break,
+            Err(e) => return Err(format!("Cursor error: {e}")),
+        }
+    }
+    Ok(triples)
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
@@ -132,7 +190,19 @@ pub struct RecordDecisionResponse {
     pub decision_uri: String,
 }
 
-#[tool_router(server_handler)]
+#[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
+pub struct AdminInjectToolCallArgs {
+    pub tool_name: String,
+    pub arguments: serde_json::Value,
+    pub session_id: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+pub struct AdminInjectToolCallResponse {
+    pub uri: String,
+}
+
+#[tool_router]
 impl MemoryHandler {
     #[tool(
         description = "Store an observation about entities and relations in the knowledge graph"
@@ -242,38 +312,93 @@ impl MemoryHandler {
         let start = Instant::now();
 
         let result = (|| -> Result<Json<TraverseGraphResponse>, String> {
-            let sparql = tools::build_traverse_query(&args.start_id, args.depth, &args.edge_types);
-            match self.conn.query(&sparql, None::<&gio::Cancellable>) {
-                Ok(cursor) => {
-                    let mut triples: Vec<TripleResult> = Vec::new();
-                    loop {
-                        match cursor.next(None::<&gio::Cancellable>) {
-                            Ok(true) => {
-                                let s = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
-                                let p = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
-                                let o = cursor.string(2).map(|s| s.to_string()).unwrap_or_default();
-                                triples.push(TripleResult {
-                                    subject: s,
-                                    predicate: p,
-                                    object: o,
-                                });
+            if args.depth <= 1 {
+                // depth=1: single SPARQL query works correctly
+                let sparql =
+                    tools::build_traverse_query(&args.start_id, args.depth, &args.edge_types);
+                match self.conn.query(&sparql, None::<&gio::Cancellable>) {
+                    Ok(cursor) => {
+                        let mut triples: Vec<TripleResult> = Vec::new();
+                        loop {
+                            match cursor.next(None::<&gio::Cancellable>) {
+                                Ok(true) => {
+                                    let s =
+                                        cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
+                                    let p =
+                                        cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
+                                    let o =
+                                        cursor.string(2).map(|s| s.to_string()).unwrap_or_default();
+                                    triples.push(TripleResult {
+                                        subject: s,
+                                        predicate: p,
+                                        object: o,
+                                    });
+                                }
+                                Ok(false) => break,
+                                Err(e) => return Err(format!("Cursor error: {e}")),
                             }
-                            Ok(false) => break,
-                            Err(e) => return Err(format!("Cursor error: {e}")),
+                        }
+                        let count = triples.len() as u64;
+                        Ok(Json(TraverseGraphResponse {
+                            triples,
+                            count,
+                            warning: None,
+                        }))
+                    }
+                    Err(e) => Ok(Json(TraverseGraphResponse {
+                        triples: vec![],
+                        count: 0,
+                        warning: Some(format!("Query issue: {e}")),
+                    })),
+                }
+            } else {
+                // depth>1: iterative application-level traversal avoids Tracker SPARQL
+                // variable chaining bug where IRIs bound in the first hop cannot be
+                // matched against internal numeric IDs in subsequent hops.
+                let mut all_triples: Vec<TripleResult> = Vec::new();
+                let mut seen_sop: HashSet<(String, String, String)> = HashSet::new();
+                let mut visited_iris: HashSet<String> = HashSet::new();
+                let mut frontier: Vec<String> = vec![args.start_id.clone()];
+                visited_iris.insert(args.start_id.clone());
+
+                for _ in 0..args.depth {
+                    let mut next_frontier: Vec<String> = Vec::new();
+                    for node in &frontier {
+                        let triples = query_depth1(&self.conn, node, &args.edge_types)?;
+                        for triple in &triples {
+                            let key = (
+                                triple.subject.clone(),
+                                triple.predicate.clone(),
+                                triple.object.clone(),
+                            );
+                            if seen_sop.insert(key) {
+                                all_triples.push(triple.clone());
+                            }
+                            // Collect new IRIs from both subject and object for next frontier
+                            let obj_iri = is_resource_iri(&triple.object)
+                                && visited_iris.insert(triple.object.clone());
+                            if obj_iri {
+                                next_frontier.push(triple.object.clone());
+                            }
+                            let subj_iri = is_resource_iri(&triple.subject)
+                                && visited_iris.insert(triple.subject.clone());
+                            if subj_iri {
+                                next_frontier.push(triple.subject.clone());
+                            }
                         }
                     }
-                    let count = triples.len() as u64;
-                    Ok(Json(TraverseGraphResponse {
-                        triples,
-                        count,
-                        warning: None,
-                    }))
+                    frontier = next_frontier;
+                    if frontier.is_empty() {
+                        break;
+                    }
                 }
-                Err(e) => Ok(Json(TraverseGraphResponse {
-                    triples: vec![],
-                    count: 0,
-                    warning: Some(format!("Query issue: {e}")),
-                })),
+
+                let count = all_triples.len() as u64;
+                Ok(Json(TraverseGraphResponse {
+                    triples: all_triples,
+                    count,
+                    warning: None,
+                }))
             }
         })();
 
@@ -419,6 +544,125 @@ impl MemoryHandler {
         span.record("result", if result.is_ok() { "success" } else { "error" });
         span.record("duration_ms", duration_ms);
         result
+    }
+
+    // ── Admin tools (ephemeral-only) ────────────────────────────────────
+
+    #[tool(
+        name = "admin_rebuild_indexes",
+        description = "[Admin] Rebuild all search indexes from Tracker (ephemeral mode only)"
+    )]
+    async fn admin_rebuild_indexes(
+        &self,
+        Parameters(_args): Parameters<RebuildIndexesArgs>,
+    ) -> Result<String, String> {
+        let span = info_span!(
+            "mcp_tool",
+            tool = "admin_rebuild_indexes",
+            correlation_id = &crate::new_correlation_id(),
+            args_hash = %args_hash(&_args),
+            duration_ms = tracing::field::Empty,
+            result = tracing::field::Empty,
+        );
+        let start = Instant::now();
+
+        let propagate_span = span.clone();
+        let this = self.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let _guard = propagate_span.enter();
+            match &this.sync_mgr {
+                Some(mgr) => match mgr.lock() {
+                    Ok(guard) => guard
+                        .rebuild_all(&this.conn)
+                        .map_err(|e| format!("Rebuild failed: {e}"))
+                        .map(|_| "Indexes rebuilt successfully".to_string()),
+                    Err(e) => Err(format!("Sync manager lock poisoned: {e}")),
+                },
+                None => Err("No sync manager available (indexes disabled)".to_string()),
+            }
+        })
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?;
+
+        let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+        span.record("result", if result.is_ok() { "success" } else { "error" });
+        span.record("duration_ms", duration_ms);
+        result
+    }
+
+    #[tool(
+        name = "admin_inject_tool_call",
+        description = "[Admin] Inject a ToolCall node into the knowledge graph (ephemeral mode only)"
+    )]
+    async fn admin_inject_tool_call(
+        &self,
+        Parameters(args): Parameters<AdminInjectToolCallArgs>,
+    ) -> Result<Json<AdminInjectToolCallResponse>, String> {
+        let span = info_span!(
+            "mcp_tool",
+            tool = "admin_inject_tool_call",
+            correlation_id = %crate::new_correlation_id(),
+            args_hash = %args_hash(&args),
+            duration_ms = tracing::field::Empty,
+            result = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+        let start = Instant::now();
+
+        let result = (|| -> Result<Json<AdminInjectToolCallResponse>, String> {
+            let uri = tool_capture::capture_tool_call(
+                &self.conn,
+                &args.tool_name,
+                &args.arguments,
+                &args.session_id,
+            )?;
+            Ok(Json(AdminInjectToolCallResponse { uri }))
+        })();
+
+        let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+        span.record("result", if result.is_ok() { "success" } else { "error" });
+        span.record("duration_ms", duration_ms);
+        result
+    }
+}
+
+// ── ServerHandler impl (filters admin tools when not ephemeral) ─────────
+
+#[rmcp::tool_handler(router = Self::tool_router())]
+impl ServerHandler for MemoryHandler {
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<rmcp::RoleServer>,
+    ) -> Result<ListToolsResult, McpError> {
+        let mut tools = Self::tool_router().list_all();
+        if !self.is_ephemeral {
+            tools.retain(|t| !t.name.starts_with("admin_"));
+        }
+        Ok(ListToolsResult {
+            tools,
+            meta: None,
+            next_cursor: None,
+        })
+    }
+
+    fn get_tool(&self, name: &str) -> Option<Tool> {
+        if !self.is_ephemeral && name.starts_with("admin_") {
+            return None;
+        }
+        Self::tool_router().get(name).cloned()
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<rmcp::RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        if !self.is_ephemeral && request.name.starts_with("admin_") {
+            return Err(McpError::invalid_params("tool not found", None));
+        }
+        let tcc = ToolCallContext::new(self, request, context);
+        Self::tool_router().call(tcc).await
     }
 }
 
