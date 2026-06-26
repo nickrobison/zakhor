@@ -1,0 +1,6 @@
+[package]
+name = "zakhor-api"
+version = "0.1.0"
+edition = "2024"
+
+[lib]

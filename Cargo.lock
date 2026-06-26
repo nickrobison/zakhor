@@ -4967,6 +4967,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "zakhor-api"
+version = "0.1.0"
+
+[[package]]
+name = "zakhor-code"
+version = "0.1.0"
+
+[[package]]
+name = "zakhor-common"
+version = "0.1.0"
+
+[[package]]
+name = "zakhor-model"
+version = "0.1.0"
+
+[[package]]
+name = "zakhor-search"
+version = "0.1.0"
+
+[[package]]
+name = "zakhor-storage"
+version = "0.1.0"
+
+[[package]]
 name = "zerocopy"
 version = "0.8.52"
 source = "registry+https://github.com/rust-lang/crates.io-index"
