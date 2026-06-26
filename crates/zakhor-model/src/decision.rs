@@ -2,8 +2,8 @@
 
 use gio::Cancellable;
 use iref::{Iri, IriBuf};
-use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 use tracker::SparqlConnection;
+use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 use zakhor_common::vocab;
 use zakhor_storage::schema;
 use zakhor_storage::sparql::{self as storage_sparql, Prefix};

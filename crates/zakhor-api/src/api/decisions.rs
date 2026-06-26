@@ -22,9 +22,7 @@ fn validate_status(status: Option<&str>) -> Result<Option<String>, ApiError> {
     match status {
         None | Some("active") => Ok(status.map(str::to_string)),
         Some("superseded" | "proposed" | "archived") => Ok(status.map(str::to_string)),
-        Some(other) => Err(ApiError::bad_request(format!(
-            "invalid status: {other}"
-        ))),
+        Some(other) => Err(ApiError::bad_request(format!("invalid status: {other}"))),
     }
 }
 
@@ -38,9 +36,7 @@ fn validate_sort(sort: Option<&str>) -> Result<Option<String>, ApiError> {
         None | Some("modified" | "created" | "referenced" | "confidence") => {
             Ok(sort.map(str::to_string))
         }
-        Some(other) => Err(ApiError::bad_request(format!(
-            "invalid sort: {other}"
-        ))),
+        Some(other) => Err(ApiError::bad_request(format!("invalid sort: {other}"))),
     }
 }
 
@@ -253,9 +249,7 @@ pub async fn list_decisions(
             }));
         }
         Err(e) => {
-            return Err(ApiError::internal(format!(
-                "SPARQL count error: {e}"
-            )));
+            return Err(ApiError::internal(format!("SPARQL count error: {e}")));
         }
     };
 
@@ -283,9 +277,7 @@ pub async fn list_decisions(
             }));
         }
         Err(e) => {
-            return Err(ApiError::internal(format!(
-                "SPARQL data error: {e}"
-            )));
+            return Err(ApiError::internal(format!("SPARQL data error: {e}")));
         }
     };
 
@@ -372,9 +364,7 @@ pub async fn get_decision(
     }
 
     if !found_decision {
-        return Err(ApiError::bad_request(format!(
-            "Decision not found: {id}"
-        )));
+        return Err(ApiError::bad_request(format!("Decision not found: {id}")));
     }
 
     // Fetch alternatives separately

@@ -48,9 +48,7 @@ pub async fn traverse_graph(
 ) -> ApiResult<Json<TraverseGraphResponse>> {
     let start_id = query.start_id.trim();
     if start_id.is_empty() {
-        return Err(ApiError::bad_request(
-            "start_id is required",
-        ));
+        return Err(ApiError::bad_request("start_id is required"));
     }
 
     let depth = clamp_depth(query.depth);

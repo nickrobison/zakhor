@@ -3,8 +3,8 @@ use rdf_types::{IriBuf, Literal, LiteralType, RdfDisplay, XSD_STRING};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracker::prelude::SparqlConnectionExtManual;
 use tracker::SparqlConnection;
+use tracker::prelude::SparqlConnectionExtManual;
 
 use crate::entity_resolver::EntityResolver;
 use crate::provenance::ProvenanceTracker;
@@ -520,10 +520,16 @@ mod tests {
             ],
         };
         let sparql = build_observation_sparql(&args, "urn:uuid:rel-test");
-        assert!(sparql
-            .contains("<http://example.com/s1> <http://example.com/p1> <http://example.com/o1>"));
-        assert!(sparql
-            .contains("<http://example.com/s2> <http://example.com/p2> <http://example.com/o2>"));
+        assert!(
+            sparql.contains(
+                "<http://example.com/s1> <http://example.com/p1> <http://example.com/o1>"
+            )
+        );
+        assert!(
+            sparql.contains(
+                "<http://example.com/s2> <http://example.com/p2> <http://example.com/o2>"
+            )
+        );
     }
 
     #[test]

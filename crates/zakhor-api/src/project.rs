@@ -6,8 +6,8 @@
 //! decision to it.
 
 use gio::Cancellable;
-use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 use tracker::SparqlConnection;
+use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 use zakhor_storage::sparql::Prefix;
 
 /// A named project in the knowledge graph.

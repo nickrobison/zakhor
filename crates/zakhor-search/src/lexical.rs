@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
-use tantivy::{doc, Index, IndexWriter, TantivyDocument};
+use tantivy::{Index, IndexWriter, TantivyDocument, doc};
 use tracker::prelude::SparqlCursorExtManual;
 
 use crate::semantic::ScoredDoc;

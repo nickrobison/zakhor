@@ -53,7 +53,7 @@ pub async fn list_projects(State(state): State<ApiState>) -> ApiResult<Json<Proj
 pub async fn ranking_importance(
     State(state): State<ApiState>,
 ) -> ApiResult<Json<Vec<ScoredEntity>>> {
-    let result =
-        zakhor_model::ranking::compute_importance(state.connection()).map_err(ApiError::internal)?;
+    let result = zakhor_model::ranking::compute_importance(state.connection())
+        .map_err(ApiError::internal)?;
     Ok(Json(result))
 }

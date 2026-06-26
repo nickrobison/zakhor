@@ -9,8 +9,8 @@
 //!   source of truth).
 
 use gio::Cancellable;
-use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 use tracker::SparqlConnection;
+use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 use zakhor_storage::sparql::Prefix;
 
 /// A code container (file, module, package, repository).
