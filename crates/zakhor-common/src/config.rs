@@ -306,7 +306,11 @@ relation_threshold = 0.55
         );
         assert_eq!(
             config.extraction.entity_labels,
-            vec!["Person".to_string(), "Organization".to_string(), "Location".to_string()]
+            vec![
+                "Person".to_string(),
+                "Organization".to_string(),
+                "Location".to_string()
+            ]
         );
         assert_eq!(
             config.extraction.relation_labels,

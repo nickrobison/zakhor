@@ -61,7 +61,7 @@ async fn serve_combined(
         StreamableHttpServerConfig::default().with_allowed_hosts([cfg.http.host.clone()]),
     );
 
-// SPA static file service: serve ui/dist with index.html fallback for client-side routing
+    // SPA static file service: serve ui/dist with index.html fallback for client-side routing
     if !std::path::Path::new("ui/dist/index.html").exists() {
         tracing::warn!(
             "ui/dist/index.html not found; UI will not be served. Build the frontend first (cd ui && pnpm run build)."

@@ -195,16 +195,15 @@ impl ExtractionPipeline {
         let text = text.to_string();
 
         spawn_blocking(move || {
-            let entity_strs: Vec<&str> =
-                config.entity_labels.iter().map(|s| s.as_str()).collect();
+            let entity_strs: Vec<&str> = config.entity_labels.iter().map(|s| s.as_str()).collect();
 
-            let text_input = gliner::model::input::text::TextInput::from_str(&[&text], &entity_strs)
-                .map_err(|e| ExtractionError::Inference(format!("text input: {}", e)))?;
+            let text_input =
+                gliner::model::input::text::TextInput::from_str(&[&text], &entity_strs)
+                    .map_err(|e| ExtractionError::Inference(format!("text input: {}", e)))?;
 
-            let pipeline = gliner::model::pipeline::token::TokenPipeline::new(
-                &config.tokenizer_path,
-            )
-            .map_err(|e| ExtractionError::ModelLoad(format!("tokenizer: {}", e)))?;
+            let pipeline =
+                gliner::model::pipeline::token::TokenPipeline::new(&config.tokenizer_path)
+                    .map_err(|e| ExtractionError::ModelLoad(format!("tokenizer: {}", e)))?;
 
             let span_output: gliner::model::output::decoded::SpanOutput = inner
                 .model
@@ -254,16 +253,15 @@ impl ExtractionPipeline {
 
         spawn_blocking(move || {
             // ---- Step 1: NER ----
-            let entity_strs: Vec<&str> =
-                config.entity_labels.iter().map(|s| s.as_str()).collect();
+            let entity_strs: Vec<&str> = config.entity_labels.iter().map(|s| s.as_str()).collect();
 
-            let text_input = gliner::model::input::text::TextInput::from_str(&[&text], &entity_strs)
-                .map_err(|e| ExtractionError::Inference(format!("text input: {}", e)))?;
+            let text_input =
+                gliner::model::input::text::TextInput::from_str(&[&text], &entity_strs)
+                    .map_err(|e| ExtractionError::Inference(format!("text input: {}", e)))?;
 
-            let token_pipeline = gliner::model::pipeline::token::TokenPipeline::new(
-                &config.tokenizer_path,
-            )
-            .map_err(|e| ExtractionError::ModelLoad(format!("tokenizer: {}", e)))?;
+            let token_pipeline =
+                gliner::model::pipeline::token::TokenPipeline::new(&config.tokenizer_path)
+                    .map_err(|e| ExtractionError::ModelLoad(format!("tokenizer: {}", e)))?;
 
             let span_output: gliner::model::output::decoded::SpanOutput = inner
                 .model
@@ -298,10 +296,8 @@ impl ExtractionPipeline {
                 .into_iter()
                 .flat_map(|seq| {
                     seq.into_iter().map(|rel| {
-                        let subject_fallback =
-                            format!("http://zakhor/ns/entity/{}", rel.subject());
-                        let object_fallback =
-                            format!("http://zakhor/ns/entity/{}", rel.object());
+                        let subject_fallback = format!("http://zakhor/ns/entity/{}", rel.subject());
+                        let object_fallback = format!("http://zakhor/ns/entity/{}", rel.object());
 
                         let subject_uri = lookup
                             .get(rel.subject())

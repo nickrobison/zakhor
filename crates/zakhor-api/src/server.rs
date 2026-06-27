@@ -565,11 +565,7 @@ impl MemoryHandler {
 
         if let Some(ref sync_mgr) = self.sync_mgr {
             let mgr = sync_mgr.lock().expect("sync manager lock poisoned");
-            if let Err(e) = mgr.sync_observation(
-                &ingest_result.observation_uri,
-                &args.text,
-                &[],
-            ) {
+            if let Err(e) = mgr.sync_observation(&ingest_result.observation_uri, &args.text, &[]) {
                 tracing::warn!(error = %e, "Failed to sync extracted observation to indexes");
             }
         }

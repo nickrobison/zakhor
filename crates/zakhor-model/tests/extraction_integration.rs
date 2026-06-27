@@ -13,8 +13,8 @@ const DEFAULT_MODEL_PATH: &str = "/models/gliner-relex/model.onnx";
 const DEFAULT_TOKENIZER_PATH: &str = "/models/gliner-relex/tokenizer.json";
 
 fn load_config() -> Option<ExtractionConfig> {
-    let model_path = std::env::var("GLINER_MODEL_PATH")
-        .unwrap_or_else(|_| DEFAULT_MODEL_PATH.to_string());
+    let model_path =
+        std::env::var("GLINER_MODEL_PATH").unwrap_or_else(|_| DEFAULT_MODEL_PATH.to_string());
     let tokenizer_path = std::env::var("GLINER_TOKENIZER_PATH")
         .unwrap_or_else(|_| DEFAULT_TOKENIZER_PATH.to_string());
 
@@ -27,15 +27,8 @@ fn load_config() -> Option<ExtractionConfig> {
     Some(ExtractionConfig {
         model_path: model_path.to_path_buf(),
         tokenizer_path: Path::new(&tokenizer_path).to_path_buf(),
-        entity_labels: vec![
-            "person".into(),
-            "organization".into(),
-            "location".into(),
-        ],
-        relation_labels: vec![
-            "works_for".into(),
-            "located_in".into(),
-        ],
+        entity_labels: vec!["person".into(), "organization".into(), "location".into()],
+        relation_labels: vec!["works_for".into(), "located_in".into()],
         entity_threshold: 0.5,
         relation_threshold: 0.5,
     })
