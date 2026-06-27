@@ -22,5 +22,7 @@ tower-http = { version = "0.6", features = ["cors"] }
 tracing = "0.1.41"
 tracker-rs = "0.8.0"
 gio = "0.22.6"
+oxrdf = "0.3"
+oxiri = "0.2"
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "8", features = ["axum"] }

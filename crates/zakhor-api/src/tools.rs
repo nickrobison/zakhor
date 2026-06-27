@@ -1,6 +1,8 @@
+use oxrdf::Literal;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use zakhor_search::{LexicalIndex, ScoredDoc, SemanticIndex};
+use zakhor_storage::sparql::prefix_declarations;
 
 /// RRF k=60 fusion: run lexical + semantic search, fuse by reciprocal rank
 pub fn hybrid_search(
@@ -47,8 +49,8 @@ pub fn hybrid_search(
 pub fn build_entity_query(pattern: &str, limit: u32) -> String {
     let safe_pattern = pattern.replace('\'', "\\'");
     format!(
-        "PREFIX zakhor: <http://zakhor/ns/>\nPREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT ?entity ?label WHERE {{\n  ?entity rdf:type zakhor:Entity .\n  ?entity rdfs:label ?label .\n  FILTER(CONTAINS(LCASE(?label), LCASE('{}')))\n}}\nLIMIT {}",
-        safe_pattern, limit
+        "{}SELECT ?entity ?label WHERE {{\n  ?entity rdf:type zakhor:Entity .\n  ?entity rdfs:label ?label .\n  FILTER(CONTAINS(LCASE(?label), LCASE('{}')))\n}}\nLIMIT {}",
+        prefix_declarations(), safe_pattern, limit
     )
 }
 
@@ -91,8 +93,10 @@ pub fn build_traverse_query(start_id: &str, depth: u32, edge_types: &[String]) -
         format!("\n  UNION\n{}", patterns.join("\n  UNION\n"))
     };
 
+    let prefixes = prefix_declarations();
     format!(
-        "PREFIX zakhor: <http://zakhor/ns/>\nPREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nSELECT ?s ?p ?o WHERE {{\n  {{ ?s ?p ?o . FILTER(str(?s) = \"{start}\") . {filter} }}\n  UNION\n  {{ ?s ?p ?o . FILTER(str(?o) = \"{start}\") . {filter} }}{depth}\n}}",
+        "{prefixes}SELECT ?s ?p ?o WHERE {{\n  {{ ?s ?p ?o . FILTER(str(?s) = \"{start}\") . {filter} }}\n  UNION\n  {{ ?s ?p ?o . FILTER(str(?o) = \"{start}\") . {filter} }}{depth}\n}}",
+        prefixes = prefixes,
         start = safe_start,
         filter = filter_clause,
         depth = depth_section
@@ -149,30 +153,25 @@ pub fn build_decision_insert(
     alternatives: &[String],
     rationale: &str,
 ) -> String {
-    fn escape_str(s: &str) -> String {
-        s.replace('\\', "\\\\")
-            .replace('\'', "\\'")
-            .replace('\n', "\\n")
-    }
-
     let mut alternatives_triples = String::new();
     for alt in alternatives {
         alternatives_triples.push_str(&format!(
-            "<{}> zakhor:alternative \"{}\"@en .\n",
+            "<{}> zakhor:alternative {} .\n",
             decision_uri,
-            escape_str(alt)
+            Literal::new_language_tagged_literal(alt.to_string(), "en").unwrap()
         ));
     }
 
     format!(
-        "PREFIX zakhor: <http://zakhor/ns/>\nPREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\nINSERT DATA {{\n  <{}> rdf:type zakhor:Decision .\n  <{}> zakhor:decisionContext \"{}\"@en .\n  <{}> zakhor:decisionOutcome \"{}\"@en .\n  <{}> zakhor:decisionRationale \"{}\"@en .\n{}}}\n",
+        "{}INSERT DATA {{\n  <{}> rdf:type zakhor:Decision .\n  <{}> zakhor:decisionContext {} .\n  <{}> zakhor:decisionOutcome {} .\n  <{}> zakhor:decisionRationale {} .\n{}}}\n",
+        prefix_declarations(),
         decision_uri,
         decision_uri,
-        escape_str(context),
+        Literal::new_language_tagged_literal(context.to_string(), "en").unwrap(),
         decision_uri,
-        escape_str(decision),
+        Literal::new_language_tagged_literal(decision.to_string(), "en").unwrap(),
         decision_uri,
-        escape_str(rationale),
+        Literal::new_language_tagged_literal(rationale.to_string(), "en").unwrap(),
         alternatives_triples
     )
 }
