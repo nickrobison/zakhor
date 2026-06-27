@@ -10,5 +10,6 @@ anyhow = "1.0.102"
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.52.3", features = ["full"] }
 toml = "0.8.22"
-iref = { version = "3", features = ["serde"] }
+iref = "3"
+oxiri = "0.2"
 static-iref = "3"
