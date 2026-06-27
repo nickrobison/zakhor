@@ -6,6 +6,7 @@ use rmcp::transport::streamable_http_server::{
 };
 use std::sync::{Arc, Mutex};
 use tokio::io::{stdin, stdout};
+use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::EnvFilter;
 
 use zakhor_api::api::router;
@@ -60,10 +61,20 @@ async fn serve_combined(
         StreamableHttpServerConfig::default().with_allowed_hosts([cfg.http.host.clone()]),
     );
 
-    // Combine API router with MCP routes
+// SPA static file service: serve ui/dist with index.html fallback for client-side routing
+    if !std::path::Path::new("ui/dist/index.html").exists() {
+        tracing::warn!(
+            "ui/dist/index.html not found; UI will not be served. Build the frontend first (cd ui && pnpm run build)."
+        );
+    }
+    let spa_service =
+        ServeDir::new("ui/dist").not_found_service(ServeFile::new("ui/dist/index.html"));
+
+    // Combine API router with MCP routes and SPA fallback
     let app = router(api_state)
-        .route("/", any_service(mcp_service.clone()))
-        .route("/*path", any_service(mcp_service));
+        .route("/mcp", any_service(mcp_service.clone()))
+        .route("/mcp/*path", any_service(mcp_service))
+        .fallback_service(spa_service);
 
     axum::serve(listener, app).await?;
     Ok(())
