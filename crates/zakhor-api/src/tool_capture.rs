@@ -8,6 +8,7 @@
 //! full-text and structured search.
 
 use gio::Cancellable;
+use oxrdf::Literal;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -15,11 +16,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::{
-    JsonObjectOptions, NumericOptions, OwnedValue, STORED, STRING, Schema, TEXT, Value,
+    JsonObjectOptions, NumericOptions, OwnedValue, Schema, Value, STORED, STRING, TEXT,
 };
 use tantivy::{Index, IndexWriter, TantivyDocument};
-use tracker::SparqlConnection;
 use tracker::prelude::SparqlConnectionExtManual;
+use tracker::SparqlConnection;
 use zakhor_common::error::{ZakhorError, ZakhorResult};
 use zakhor_search::ScoredDoc;
 use zakhor_storage::sparql::Prefix;
@@ -258,27 +259,22 @@ pub fn capture_tool_call(
         .unwrap_or_default()
         .as_millis();
     let call_uri = format!("{}toolcall/{:016x}", Prefix::ZAKHOR, ts);
-    let escaped_args_json = arguments
-        .to_string()
-        .replace('\\', "\\\\")
-        .replace('\'', "\\'");
-
     let sparql = format!(
         r#"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX zakhor: <{ns}>
 
 INSERT DATA {{
   <{uri}> rdf:type zakhor:ToolCall .
-  <{uri}> zakhor:toolName '{name}'@en .
-  <{uri}> zakhor:toolArguments '{args}'@en .
-  <{uri}> zakhor:sessionId '{session}'@en .
+  <{uri}> zakhor:toolName {name} .
+  <{uri}> zakhor:toolArguments {args} .
+  <{uri}> zakhor:sessionId {session} .
   <{uri}> zakhor:timestamp {ts} .
 }}"#,
         ns = Prefix::ZAKHOR,
         uri = call_uri,
-        name = tool_name.replace('\\', "\\\\").replace('\'', "\\'"),
-        args = escaped_args_json,
-        session = session_id.replace('\\', "\\\\").replace('\'', "\\'"),
+        name = Literal::new_language_tagged_literal(tool_name.to_string(), "en").unwrap(),
+        args = Literal::new_language_tagged_literal(arguments.to_string(), "en").unwrap(),
+        session = Literal::new_language_tagged_literal(session_id.to_string(), "en").unwrap(),
         ts = ts,
     );
 

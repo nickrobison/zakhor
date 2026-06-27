@@ -6,8 +6,10 @@
 //! decision to it.
 
 use gio::Cancellable;
-use tracker::SparqlConnection;
+use oxrdf::Literal;
 use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
+use tracker::SparqlConnection;
+use zakhor_storage::sparql::prefix_declarations;
 use zakhor_storage::sparql::Prefix;
 
 /// A named project in the knowledge graph.
@@ -25,27 +27,26 @@ pub fn create_project(
     description: Option<&str>,
 ) -> Result<Project, String> {
     let project_uri = format!("{}project/{}", Prefix::ZAKHOR, slugify(name));
-    let safe_name = name.replace('\'', "\\'");
-    let safe_desc = description
-        .map(|d| d.replace('\'', "\\'"))
-        .unwrap_or_default();
+    let prefixes = prefix_declarations();
+
+    let desc_clause = match description {
+        Some(desc) => format!(
+            "  <{}> rdfs:comment {} .",
+            project_uri,
+            Literal::new_language_tagged_literal(desc.to_string(), "en").unwrap()
+        ),
+        None => String::new(),
+    };
 
     let sparql = format!(
-        r#"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX zakhor: <{ns}>
-
-INSERT DATA {{
+        r#"{prefixes}INSERT DATA {{
   <{uri}> rdf:type zakhor:Project .
-  <{uri}> rdfs:label "{name}"@en .
+  <{uri}> rdfs:label {name} .
 {desc_clause}}}"#,
-        ns = Prefix::ZAKHOR,
+        prefixes = prefixes,
         uri = project_uri,
-        name = safe_name,
-        desc_clause = if description.is_some() {
-            format!("  <{}> rdfs:comment \"{}\"@en .", project_uri, safe_desc)
-        } else {
-            String::new()
-        },
+        name = Literal::new_language_tagged_literal(name.to_string(), "en").unwrap(),
+        desc_clause = desc_clause,
     );
 
     conn.update(&sparql, None::<&Cancellable>)
@@ -66,14 +67,13 @@ pub fn link_to_project(
 ) -> Result<(), String> {
     let safe_entity = entity_uri.replace('>', "");
     let safe_project = project_uri.replace('>', "");
+    let prefixes = prefix_declarations();
 
     let sparql = format!(
-        r#"PREFIX zakhor: <{ns}>
-
-INSERT DATA {{
+        r#"{prefixes}INSERT DATA {{
   <{entity}> zakhor:belongsToProject <{project}> .
 }}"#,
-        ns = Prefix::ZAKHOR,
+        prefixes = prefixes,
         entity = safe_entity,
         project = safe_project,
     );
@@ -86,17 +86,13 @@ INSERT DATA {{
 /// List all projects.
 pub fn list_projects(conn: &SparqlConnection) -> Result<Vec<Project>, String> {
     let sparql = format!(
-        r#"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-PREFIX zakhor: <{ns}>
-
-SELECT ?uri ?label ?comment WHERE {{
+        r#"{}SELECT ?uri ?label ?comment WHERE {{
   ?uri rdf:type zakhor:Project .
   ?uri rdfs:label ?label .
   OPTIONAL {{ ?uri rdfs:comment ?comment . }}
 }}
 ORDER BY ?label"#,
-        ns = Prefix::ZAKHOR,
+        prefix_declarations(),
     );
 
     let cursor = conn
