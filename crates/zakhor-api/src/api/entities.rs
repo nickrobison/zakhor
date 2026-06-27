@@ -7,6 +7,7 @@ use super::ApiState;
 use crate::api::error::{ApiError, ApiResult};
 use crate::server::EntityResult;
 use crate::tools;
+use zakhor_storage::sparql::prefix_declarations;
 
 // ---------------------------------------------------------------------------
 // Query parameters
@@ -99,14 +100,13 @@ pub struct EntityObservationsResponse {
 /// Build a SELECT query returning all properties of an entity.
 fn build_entity_properties_query(entity_id: &str) -> String {
     let safe_id = entity_id.replace(['>', '<'], "");
+    let prefixes = prefix_declarations();
     format!(
-        "PREFIX zakhor: <https://zakhor.example/>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-SELECT ?p ?o
+        "{prefixes}SELECT ?p ?o
 WHERE {{
   <{id}> ?p ?o .
 }}",
+        prefixes = prefixes,
         id = safe_id,
     )
 }
@@ -114,15 +114,15 @@ WHERE {{
 /// Build a SELECT query returning observations that reference an entity.
 fn build_entity_observations_query(entity_id: &str, limit: u32) -> String {
     let safe_id = entity_id.replace(['>', '<'], "");
+    let prefixes = prefix_declarations();
     format!(
-        "PREFIX zakhor: <https://zakhor.example/>
-PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>
-SELECT DISTINCT ?obs ?text
+        "{prefixes}SELECT DISTINCT ?obs ?text
 WHERE {{
   ?obs zakhor:hasEntity <{id}> .
   ?obs nie:plainTextContent ?text .
 }}
 LIMIT {limit}",
+        prefixes = prefixes,
         id = safe_id,
         limit = limit,
     )
@@ -132,17 +132,16 @@ LIMIT {limit}",
 /// (as either subject or object).
 fn build_entity_relations_query(entity_id: &str) -> String {
     let safe_id = entity_id.replace(['>', '<'], "");
+    let prefixes = prefix_declarations();
     format!(
-        "PREFIX zakhor: <https://zakhor.example/>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-SELECT ?s ?p ?o ?label
+        "{prefixes}SELECT ?s ?p ?o ?label
 WHERE {{
   {{ <{id}> ?p ?o . BIND(<{id}> AS ?s) }}
   UNION
   {{ ?s ?p <{id}> . BIND(<{id}> AS ?o) }}
   OPTIONAL {{ ?p rdfs:label ?label . }}
 }}",
+        prefixes = prefixes,
         id = safe_id,
     )
 }
@@ -220,7 +219,7 @@ pub async fn get_entity(
         .query(&sparql, None::<&gio::Cancellable>)
         .map_err(|e| ApiError::internal(format!("SPARQL error: {e}")))?;
 
-    let zakhor_prefix = "https://zakhor.example/";
+    let zakhor_prefix = "http://zakhor/ns/";
     let rdfs_label = "http://www.w3.org/2000/01/rdf-schema#label";
     let rdf_type = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
     let mut label = String::new();
@@ -412,7 +411,7 @@ mod tests {
     #[test]
     fn test_is_missing_schema_error() {
         assert!(is_missing_schema_error(
-            "Unknown class 'https://zakhor.example/Entity'"
+            "Unknown class 'http://zakhor/ns/Entity'"
         ));
         assert!(is_missing_schema_error(
             "Unknown property 'zakhor:hasEntity'"

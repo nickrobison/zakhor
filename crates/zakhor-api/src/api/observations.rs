@@ -4,6 +4,7 @@ use tracker::prelude::SparqlCursorExtManual;
 
 use super::ApiState;
 use crate::api::error::{ApiError, ApiResult};
+use zakhor_storage::sparql::prefix_declarations;
 
 // ---------------------------------------------------------------------------
 // Query parameters
@@ -83,11 +84,10 @@ fn build_all_observations_query(offset: u32, limit: u32, entity_id: Option<&str>
     } else {
         format!("{filter}\n")
     };
+    let prefixes = prefix_declarations();
 
     format!(
-        "PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-SELECT DISTINCT ?obs ?identifier ?text ?created
+        "{prefixes}SELECT DISTINCT ?obs ?identifier ?text ?created
 WHERE {{
   ?obs rdf:type nie:InformationElement ;
        nie:identifier ?identifier ;
@@ -96,7 +96,11 @@ WHERE {{
 {filter_block}}}
 ORDER BY DESC(?obs)
 LIMIT {limit}
-OFFSET {offset}"
+OFFSET {offset}",
+        prefixes = prefixes,
+        filter_block = filter_block,
+        limit = limit,
+        offset = offset,
     )
 }
 
@@ -108,26 +112,28 @@ fn build_observations_count_query(entity_id: Option<&str>) -> String {
     } else {
         format!("{filter}\n")
     };
+    let prefixes = prefix_declarations();
 
     format!(
-        "PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-SELECT (COUNT(?obs) AS ?count)
+        "{prefixes}SELECT (COUNT(?obs) AS ?count)
 WHERE {{
   ?obs rdf:type nie:InformationElement .
-{filter_block}}}"
+{filter_block}}}",
+        prefixes = prefixes,
+        filter_block = filter_block,
     )
 }
 
 /// SELECT query returning entities referenced by an observation.
 fn build_observation_entities_query(obs_id: &str) -> String {
     let safe_id = sanitize_id(obs_id);
+    let prefixes = prefix_declarations();
     format!(
-        "PREFIX zakhor: <https://zakhor.example/>
-SELECT DISTINCT ?entity
+        "{prefixes}SELECT DISTINCT ?entity
 WHERE {{
   <{id}> zakhor:hasEntity ?entity .
 }}",
+        prefixes = prefixes,
         id = safe_id,
     )
 }
@@ -135,16 +141,16 @@ WHERE {{
 /// SELECT query returning a single observation's detail fields.
 fn build_observation_detail_query(obs_id: &str) -> String {
     let safe_id = sanitize_id(obs_id);
+    let prefixes = prefix_declarations();
     format!(
-        "PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-SELECT ?identifier ?text ?created
+        "{prefixes}SELECT ?identifier ?text ?created
 WHERE {{
   <{id}> rdf:type nie:InformationElement ;
          nie:identifier ?identifier ;
          nie:plainTextContent ?text .
   OPTIONAL {{ <{id}> nie:contentCreated ?created . }}
 }}",
+        prefixes = prefixes,
         id = safe_id,
     )
 }

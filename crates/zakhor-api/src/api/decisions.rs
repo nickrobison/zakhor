@@ -5,6 +5,7 @@ use zakhor_model::ingestion::EntityRef;
 
 use super::ApiState;
 use crate::api::error::{ApiError, ApiResult};
+use zakhor_storage::sparql::prefix_declarations;
 
 // ---------------------------------------------------------------------------
 // Query parameters
@@ -150,10 +151,10 @@ fn build_list_query(
         _ => "ORDER BY DESC(?id)".to_string(),
     };
 
+    let prefixes = prefix_declarations();
+
     format!(
-        "PREFIX zakhor: <http://zakhor/ns/>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-SELECT ?id ?outcome
+        "{prefixes}SELECT ?id ?outcome
 WHERE {{
   ?id rdf:type zakhor:Decision .
   OPTIONAL {{ ?id zakhor:decisionOutcome ?outcome . }}
@@ -161,6 +162,7 @@ WHERE {{
 }}
 {order}
 LIMIT {limit} OFFSET {offset}",
+        prefixes = prefixes,
         filter = filter_clause,
         order = order_clause,
         limit = limit,
@@ -170,16 +172,16 @@ LIMIT {limit} OFFSET {offset}",
 
 fn build_count_query(q: Option<&str>, status: Option<&str>) -> String {
     let filter_clause = build_filter_clauses(q, status);
+    let prefixes = prefix_declarations();
 
     format!(
-        "PREFIX zakhor: <http://zakhor/ns/>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-SELECT (COUNT(?id) AS ?total)
+        "{prefixes}SELECT (COUNT(?id) AS ?total)
 WHERE {{
   ?id rdf:type zakhor:Decision .
   OPTIONAL {{ ?id zakhor:decisionOutcome ?outcome . }}
 {filter}
 }}",
+        prefixes = prefixes,
         filter = filter_clause,
     )
 }
@@ -188,13 +190,13 @@ WHERE {{
 /// decision, giving us all its properties.
 fn build_properties_query(decision_id: &str) -> String {
     let safe_id = decision_id.replace(['>', '<'], "");
+    let prefixes = prefix_declarations();
     format!(
-        "PREFIX zakhor: <http://zakhor/ns/>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-SELECT ?p ?o
+        "{prefixes}SELECT ?p ?o
 WHERE {{
   <{id}> ?p ?o .
 }}",
+        prefixes = prefixes,
         id = safe_id,
     )
 }
@@ -202,12 +204,13 @@ WHERE {{
 /// Build a SELECT query returning alternatives for a decision.
 fn build_alternatives_query(decision_id: &str) -> String {
     let safe_id = decision_id.replace(['>', '<'], "");
+    let prefixes = prefix_declarations();
     format!(
-        "PREFIX zakhor: <http://zakhor/ns/>
-SELECT ?alt
+        "{prefixes}SELECT ?alt
 WHERE {{
   <{id}> zakhor:decisionAlternative ?alt .
 }}",
+        prefixes = prefixes,
         id = safe_id,
     )
 }
