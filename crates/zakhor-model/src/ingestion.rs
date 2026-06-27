@@ -1,15 +1,15 @@
 use gio::Cancellable;
-use rdf_types::{IriBuf, Literal, LiteralType, RdfDisplay, XSD_STRING};
+use oxrdf::{Literal, NamedNode};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracker::SparqlConnection;
 use tracker::prelude::SparqlConnectionExtManual;
+use tracker::SparqlConnection;
 
 use crate::entity_resolver::EntityResolver;
 use crate::extraction::ExtractionPipeline;
 use crate::provenance::ProvenanceTracker;
-use zakhor_storage::sparql::Prefix;
+use zakhor_storage::sparql::{self as storage_sparql, Prefix};
 
 // ---------------------------------------------------------------------------
 // Data structures
@@ -257,37 +257,14 @@ impl Default for IngestionPipeline {
 // SPARQL query builder
 // ---------------------------------------------------------------------------
 
-pub fn prefix_declarations() -> String {
-    let mut out = String::with_capacity(512);
-    for (name, ns) in &[
-        ("nie", Prefix::NIE),
-        ("rdf", Prefix::RDF),
-        ("rdfs", Prefix::RDFS),
-        ("owl", Prefix::OWL),
-        ("xsd", Prefix::XSD),
-        ("dcterms", Prefix::DCTERMS),
-        ("foaf", Prefix::FOAF),
-        ("prov", Prefix::PROV),
-        ("zakhor", Prefix::ZAKHOR),
-    ] {
-        out.push_str("PREFIX ");
-        out.push_str(name);
-        out.push_str(": <");
-        out.push_str(ns);
-        out.push_str(">\n");
-    }
-    out
-}
-
 pub fn format_iri(iri_str: &str) -> String {
-    let iri =
-        IriBuf::new(iri_str.to_string()).expect("invalid IRI passed to format_iri — this is a bug");
-    iri.rdf_display().to_string()
+    let node = NamedNode::new(iri_str).expect("invalid IRI passed to format_iri — this is a bug");
+    node.to_string()
 }
 
 pub fn escape_literal(text: &str) -> String {
-    let lit = Literal::new(text.to_string(), LiteralType::Any(XSD_STRING.to_owned()));
-    lit.rdf_display().to_string()
+    let lit = Literal::new_simple_literal(text);
+    lit.to_string()
 }
 
 /// Build the full `INSERT DATA { … }` SPARQL query for an observation.
@@ -295,7 +272,7 @@ pub fn escape_literal(text: &str) -> String {
 /// `uuid_urn` must be a `urn:uuid:…` string such as `urn:uuid:abc-123`.
 pub fn build_observation_sparql(args: &StoreObservationArgs, uuid_urn: &str) -> String {
     let mut sparql = String::with_capacity(2048);
-    sparql.push_str(&prefix_declarations());
+    sparql.push_str(&storage_sparql::prefix_declarations());
     sparql.push_str("INSERT DATA {\n");
 
     let uuid_iri = format_iri(uuid_urn);
@@ -554,16 +531,10 @@ mod tests {
             ],
         };
         let sparql = build_observation_sparql(&args, "urn:uuid:rel-test");
-        assert!(
-            sparql.contains(
-                "<http://example.com/s1> <http://example.com/p1> <http://example.com/o1>"
-            )
-        );
-        assert!(
-            sparql.contains(
-                "<http://example.com/s2> <http://example.com/p2> <http://example.com/o2>"
-            )
-        );
+        assert!(sparql
+            .contains("<http://example.com/s1> <http://example.com/p1> <http://example.com/o1>"));
+        assert!(sparql
+            .contains("<http://example.com/s2> <http://example.com/p2> <http://example.com/o2>"));
     }
 
     #[test]
@@ -676,7 +647,7 @@ mod tests {
 
     #[test]
     fn test_prefix_declarations_are_complete() {
-        let decls = prefix_declarations();
+        let decls = zakhor_storage::sparql::prefix_declarations();
         assert!(decls.contains("PREFIX nie:"));
         assert!(decls.contains("PREFIX rdf:"));
         assert!(decls.contains("PREFIX rdfs:"));

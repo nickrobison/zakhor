@@ -5,18 +5,18 @@
 //! through a shared intermediary) receives a higher importance score.
 
 use gio::Cancellable;
-use iref::IriBuf;
+use oxiri::Iri;
 use serde::Serialize;
 use std::collections::HashMap;
-use tracker::SparqlConnection;
 use tracker::prelude::SparqlCursorExtManual;
+use tracker::SparqlConnection;
 use zakhor_search::ScoredDoc;
 use zakhor_storage::sparql::Prefix;
 
 /// A scored entity from the graph ranking.
 #[derive(Clone, Debug, Serialize)]
 pub struct ScoredEntity {
-    pub uri: IriBuf,
+    pub uri: Iri<String>,
     pub label: String,
     /// Raw connectivity score (number of unique 2-hop connections).
     pub connectivity: u64,
@@ -62,7 +62,7 @@ pub fn compute_importance(conn: &SparqlConnection) -> Result<Vec<ScoredEntity>, 
 
 /// Count how many other labeled entities are reachable from `uri` within
 /// 2 SPARQL hops.
-fn count_2hop_connections(conn: &SparqlConnection, uri: &IriBuf) -> Result<u64, String> {
+fn count_2hop_connections(conn: &SparqlConnection, uri: &Iri<String>) -> Result<u64, String> {
     let safe = uri.as_str().replace('>', "");
     let sparql = format!(
         r#"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -101,7 +101,7 @@ SELECT (COUNT(DISTINCT ?connected) AS ?count) WHERE {{
 }
 
 /// List all entities with an `rdfs:label`.
-fn list_labeled_entities(conn: &SparqlConnection) -> Result<HashMap<IriBuf, String>, String> {
+fn list_labeled_entities(conn: &SparqlConnection) -> Result<HashMap<Iri<String>, String>, String> {
     let sparql = r#"PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
 SELECT DISTINCT ?entity ?label WHERE {
@@ -122,7 +122,7 @@ ORDER BY ?entity"#
         let uri = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
         let label = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
         if !uri.is_empty() {
-            match IriBuf::new(uri) {
+            match Iri::parse(uri) {
                 Ok(iri) => {
                     entities.insert(iri, label);
                 }
@@ -146,7 +146,7 @@ ORDER BY ?entity"#
 /// `zakhor:provenanceGraph`) has higher provenance quality.
 pub fn compute_provenance_quality(
     conn: &SparqlConnection,
-    entity_uri: &IriBuf,
+    entity_uri: &Iri<String>,
 ) -> Result<f64, String> {
     let safe = entity_uri.as_str().replace('>', "");
     let sparql = format!(
@@ -212,7 +212,7 @@ pub fn rank_search_results(
 
     let mut ranked: Vec<ScoredDoc> = Vec::with_capacity(raw_results.len());
     for doc in raw_results {
-        let (graph_score, provenance_score) = match IriBuf::new(doc.id.clone()) {
+        let (graph_score, provenance_score) = match Iri::parse(doc.id.clone()) {
             Ok(entity_iri) => {
                 let provenance_quality =
                     compute_provenance_quality(conn, &entity_iri).unwrap_or(0.0);
@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn test_scored_entity_struct() {
         let e = ScoredEntity {
-            uri: IriBuf::new("http://example.com/e1".to_string()).expect("valid test iri"),
+            uri: Iri::parse("http://example.com/e1".to_string()).expect("valid test iri"),
             label: "Entity 1".into(),
             connectivity: 5,
             importance: 0.5,
@@ -259,19 +259,19 @@ mod tests {
     fn test_scored_entity_sort_order() {
         let mut items = vec![
             ScoredEntity {
-                uri: IriBuf::new("http://example.com/a".to_string()).expect("valid test iri"),
+                uri: Iri::parse("http://example.com/a".to_string()).expect("valid test iri"),
                 label: "A".into(),
                 connectivity: 1,
                 importance: 0.1,
             },
             ScoredEntity {
-                uri: IriBuf::new("http://example.com/b".to_string()).expect("valid test iri"),
+                uri: Iri::parse("http://example.com/b".to_string()).expect("valid test iri"),
                 label: "B".into(),
                 connectivity: 10,
                 importance: 1.0,
             },
             ScoredEntity {
-                uri: IriBuf::new("http://example.com/c".to_string()).expect("valid test iri"),
+                uri: Iri::parse("http://example.com/c".to_string()).expect("valid test iri"),
                 label: "C".into(),
                 connectivity: 5,
                 importance: 0.5,

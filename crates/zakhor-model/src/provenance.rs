@@ -1,13 +1,11 @@
 #[allow(unused_imports)]
 use gio::Cancellable;
-use rdf_types::Quad;
-use rdf_types::dataset::{BTreeDataset, TraversableDataset};
-use tracker::SparqlConnection;
+use std::collections::HashMap;
 #[allow(unused_imports)]
 use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
-use zakhor_storage::sparql::Prefix;
-
-pub const GRAPH_PREFIX: &str = "http://zakhor/ns/graph/";
+use tracker::SparqlConnection;
+use zakhor_common::vocab::NAMED_GRAPH_PREFIX as GRAPH_PREFIX;
+use zakhor_storage::sparql::{self as storage_sparql};
 
 /// Build a named graph URI string for the given observation UUID.
 pub fn graph_uri(uuid: &str) -> String {
@@ -16,48 +14,34 @@ pub fn graph_uri(uuid: &str) -> String {
 
 /// Tracks provenance of observations using named graphs.
 ///
-/// Each observation is stored as a set of quads in a named graph
+/// Each observation is stored as a set of triples in a named graph
 /// identified by `zakhor:graph/{observation-uuid}`.
 pub struct ProvenanceTracker {
-    dataset: BTreeDataset<String>,
+    /// Map of graph_uri → triples (subject, predicate, object).
+    graphs: HashMap<String, Vec<(String, String, String)>>,
 }
 
 impl ProvenanceTracker {
     pub fn new() -> Self {
         Self {
-            dataset: BTreeDataset::new(),
+            graphs: HashMap::new(),
         }
     }
 
     pub fn add_observation(&mut self, uuid: &str, triples: Vec<(String, String, String)>) {
         let graph_name = graph_uri(uuid);
-        for (s, p, o) in triples {
-            let quad = Quad::new(s, p, o, Some(graph_name.clone()));
-            self.dataset.insert(quad);
-        }
+        self.graphs.entry(graph_name).or_default().extend(triples);
     }
 
     pub fn get_observation_graph(&self, uuid: &str) -> Vec<(String, String, String)> {
         let graph_name = graph_uri(uuid);
-        self.dataset
-            .quads()
-            .filter(|q| q.graph() == Some(&&graph_name))
-            .map(|q| {
-                (
-                    q.subject().to_string(),
-                    q.predicate().to_string(),
-                    q.object().to_string(),
-                )
-            })
-            .collect()
+        self.graphs.get(&graph_name).cloned().unwrap_or_default()
     }
 
     pub fn all_observations(&self) -> Vec<String> {
         let mut uuids: Vec<String> = Vec::new();
-        for quad in self.dataset.quads() {
-            if let Some(gn) = quad.graph()
-                && let Some(uuid) = gn.strip_prefix(GRAPH_PREFIX)
-            {
+        for graph_name in self.graphs.keys() {
+            if let Some(uuid) = graph_name.strip_prefix(GRAPH_PREFIX) {
                 let uuid = uuid.to_string();
                 if !uuids.contains(&uuid) {
                     uuids.push(uuid);
@@ -69,16 +53,11 @@ impl ProvenanceTracker {
 
     pub fn contains_observation(&self, uuid: &str) -> bool {
         let graph_name = graph_uri(uuid);
-        self.dataset
-            .quads()
-            .any(|q| q.graph() == Some(&&graph_name))
+        self.graphs.contains_key(&graph_name)
     }
 
     pub fn clear(&mut self) {
-        let quads: Vec<Quad<String>> = self.dataset.quads().map(|q| q.cloned()).collect();
-        for quad in quads {
-            self.dataset.remove(quad.as_ref());
-        }
+        self.graphs.clear();
     }
 
     /// Flush all tracked named graphs to the SPARQL triplestore.
@@ -117,7 +96,7 @@ impl Default for ProvenanceTracker {
 /// Each triple `(s, p, o)` is inserted into the named graph `zakhor:graph/{uuid}`.
 fn build_named_graph_insert(uuid: &str, triples: &[(String, String, String)]) -> String {
     let mut sparql = String::with_capacity(512 + triples.len() * 128);
-    sparql.push_str(&prefix_declarations());
+    sparql.push_str(&storage_sparql::prefix_declarations());
     sparql.push_str("INSERT DATA {\n");
     sparql.push_str(&format!("  GRAPH <{}> {{\n", graph_uri(uuid)));
     for (s, p, o) in triples {
@@ -138,7 +117,7 @@ pub fn query_named_graph(
     let graph = graph_uri(uuid);
     let sparql = format!(
         "{}SELECT ?s ?p ?o WHERE {{ GRAPH <{}> {{ ?s ?p ?o }} }}",
-        prefix_declarations(),
+        storage_sparql::prefix_declarations(),
         graph,
     );
     let cursor = conn
@@ -156,29 +135,6 @@ pub fn query_named_graph(
         results.push((s, p, o));
     }
     Ok(results)
-}
-
-/// Emit `PREFIX name: <iri>` declarations for all known namespaces.
-fn prefix_declarations() -> String {
-    let mut out = String::with_capacity(512);
-    for (name, ns) in &[
-        ("nie", Prefix::NIE),
-        ("rdf", Prefix::RDF),
-        ("rdfs", Prefix::RDFS),
-        ("owl", Prefix::OWL),
-        ("xsd", Prefix::XSD),
-        ("dcterms", Prefix::DCTERMS),
-        ("foaf", Prefix::FOAF),
-        ("prov", Prefix::PROV),
-        ("zakhor", Prefix::ZAKHOR),
-    ] {
-        out.push_str("PREFIX ");
-        out.push_str(name);
-        out.push_str(": <");
-        out.push_str(ns);
-        out.push_str(">\n");
-    }
-    out
 }
 
 // ---------------------------------------------------------------------------

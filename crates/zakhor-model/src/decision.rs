@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
 use gio::Cancellable;
-use iref::{Iri, IriBuf};
-use tracker::SparqlConnection;
+use oxiri::Iri;
 use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
+use tracker::SparqlConnection;
 use zakhor_common::vocab;
 use zakhor_storage::schema;
 use zakhor_storage::sparql::{self as storage_sparql, Prefix};
@@ -20,23 +20,23 @@ pub struct CreateDecisionArgs {
     /// Rationale for the decision.
     pub rationale: String,
     /// URIs of entities/observations affected by this decision.
-    pub affects: Vec<IriBuf>,
+    pub affects: Vec<Iri<String>>,
     /// URIs of observations this decision derives from.
-    pub derived_from: Vec<IriBuf>,
+    pub derived_from: Vec<Iri<String>>,
     /// Optional URI of a superseded decision.
-    pub supersedes: Option<IriBuf>,
+    pub supersedes: Option<Iri<String>>,
     /// Optional URIs of conflicting decisions.
-    pub conflicts_with: Vec<IriBuf>,
+    pub conflicts_with: Vec<Iri<String>>,
     /// Optional URIs of decisions this depends on.
-    pub depends_on: Vec<IriBuf>,
+    pub depends_on: Vec<Iri<String>>,
     /// Optional project URI this decision belongs to.
-    pub project_uri: Option<IriBuf>,
+    pub project_uri: Option<Iri<String>>,
 }
 
 /// Result of creating a Decision.
 #[derive(Clone, Debug)]
 pub struct CreateDecisionResult {
-    pub decision_uri: IriBuf,
+    pub decision_uri: Iri<String>,
     pub status: String,
 }
 
@@ -59,7 +59,7 @@ impl DecisionModel {
         let decision_uri_string = tracker::functions::sparql_get_uuid_urn()
             .ok_or_else(|| "Failed to generate UUID".to_string())?
             .to_string();
-        let decision_uri = IriBuf::new(decision_uri_string)
+        let decision_uri = Iri::parse(decision_uri_string)
             .map_err(|e| format!("Generated invalid decision URI: {e}"))?;
 
         let sparql = build_create_decision_sparql(&args, &decision_uri);
@@ -73,7 +73,7 @@ impl DecisionModel {
     }
 
     /// Supersede an existing decision (set its status to superseded).
-    pub fn supersede(conn: &SparqlConnection, decision_uri: &Iri) -> Result<(), String> {
+    pub fn supersede(conn: &SparqlConnection, decision_uri: &Iri<String>) -> Result<(), String> {
         let superseded_lit = storage_sparql::escape_literal(vocab::decision_status::SUPERSEDED);
         let sparql = format!(
             "{}DELETE {{ <{}> <{}> ?old_status . }} INSERT {{ <{}> <{}> {} . }} WHERE {{ <{}> <{}> ?old_status . }}",
@@ -95,7 +95,7 @@ impl DecisionModel {
         conn: &SparqlConnection,
         status: &str,
         limit: u32,
-    ) -> Result<Vec<IriBuf>, String> {
+    ) -> Result<Vec<Iri<String>>, String> {
         let status_lit = storage_sparql::escape_literal(status);
         let sparql = format!(
             "{}SELECT ?d WHERE {{ ?d rdf:type <{}> ; <{}> {} . }} LIMIT {}",
@@ -115,7 +115,7 @@ impl DecisionModel {
             .map_err(|e| format!("Cursor error: {}", e))?
         {
             if let Some(s) = cursor.string(0) {
-                let iri = IriBuf::new(s.to_string())
+                let iri = Iri::parse(s.to_string())
                     .map_err(|e| format!("Invalid decision URI returned from query: {e}"))?;
                 results.push(iri);
             }
@@ -125,7 +125,7 @@ impl DecisionModel {
 }
 
 /// Build SPARQL INSERT for creating a new Decision.
-fn build_create_decision_sparql(args: &CreateDecisionArgs, decision_uri: &IriBuf) -> String {
+fn build_create_decision_sparql(args: &CreateDecisionArgs, decision_uri: &Iri<String>) -> String {
     let mut sparql = String::with_capacity(2048);
     sparql.push_str(&storage_sparql::prefix_declarations());
     sparql.push_str("INSERT DATA {\n");
@@ -225,8 +225,8 @@ fn build_create_decision_sparql(args: &CreateDecisionArgs, decision_uri: &IriBuf
 mod tests {
     use super::*;
 
-    fn iri(value: &str) -> IriBuf {
-        IriBuf::new(value.to_owned()).expect("test IRIs should be valid")
+    fn iri(value: &str) -> Iri<String> {
+        Iri::parse(value.to_owned()).expect("test IRIs should be valid")
     }
 
     #[test]

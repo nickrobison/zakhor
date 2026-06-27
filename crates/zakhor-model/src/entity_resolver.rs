@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use iref::IriBuf;
+use oxiri::Iri;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use zakhor_common::config::EntityResolutionConfig;
@@ -13,7 +13,7 @@ pub struct ResolvedEntity {
     /// The original extracted entity URI/label.
     pub extracted_label: String,
     /// The resolved (canonical) URI, or None if no match found.
-    pub resolved_uri: Option<IriBuf>,
+    pub resolved_uri: Option<Iri<String>>,
     /// The tier that resolved this entity (1=alias, 2=tantivy, 3=fastembed, 0=unresolved).
     pub resolution_tier: u8,
     /// Similarity score of the match.
@@ -33,7 +33,7 @@ pub struct ResolvedEntity {
 pub struct EntityResolver {
     config: EntityResolutionConfig,
     /// Known entity aliases: label -> URI
-    aliases: HashMap<String, IriBuf>,
+    aliases: HashMap<String, Iri<String>>,
     /// Tantivy index for lexical search
     lexical: Option<LexicalIndex>,
     /// fastembed index for semantic search
@@ -52,7 +52,7 @@ impl EntityResolver {
 
     /// Register an alias for exact-match resolution (Tier 1).
     pub fn register_alias(&mut self, label: &str, uri: &str) -> Result<(), String> {
-        let uri = IriBuf::new(uri.to_string())
+        let uri = Iri::parse(uri.to_string())
             .map_err(|e| format!("invalid URI for alias '{label}': {e}"))?;
         self.aliases.insert(label.to_lowercase(), uri);
         Ok(())
@@ -101,7 +101,7 @@ impl EntityResolver {
             if let Some(top) = results.first()
                 && top.score >= self.config.tantivy_threshold as f64
             {
-                match IriBuf::new(top.id.as_str().to_owned()) {
+                match Iri::parse(top.id.as_str().to_owned()) {
                     Ok(uri) => {
                         return ResolvedEntity {
                             extracted_label: label.to_string(),
@@ -129,7 +129,7 @@ impl EntityResolver {
             if let Some(top) = results.first()
                 && top.score >= self.config.fastembed_threshold as f64
             {
-                match IriBuf::new(top.id.as_str().to_owned()) {
+                match Iri::parse(top.id.as_str().to_owned()) {
                     Ok(uri) => {
                         return ResolvedEntity {
                             extracted_label: label.to_string(),
