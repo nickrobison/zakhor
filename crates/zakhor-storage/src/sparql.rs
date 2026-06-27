@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use rdf_types::{IriBuf, Literal, LiteralType, RdfDisplay, Triple, XSD_STRING};
+use oxrdf::{Literal, NamedNode, Triple};
 
 // ---------------------------------------------------------------------------
 // Prefix constants — shared vocabulary URIs
@@ -47,23 +47,22 @@ pub fn prefix_declarations() -> String {
     out
 }
 
-/// Escape `text` as a SPARQL literal using `rdf_types::Literal` + `RdfDisplay`.
+/// Escape `text` as a SPARQL literal using `oxrdf::Literal`.
 /// The returned string includes the enclosing double quotes and any internal
 /// escaping — it is safe to interpolate directly into a SPARQL query string.
 pub fn escape_literal(text: &str) -> String {
-    let lit = Literal::new(text.to_string(), LiteralType::Any(XSD_STRING.to_owned()));
-    lit.rdf_display().to_string()
+    let lit = Literal::new_simple_literal(text);
+    lit.to_string()
 }
 
-/// Format a string as a SPARQL angle-bracketed IRI via `rdf_types::IriBuf::rdf_display()`.
+/// Format a string as a SPARQL angle-bracketed IRI via `oxrdf::NamedNode`.
 ///
 /// # Panics
 /// Panics if `iri_str` is not a valid IRI (this is a programming error — all
 /// callers pass well-known literal URIs such as `urn:uuid:…`).
 pub fn format_iri(iri_str: &str) -> String {
-    let iri =
-        IriBuf::new(iri_str.to_string()).expect("invalid IRI passed to format_iri — this is a bug");
-    iri.rdf_display().to_string()
+    let node = NamedNode::new(iri_str).expect("invalid IRI passed to format_iri — this is a bug");
+    node.to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +72,7 @@ pub fn format_iri(iri_str: &str) -> String {
 /// Typed SPARQL query builder.
 ///
 /// Every method produces a complete SPARQL query string with `PREFIX`
-/// declarations and safe literal escaping via `rdf_types::Literal`.
+/// declarations and safe literal escaping via `oxrdf::Literal`.
 pub struct SparqlBuilder;
 
 impl SparqlBuilder {
@@ -169,22 +168,22 @@ impl SparqlBuilder {
         )
     }
 
-    /// Build a CONSTRUCT query that uses `Triple::rdf_display()` for safe
-    /// triple formatting via `rdf_types`.
+    /// Build a CONSTRUCT query that uses `Triple::fmt::Display` for safe
+    /// triple formatting via `oxrdf`.
     pub fn construct_triple(
         subject_iri: &str,
         predicate_iri: &str,
         object_iri: &str,
         where_clause: &str,
     ) -> String {
-        let s = IriBuf::new(subject_iri.to_string()).expect("invalid subject IRI");
-        let p = IriBuf::new(predicate_iri.to_string()).expect("invalid predicate IRI");
-        let o = IriBuf::new(object_iri.to_string()).expect("invalid object IRI");
+        let s = NamedNode::new(subject_iri.to_string()).expect("invalid subject IRI");
+        let p = NamedNode::new(predicate_iri.to_string()).expect("invalid predicate IRI");
+        let o = NamedNode::new(object_iri.to_string()).expect("invalid object IRI");
         let triple = Triple::new(s, p, o);
         format!(
             "{}CONSTRUCT {{\n{}\n}}\nWHERE {{\n{}\n}}",
             prefix_declarations(),
-            triple.rdf_display(),
+            triple,
             where_clause,
         )
     }
@@ -293,9 +292,10 @@ mod tests {
     fn test_literal_with_tab_is_escaped() {
         let text = "col1\tcol2";
         let q = SparqlBuilder::insert_data("urn:uuid:x", text);
+        // oxrdf escapes tab as \t inside a SPARQL short literal
         assert!(
-            q.contains("\"col1\tcol2\""),
-            "tab must be inside quoted literal: {}",
+            q.contains(r#""col1\tcol2""#),
+            "tab must be escaped as \\t inside quoted literal: {}",
             q
         );
     }

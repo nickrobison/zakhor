@@ -1,8 +1,5 @@
 #![allow(dead_code)]
 
-use iref::Iri;
-use static_iref::iri;
-
 pub use crate::sparql::SparqlBuilder;
 
 /// Additional namespace constants (beyond those in Prefix)
@@ -14,118 +11,17 @@ pub const NRL: &str = "http://tracker.api.gnome.org/ontology/v3/nrl#";
 /// All prefix entries for SPARQL queries (adds NFO, NAO, SKOS to basic set from sparql.rs)
 pub const EXTRA_PREFIXES: &[(&str, &str)] = &[("nfo", NFO), ("nao", NAO), ("skos", SKOS)];
 
-// IRI constructor functions — compile-time parsed static IRIs:
+// IRI constructor functions — re-exported from zakhor_common::vocab (single canonical source):
 
-pub fn entity_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/Entity")
-}
-
-pub fn decision_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/Decision")
-}
-
-pub fn project_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/Project")
-}
-
-pub fn issue_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/Issue")
-}
-
-pub fn constraint_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/Constraint")
-}
-
-pub fn observation_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/Observation")
-}
-
-pub fn has_entity_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/hasEntity")
-}
-
-pub fn has_relation_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/hasRelation")
-}
-
-pub fn provenance_graph_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/provenanceGraph")
-}
-
-pub fn decision_context_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/decisionContext")
-}
-pub fn decision_outcome_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/decisionOutcome")
-}
-pub fn decision_alternative_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/alternative")
-}
-pub fn decision_rationale_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/decisionRationale")
-}
-
-// --- v2 vocabulary additions (from vocab.rs) ---
-
-pub fn conflicts_with_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/conflictsWith")
-}
-
-pub fn depends_on_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/dependsOn")
-}
-
-pub fn supersedes_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/supersedes")
-}
-
-pub fn evidence_for_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/evidenceFor")
-}
-
-pub fn belongs_to_project_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/belongsToProject")
-}
-
-pub fn code_location_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/codeLocation")
-}
-
-pub fn observation_content_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/observationContent")
-}
-
-pub fn observation_created_at_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/observationCreatedAt")
-}
-
-pub fn decision_status_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/decisionStatus")
-}
-
-pub fn graph_importance_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/graphImportance")
-}
-
-pub fn provenance_quality_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/provenanceQuality")
-}
-
-pub fn tool_name_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/toolName")
-}
-
-pub fn tool_arguments_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/toolArguments")
-}
-
-pub fn session_id_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/sessionId")
-}
-
-pub fn timestamp_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/timestamp")
-}
+pub use zakhor_common::vocab::{
+    belongs_to_project_iri, code_location_iri, conflicts_with_iri, constraint_iri,
+    decision_alternative_iri, decision_context_iri, decision_iri, decision_outcome_iri,
+    decision_rationale_iri, decision_status_iri, depends_on_iri, entity_iri, evidence_for_iri,
+    graph_importance_iri, has_entity_iri, has_relation_iri, issue_iri, observation_content_iri,
+    observation_created_at_iri, observation_iri, project_iri, provenance_graph_iri,
+    provenance_quality_iri, session_id_iri, supersedes_iri, timestamp_iri, tool_arguments_iri,
+    tool_call_iri as schema_tool_call_iri, tool_name_iri,
+};
 
 /// Generate SPARQL CONSTRUCT query that registers the ontology in Tracker.
 #[allow(dead_code)]
@@ -180,10 +76,6 @@ pub fn ontology_construct_query() -> String {
         timestamp = timestamp_iri().as_str(),
     );
     crate::sparql::ontology_construct(&construct, &where_clause)
-}
-
-pub fn schema_tool_call_iri() -> &'static Iri {
-    iri!("http://zakhor/ns/ToolCall")
 }
 
 /// Generate SPARQL INSERT DATA query that registers the ontology in Tracker.

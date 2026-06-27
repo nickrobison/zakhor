@@ -9,7 +9,7 @@ edition = "2024"
 zakhor-common = { path = "../zakhor-common" }
 gio = "0.22.6"
 tracker-rs = "0.8.0"
-rdf-types = "0.22"
-iref = { version = "3", features = ["serde"] }
+oxrdf = "0.3"
+oxiri = "0.2"
 static-iref = "3"
 tracing = "0.1.41"
