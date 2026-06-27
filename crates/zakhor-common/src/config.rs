@@ -18,6 +18,8 @@ pub struct Config {
     pub tool_capture: ToolCaptureConfig,
     #[serde(default)]
     pub background: BackgroundConfig,
+    #[serde(default)]
+    pub extraction: ExtractionConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -69,6 +71,16 @@ pub struct ToolCaptureConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct BackgroundConfig {
     pub worker_count: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExtractionConfig {
+    pub model_path: PathBuf,
+    pub tokenizer_path: PathBuf,
+    pub entity_labels: Vec<String>,
+    pub relation_labels: Vec<String>,
+    pub entity_threshold: f32,
+    pub relation_threshold: f32,
 }
 
 impl Default for HttpConfig {
@@ -136,6 +148,19 @@ impl Default for BackgroundConfig {
     }
 }
 
+impl Default for ExtractionConfig {
+    fn default() -> Self {
+        Self {
+            model_path: PathBuf::default(),
+            tokenizer_path: PathBuf::default(),
+            entity_labels: Vec::new(),
+            relation_labels: Vec::new(),
+            entity_threshold: 0.5,
+            relation_threshold: 0.5,
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -149,6 +174,7 @@ impl Default for Config {
             code_indexing: CodeIndexingConfig::default(),
             tool_capture: ToolCaptureConfig::default(),
             background: BackgroundConfig::default(),
+            extraction: ExtractionConfig::default(),
         }
     }
 }
@@ -169,6 +195,7 @@ impl Config {
             config.code_indexing = file_config.code_indexing;
             config.tool_capture = file_config.tool_capture;
             config.background = file_config.background;
+            config.extraction = file_config.extraction;
         }
 
         if let Ok(path) = std::env::var("ZAKHOR_DB_PATH") {
@@ -204,6 +231,10 @@ mod tests {
         assert_eq!(config.code_indexing.max_parallel_parsers, 4);
         assert_eq!(config.tool_capture.max_evidence_per_decision, 50);
         assert_eq!(config.background.worker_count, 2);
+        assert!(config.extraction.model_path.as_os_str().is_empty());
+        assert!(config.extraction.entity_labels.is_empty());
+        assert_eq!(config.extraction.entity_threshold, 0.5);
+        assert_eq!(config.extraction.relation_threshold, 0.5);
     }
 
     #[test]
@@ -243,6 +274,14 @@ session_timeout_minutes = 30
 
 [background]
 worker_count = 4
+
+[extraction]
+model_path = "/home/user/models/gliner"
+tokenizer_path = "/home/user/models/gliner-tokenizer"
+entity_labels = ["Person", "Organization", "Location"]
+relation_labels = ["works_at", "located_in"]
+entity_threshold = 0.6
+relation_threshold = 0.55
 "#;
         let config: Config = toml::from_str(toml_content).expect("TOML should parse");
         assert_eq!(config.database.path, PathBuf::from("/custom/db"));
@@ -257,6 +296,24 @@ worker_count = 4
         assert_eq!(config.code_indexing.max_parallel_parsers, 8);
         assert_eq!(config.tool_capture.max_evidence_per_decision, 100);
         assert_eq!(config.background.worker_count, 4);
+        assert_eq!(
+            config.extraction.model_path,
+            PathBuf::from("/home/user/models/gliner")
+        );
+        assert_eq!(
+            config.extraction.tokenizer_path,
+            PathBuf::from("/home/user/models/gliner-tokenizer")
+        );
+        assert_eq!(
+            config.extraction.entity_labels,
+            vec!["Person".to_string(), "Organization".to_string(), "Location".to_string()]
+        );
+        assert_eq!(
+            config.extraction.relation_labels,
+            vec!["works_at".to_string(), "located_in".to_string()]
+        );
+        assert_eq!(config.extraction.entity_threshold, 0.6);
+        assert_eq!(config.extraction.relation_threshold, 0.55);
     }
 
     #[test]
@@ -271,5 +328,8 @@ path = "/custom/db"
         assert_eq!(config.llm.model, "llama3");
         assert_eq!(config.entity_resolution.alias_threshold, 1.0);
         assert_eq!(config.background.worker_count, 2);
+        assert!(config.extraction.model_path.as_os_str().is_empty());
+        assert!(config.extraction.entity_labels.is_empty());
+        assert_eq!(config.extraction.entity_threshold, 0.5);
     }
 }

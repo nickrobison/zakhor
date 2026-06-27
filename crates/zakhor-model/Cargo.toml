@@ -5,6 +5,9 @@ edition = "2024"
 
 [lib]
 
+[features]
+gliner-integration = []
+
 [dependencies]
 zakhor-common = { path = "../zakhor-common" }
 zakhor-storage = { path = "../zakhor-storage" }
@@ -19,3 +22,8 @@ iref = { version = "3", features = ["serde"] }
 tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.41"
 utoipa = "5.3.0"
+
+# GLiNER extraction pipeline - using local forks with ort =2.0.0-rc.12 to match fastembed
+gline-rs = { path = "/tmp/gline-rs", features = ["load-dynamic"] }
+orp = { path = "/tmp/orp" }
+ort = { version = "2.0.0-rc.12", features = ["load-dynamic"] }

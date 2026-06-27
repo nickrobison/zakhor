@@ -19,6 +19,7 @@ use tracing::info_span;
 use tracker::prelude::SparqlCursorExtManual;
 use zakhor_common::config::Config;
 use zakhor_model::decision::{CreateDecisionArgs, DecisionModel};
+use zakhor_model::extraction::{ExtractionConfig, ExtractionPipeline};
 use zakhor_model::ingestion::{IngestionPipeline, StoreObservationArgs};
 use zakhor_search::IndexSyncManager;
 
@@ -37,6 +38,7 @@ pub struct MemoryHandler {
     conn: tracker::SparqlConnection,
     pub sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,
     pub is_ephemeral: bool,
+    pub extraction: Option<Arc<ExtractionPipeline>>,
 }
 
 impl MemoryHandler {
@@ -50,6 +52,7 @@ impl MemoryHandler {
             conn,
             sync_mgr,
             is_ephemeral: false,
+            extraction: None,
         }
     }
 
@@ -60,10 +63,24 @@ impl MemoryHandler {
     ) -> Self {
         let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
         let conn = zakhor_storage::tracker_db::init_db(db_path);
+        let extraction_cfg = ExtractionConfig {
+            model_path: cfg.extraction.model_path.clone(),
+            tokenizer_path: cfg.extraction.tokenizer_path.clone(),
+            entity_labels: cfg.extraction.entity_labels.clone(),
+            relation_labels: cfg.extraction.relation_labels.clone(),
+            entity_threshold: cfg.extraction.entity_threshold,
+            relation_threshold: cfg.extraction.relation_threshold,
+        };
+        let extraction = if !extraction_cfg.model_path.as_os_str().is_empty() {
+            Some(Arc::new(ExtractionPipeline::new(extraction_cfg)))
+        } else {
+            None
+        };
         Self {
             conn,
             sync_mgr,
             is_ephemeral,
+            extraction,
         }
     }
 
@@ -100,6 +117,19 @@ pub struct RecordDecisionArgs {
     pub decision: String,
     pub alternatives: Vec<String>,
     pub rationale: String,
+}
+
+#[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
+pub struct ExtractAndStoreArgs {
+    pub uri: String,
+    pub text: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+pub struct ExtractAndStoreResponse {
+    pub observation_uri: String,
+    pub entity_count: u64,
+    pub relation_count: u64,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
@@ -502,6 +532,57 @@ impl MemoryHandler {
         span.record("result", if result.is_ok() { "success" } else { "error" });
         span.record("duration_ms", duration_ms);
         result
+    }
+
+    #[tool(
+        description = "Extract entities and relations from text and store them in the knowledge graph"
+    )]
+    async fn extract_and_store(
+        &self,
+        Parameters(args): Parameters<ExtractAndStoreArgs>,
+    ) -> Result<Json<ExtractAndStoreResponse>, String> {
+        let span = info_span!(
+            "mcp_tool",
+            tool = "extract_and_store",
+            correlation_id = %crate::new_correlation_id(),
+            args_hash = %args_hash(&args),
+            duration_ms = tracing::field::Empty,
+            result = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+        let start = Instant::now();
+
+        let extraction = self
+            .extraction
+            .as_ref()
+            .ok_or_else(|| "Extraction pipeline not configured. Set model_path in [extraction] section of zakhor.toml.".to_string())?;
+
+        let mut pipeline = IngestionPipeline::new();
+        let ingest_result = pipeline
+            .extract_and_ingest(&self.conn, &args.text, extraction)
+            .await
+            .map_err(|e| format!("Extract and ingest failed: {e}"))?;
+
+        if let Some(ref sync_mgr) = self.sync_mgr {
+            let mgr = sync_mgr.lock().expect("sync manager lock poisoned");
+            if let Err(e) = mgr.sync_observation(
+                &ingest_result.observation_uri,
+                &args.text,
+                &[],
+            ) {
+                tracing::warn!(error = %e, "Failed to sync extracted observation to indexes");
+            }
+        }
+
+        let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+        span.record("result", "success");
+        span.record("duration_ms", duration_ms);
+
+        Ok(Json(ExtractAndStoreResponse {
+            observation_uri: ingest_result.observation_uri,
+            entity_count: 0,
+            relation_count: 0,
+        }))
     }
 
     #[tool(
