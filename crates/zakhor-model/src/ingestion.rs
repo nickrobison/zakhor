@@ -3,10 +3,11 @@ use rdf_types::{IriBuf, Literal, LiteralType, RdfDisplay, XSD_STRING};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracker::SparqlConnection;
 use tracker::prelude::SparqlConnectionExtManual;
+use tracker::SparqlConnection;
 
 use crate::entity_resolver::EntityResolver;
+use crate::extraction::ExtractionPipeline;
 use crate::provenance::ProvenanceTracker;
 use zakhor_storage::sparql::Prefix;
 
@@ -150,6 +151,39 @@ impl IngestionPipeline {
             .flush_to_sparql(conn)
             .map_err(|e| IngestionError::Persist(format!("flush failed: {}", e)))?;
         Ok(result)
+    }
+
+    /// Extract entities and relations from text using the extraction pipeline,
+    /// then ingest the results into the SPARQL store.
+    ///
+    /// This is a convenience method that chains the two pipelines:
+    /// 1. Call `extraction.extract_entities(text)` to extract entities
+    /// 2. Call `extraction.extract_relations(text, &entities)` to extract relations
+    /// 3. Create [`StoreObservationArgs`] from the results
+    /// 4. Call [`Self::ingest`] to run the full 5-stage pipeline
+    pub async fn extract_and_ingest(
+        &mut self,
+        conn: &SparqlConnection,
+        text: &str,
+        extraction: &ExtractionPipeline,
+    ) -> Result<IngestResult, IngestionError> {
+        let entities = extraction
+            .extract_entities(text)
+            .await
+            .map_err(|e| IngestionError::Build(format!("entity extraction failed: {}", e)))?;
+
+        let relations = extraction
+            .extract_relations(text, &entities)
+            .await
+            .map_err(|e| IngestionError::Build(format!("relation extraction failed: {}", e)))?;
+
+        let args = StoreObservationArgs {
+            text: text.to_string(),
+            entities,
+            relations,
+        };
+
+        self.ingest(conn, args)
     }
 
     /// Get the provenance tracker (for querying graph history).
@@ -520,16 +554,10 @@ mod tests {
             ],
         };
         let sparql = build_observation_sparql(&args, "urn:uuid:rel-test");
-        assert!(
-            sparql.contains(
-                "<http://example.com/s1> <http://example.com/p1> <http://example.com/o1>"
-            )
-        );
-        assert!(
-            sparql.contains(
-                "<http://example.com/s2> <http://example.com/p2> <http://example.com/o2>"
-            )
-        );
+        assert!(sparql
+            .contains("<http://example.com/s1> <http://example.com/p1> <http://example.com/o1>"));
+        assert!(sparql
+            .contains("<http://example.com/s2> <http://example.com/p2> <http://example.com/o2>"));
     }
 
     #[test]
