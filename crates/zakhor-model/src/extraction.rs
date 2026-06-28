@@ -221,9 +221,11 @@ impl ExtractionPipeline {
     fn get_or_init_model(&self) -> Result<Arc<Inner>, ExtractionError> {
         let mut guard = self.inner.lock().expect("extraction mutex poisoned");
         if let Some(ref inner) = *guard {
+            tracing::trace!("Reusing cached ONNX model");
             return Ok(inner.clone());
         }
 
+        tracing::info!("Loading ONNX model from {}", self.config.model_path.display());
         let runtime_params = orp::params::RuntimeParameters::default();
         let model = orp::model::Model::new(&self.config.model_path, runtime_params)
             .map_err(|e| ExtractionError::ModelLoad(format!("ONNX model: {}", e)))?;
@@ -233,6 +235,7 @@ impl ExtractionPipeline {
 
         let inner = Arc::new(Inner { model, params });
         *guard = Some(inner.clone());
+        tracing::debug!("ONNX model loaded and cached");
         Ok(inner)
     }
 
@@ -247,8 +250,9 @@ impl ExtractionPipeline {
         let inner = self.get_or_init_model()?;
         let config = self.config.clone();
         let text = text.to_string();
+        let text_len = text.len();
 
-        spawn_blocking(move || {
+        let entities = spawn_blocking(move || {
             let entity_strs: Vec<&str> = config.entity_labels.iter().map(|s| s.as_str()).collect();
 
             let text_input =
@@ -275,10 +279,13 @@ impl ExtractionPipeline {
                 })
                 .collect();
 
-            Ok(entities)
+            Ok::<Vec<EntityRef>, ExtractionError>(entities)
         })
         .await
-        .map_err(|e| ExtractionError::TaskJoin(format!("spawn_blocking: {}", e)))?
+        .map_err(|e| ExtractionError::TaskJoin(format!("spawn_blocking: {}", e)))??;
+
+        tracing::debug!(entity_count = entities.len(), text_len, "NER extraction complete");
+        Ok(entities)
     }
 
     /// Extract relations between entities in `text`.
@@ -305,8 +312,9 @@ impl ExtractionPipeline {
             .iter()
             .map(|e| (e.label.clone(), e.uri.clone()))
             .collect();
+        let input_entity_count = entities.len();
 
-        spawn_blocking(move || {
+        let relations = spawn_blocking(move || {
             // ---- Step 1: NER ----
             let entity_strs: Vec<&str> = config.entity_labels.iter().map(|s| s.as_str()).collect();
 
@@ -346,6 +354,12 @@ impl ExtractionPipeline {
                 .map(|(label, uri)| (label.as_str(), uri.as_str()))
                 .collect();
 
+            let raw_relation_count: usize = relation_output
+                .relations
+                .iter()
+                .map(|seq| seq.len())
+                .sum();
+
             let relations: Vec<Relation> = relation_output
                 .relations
                 .into_iter()
@@ -373,10 +387,22 @@ impl ExtractionPipeline {
                 })
                 .collect();
 
-            Ok(relations)
+            tracing::debug!(
+                raw_relation_count,
+                mapped_relation_count = relations.len(),
+                "RE inference complete"
+            );
+            Ok::<Vec<Relation>, ExtractionError>(relations)
         })
         .await
-        .map_err(|e| ExtractionError::TaskJoin(format!("spawn_blocking: {}", e)))?
+        .map_err(|e| ExtractionError::TaskJoin(format!("spawn_blocking: {}", e)))??;
+
+        tracing::debug!(
+            input_entity_count,
+            relation_count = relations.len(),
+            "RE extraction complete"
+        );
+        Ok(relations)
     }
 }
 

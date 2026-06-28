@@ -112,11 +112,16 @@ impl IngestionPipeline {
     ) -> Result<IngestResult, IngestionError> {
         // Stage 1: Validate
         self.validate(&args)?;
+        tracing::debug!("Stage 1 [validate] passed");
 
         // Stage 2: Resolve (mutate args in place if resolver is available)
         let mut args = args;
         if self.entity_resolver.is_some() {
+            let before = args.entities.len();
             self.resolve_entities(&mut args)?;
+            tracing::trace!(before = before, after = args.entities.len(), "Stage 2 [resolve] complete");
+        } else {
+            tracing::trace!("Stage 2 [resolve] skipped — no resolver configured");
         }
 
         // Stage 3: Build
@@ -124,15 +129,27 @@ impl IngestionPipeline {
             .ok_or_else(|| IngestionError::Build("Failed to generate UUID".to_string()))?
             .to_string();
         let (sparql, provenance_triples) = self.build_triples(&args, &uuid_urn);
+        tracing::debug!(
+            observation_uri = %uuid_urn,
+            triple_count = provenance_triples.len(),
+            sparql_len = sparql.len(),
+            "Stage 3 [build] complete"
+        );
 
         // Stage 4: Persist
         self.persist(conn, &sparql)?;
+        tracing::debug!("Stage 4 [persist] SPARQL update succeeded");
 
         // Stage 5: Track
         let triple_count = provenance_triples.len();
         let uuid_part = uuid_urn.strip_prefix("urn:uuid:").unwrap_or(&uuid_urn);
         self.provenance
             .add_observation(uuid_part, provenance_triples);
+        tracing::debug!(
+            observation_uri = %uuid_urn,
+            triple_count,
+            "Stage 5 [track] complete"
+        );
 
         Ok(IngestResult {
             observation_uri: uuid_urn,
@@ -170,15 +187,19 @@ impl IngestionPipeline {
         text: &str,
         extraction: &ExtractionPipeline,
     ) -> Result<IngestResult, IngestionError> {
+        let text_len = text.len();
+
         let entities = extraction
             .extract_entities(text)
             .await
             .map_err(|e| IngestionError::Build(format!("entity extraction failed: {}", e)))?;
+        tracing::debug!(entity_count = entities.len(), "NER extraction complete");
 
         let relations = extraction
             .extract_relations(text, &entities)
             .await
             .map_err(|e| IngestionError::Build(format!("relation extraction failed: {}", e)))?;
+        tracing::debug!(relation_count = relations.len(), "RE extraction complete");
 
         let args = StoreObservationArgs {
             text: text.to_string(),
@@ -186,6 +207,12 @@ impl IngestionPipeline {
             relations,
         };
 
+        tracing::info!(
+            text_len,
+            entity_count = args.entities.len(),
+            relation_count = args.relations.len(),
+            "Starting 5-stage ingest from extracted results"
+        );
         self.ingest(conn, args)
     }
 
@@ -199,6 +226,7 @@ impl IngestionPipeline {
     // -----------------------------------------------------------------------
 
     /// Stage 1: Validate input args.
+    #[tracing::instrument(skip_all)]
     fn validate(&self, args: &StoreObservationArgs) -> Result<(), IngestionError> {
         if args.text.trim().is_empty() {
             return Err(IngestionError::Validation(
@@ -216,6 +244,7 @@ impl IngestionPipeline {
     }
 
     /// Stage 2: Resolve entity labels using the entity resolver.
+    #[tracing::instrument(skip_all)]
     fn resolve_entities(&self, args: &mut StoreObservationArgs) -> Result<(), IngestionError> {
         let resolver = self.entity_resolver.as_ref().ok_or_else(|| {
             IngestionError::Resolution("entity resolver not configured".to_string())
@@ -233,6 +262,7 @@ impl IngestionPipeline {
     }
 
     /// Stage 3: Build SPARQL query and collect provenance triples.
+    #[tracing::instrument(skip_all)]
     fn build_triples(
         &self,
         args: &StoreObservationArgs,
@@ -244,6 +274,7 @@ impl IngestionPipeline {
     }
 
     /// Stage 4: Persist to SPARQL triplestore.
+    #[tracing::instrument(skip_all)]
     fn persist(&self, conn: &SparqlConnection, sparql: &str) -> Result<(), IngestionError> {
         conn.update(sparql, None::<&Cancellable>)
             .map_err(|e| IngestionError::Persist(format!("SPARQL update failed: {}", e)))
