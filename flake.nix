@@ -21,9 +21,17 @@
       inputs.pyproject-nix.follows = "pyproject-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    pyproject-build-systems = {
+      url = "github:pyproject-nix/build-system-pkgs";
+      inputs.pyproject-nix.follows = "pyproject-nix";
+      inputs.uv2nix.follows = "uv2nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, crane, pyproject-nix, uv2nix }:
+  outputs = { self, nixpkgs, flake-utils, crane, pyproject-nix, uv2nix
+    , pyproject-build-systems }:
     flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (system:
       let
         pkgs = import nixpkgs { inherit system; };
@@ -101,36 +109,53 @@
             runHook postInstall
           '';
 
-          # Vite/TypeScript generates a lot of GC roots; suppress warnings
-          env.NIX_BUILD_CORES = 0;
+          env = {
+            # Vite/TypeScript generates a lot of GC roots; suppress warnings
+            NIX_BUILD_CORES = 0;
+            # pnpm 11.x ignores COREPACK_ENABLE_STRICT; use pmOnFail instead
+            pnpm_config_pm_on_fail = "ignore";
+          };
         };
 
         # Helper for lightweight frontend checks
         frontend-check = checkName: buildPhaseScript:
-          pkgs.runCommand checkName {
-            nativeBuildInputs = [ frontendNode frontendPnpm ];
-            pnpmDeps = frontendPnpmDeps;
+          pkgs.stdenv.mkDerivation {
+            pname = checkName;
+            version = "0.1.0";
             src = ./ui;
-            HOME = "$TMPDIR/home";
-          } ''
-            mkdir -p "$HOME"
-            cd "$src"
-            ${buildPhaseScript}
-            touch "$out"
-          '';
-
+            nativeBuildInputs =
+              [ frontendNode frontendPnpm pkgs.pnpmConfigHook ];
+            pnpmDeps = frontendPnpmDeps;
+            buildPhase = ''
+              runHook preBuild
+              ${buildPhaseScript}
+              runHook postBuild
+            '';
+            installPhase = ''
+              runHook preInstall
+              touch "$out"
+              runHook postInstall
+            '';
+            env = {
+              NIX_BUILD_CORES = 0;
+              pnpm_config_pm_on_fail = "ignore";
+            };
+          };
         # ──────────────────────────────────────────────
         # Python test environment (uv2nix)
         # ──────────────────────────────────────────────
-        workspace = uv2nix.lib.${system}.workspace.loadWorkspace {
+        workspace = uv2nix.lib.workspace.loadWorkspace {
           workspaceRoot = ./tests/python;
         };
 
-        overlay = workspace.mkPyprojectOverlay { sourcePreference = "source"; };
+        overlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
 
         pythonSet = (pkgs.callPackage pyproject-nix.build.packages {
           python = pkgs.python312;
-        }).overrideScope overlay;
+        }).overrideScope (lib.composeManyExtensions [
+          pyproject-build-systems.overlays.wheel
+          overlay
+        ]);
 
         zakhor-python-tests = pythonSet.mkVirtualEnv "zakhor-python-tests" {
           zakhor-integration-tests = [ ];

@@ -1,9 +1,9 @@
 #[allow(unused_imports)]
 use gio::Cancellable;
 use std::collections::HashMap;
+use tracker::SparqlConnection;
 #[allow(unused_imports)]
 use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
-use tracker::SparqlConnection;
 use zakhor_common::vocab::NAMED_GRAPH_PREFIX as GRAPH_PREFIX;
 use zakhor_storage::sparql::{self as storage_sparql};
 

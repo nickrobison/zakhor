@@ -50,7 +50,9 @@ pub fn build_entity_query(pattern: &str, limit: u32) -> String {
     let safe_pattern = pattern.replace('\'', "\\'");
     format!(
         "{}SELECT ?entity ?label WHERE {{\n  ?entity rdf:type zakhor:Entity .\n  ?entity rdfs:label ?label .\n  FILTER(CONTAINS(LCASE(?label), LCASE('{}')))\n}}\nLIMIT {}",
-        prefix_declarations(), safe_pattern, limit
+        prefix_declarations(),
+        safe_pattern,
+        limit
     )
 }
 
