@@ -9,19 +9,19 @@ edition = "2024"
 gliner-integration = []
 
 [dependencies]
-zakhor-common = { path = "../zakhor-common" }
-zakhor-storage = { path = "../zakhor-storage" }
-zakhor-search = { path = "../zakhor-search" }
+zakhor-common = { workspace = true }
+zakhor-storage = { workspace = true }
+zakhor-search = { workspace = true }
 
-gio = "0.22.6"
-tracker-rs = "0.8.0"
-oxrdf = "0.3"
-schemars = "1.2.1"
-serde = { version = "1.0.228", features = ["derive"] }
-oxiri = { version = "0.2", features = ["serde"] }
-tokio = { version = "1.52.3", features = ["full"] }
-tracing = "0.1.41"
-utoipa = "5.3.0"
+gio = { workspace = true }
+tracker-rs = { workspace = true }
+oxrdf = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+oxiri = { workspace = true, features = ["serde"] }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+utoipa = { workspace = true }
 
 # GLiNER extraction pipeline - using forked gline-rs/orp with ort =2.0.0-rc.12 to match fastembed
 gline-rs = { git = "https://github.com/nickrobison/gline-rs", branch = "ort-rc12", features = ["load-dynamic"] }
