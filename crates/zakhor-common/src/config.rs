@@ -77,6 +77,12 @@ pub struct BackgroundConfig {
 pub struct ExtractionConfig {
     pub model_path: PathBuf,
     pub tokenizer_path: PathBuf,
+    /// Directory for auto-downloading the model from HuggingFace Hub.
+    ///
+    /// When non-empty and `model_path` is empty, the model is downloaded
+    /// automatically on startup via `hf-hub`.
+    #[serde(default)]
+    pub model_dir: PathBuf,
     pub entity_labels: Vec<String>,
     pub relation_labels: Vec<String>,
     pub entity_threshold: f32,
@@ -153,6 +159,7 @@ impl Default for ExtractionConfig {
         Self {
             model_path: PathBuf::default(),
             tokenizer_path: PathBuf::default(),
+            model_dir: PathBuf::default(),
             entity_labels: Vec::new(),
             relation_labels: Vec::new(),
             entity_threshold: 0.5,

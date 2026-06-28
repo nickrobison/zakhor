@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 use tokio::task::spawn_blocking;
 
 use crate::ingestion::{EntityRef, Relation};
+use crate::model_setup;
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -108,6 +109,12 @@ impl std::fmt::Display for ExtractionError {
 
 impl std::error::Error for ExtractionError {}
 
+impl From<model_setup::ModelSetupError> for ExtractionError {
+    fn from(e: model_setup::ModelSetupError) -> Self {
+        ExtractionError::ModelLoad(e.to_string())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Cached model state
 // ---------------------------------------------------------------------------
@@ -162,6 +169,50 @@ impl ExtractionPipeline {
             config,
             inner: Mutex::new(None),
         }
+    }
+
+    /// Create a new extraction pipeline, downloading the model from
+    /// HuggingFace Hub if it is not already cached in `model_dir`.
+    ///
+    /// This is a convenience constructor that calls
+    /// [`model_setup::ensure_model_files`] to resolve `model_path` and
+    /// `tokenizer_path`, then creates the pipeline.  The model is **not**
+    /// loaded until the first extraction call.
+    ///
+    /// # Blocking
+    ///
+    /// This constructor performs blocking I/O (directory scan and possibly
+    /// an HTTP download).  Prefer the async variant
+    /// [`new_with_setup_async`](Self::new_with_setup_async) when calling
+    /// from an async context.
+    pub fn new_with_setup(
+        config: ExtractionConfig,
+        model_dir: &std::path::Path,
+    ) -> Result<Self, ExtractionError> {
+        let files = model_setup::ensure_model_files(model_dir)?;
+        let resolved = ExtractionConfig {
+            model_path: files.model_path,
+            tokenizer_path: files.tokenizer_path,
+            ..config
+        };
+        Ok(Self::new(resolved))
+    }
+
+    /// Async variant of [`new_with_setup`](Self::new_with_setup).
+    ///
+    /// Runs the blocking model setup on a dedicated thread via
+    /// [`tokio::task::spawn_blocking`].
+    pub async fn new_with_setup_async(
+        config: ExtractionConfig,
+        model_dir: std::path::PathBuf,
+    ) -> Result<Self, ExtractionError> {
+        let files = model_setup::ensure_model_files_async(model_dir).await?;
+        let resolved = ExtractionConfig {
+            model_path: files.model_path,
+            tokenizer_path: files.tokenizer_path,
+            ..config
+        };
+        Ok(Self::new(resolved))
     }
 
     /// Return a reference to the lazily initialised model state.
