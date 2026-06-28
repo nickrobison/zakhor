@@ -58,7 +58,10 @@ async fn serve_combined(
     let mcp_service = StreamableHttpService::new(
         move || Ok(service.clone()),
         Arc::new(LocalSessionManager::default()),
-        StreamableHttpServerConfig::default().with_allowed_hosts([cfg.http.host.clone()]),
+        StreamableHttpServerConfig::default().with_allowed_hosts([
+            "localhost".to_string(),
+            cfg.http.host.clone(),
+        ]),
     );
 
     // SPA static file service: serve ui/dist with index.html fallback for client-side routing
@@ -111,13 +114,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Indexes rebuilt successfully");
         Some(Arc::new(Mutex::new(mgr)))
     } else {
-        match IndexSyncManager::new(&cfg.database.path) {
-            Ok(mgr) => Some(Arc::new(Mutex::new(mgr))),
-            Err(e) => {
-                tracing::warn!("Failed to init sync manager (indexes unavailable): {e}");
-                None
-            }
-        }
+        None
+        // FIXME: This seems to be causing things to hang
+        // match IndexSyncManager::new(&cfg.database.path) {
+        //     Ok(mgr) => Some(Arc::new(Mutex::new(mgr))),
+        //     Err(e) => {
+        //         tracing::warn!("Failed to init sync manager (indexes unavailable): {e}");
+        //         None
+        //     }
+        // }
     };
 
     let service = MemoryHandler::new_with_config(&cfg, sync_mgr, cli.ephemeral);

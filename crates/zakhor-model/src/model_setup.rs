@@ -66,7 +66,7 @@ pub fn ensure_model_files(model_dir: &Path) -> Result<ModelFiles, ModelSetupErro
 
     let api = hf_hub::api::sync::ApiBuilder::new()
         .with_cache_dir(model_dir.to_path_buf())
-        .with_progress(false)
+        .with_progress(true)
         .build()
         .map_err(|e| ModelSetupError::Download(format!("hf-hub init: {e}")))?;
 

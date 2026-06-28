@@ -72,32 +72,35 @@ impl MemoryHandler {
             relation_threshold: cfg.extraction.relation_threshold,
         };
         let model_dir = &cfg.extraction.model_dir;
-        let extraction = if !extraction_cfg.model_path.as_os_str().is_empty() {
-            // Explicit paths given — use them directly.
-            Some(Arc::new(ExtractionPipeline::new(extraction_cfg)))
-        } else if !model_dir.as_os_str().is_empty() {
-            // No explicit paths, but model_dir set — auto-download from HF.
-            match ExtractionPipeline::new_with_setup(extraction_cfg, model_dir) {
-                Ok(pipeline) => {
-                    tracing::info!(
+        // No explicit paths, but model_dir set — auto-download from HF.
+        tracing::info!("Starting download from HF");
+        let extraction = match ExtractionPipeline::new_with_setup(extraction_cfg, model_dir) {
+            Ok(pipeline) => {
+                tracing::info!(
                         "Extraction model ready in {}",
                         model_dir.display()
                     );
-                    Some(Arc::new(pipeline))
-                }
-                Err(e) => {
-                    tracing::warn!(
+                Some(Arc::new(pipeline))
+            }
+            Err(e) => {
+                tracing::warn!(
                         error = %e,
                         "Failed to set up extraction model from HuggingFace Hub — \
                          extraction disabled"
                     );
-                    None
-                }
+                None
             }
-        } else {
-            tracing::info!("Extraction disabled — set model_path or model_dir in [extraction]");
-            None
         };
+        // let extraction = if !extraction_cfg.model_path.as_os_str().is_empty() {
+        //     tracing::info!("Using explicit paths for extraction model");
+        //     // Explicit paths given — use them directly.
+        //     Some(Arc::new(ExtractionPipeline::new(extraction_cfg)))
+        // } else if !model_dir.as_os_str().is_empty() {
+        //
+        // } else {
+        //     tracing::info!("Extraction disabled — set model_path or model_dir in [extraction]");
+        //     None
+        // };
         Self {
             conn,
             sync_mgr,
