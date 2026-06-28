@@ -6,10 +6,10 @@ edition = "2024"
 [lib]
 
 [dependencies]
-zakhor-common = { path = "../zakhor-common" }
-gio = "0.22.6"
-tracker-rs = "0.8.0"
-oxrdf = "0.3"
-oxiri = "0.2"
-static-iref = "3"
-tracing = "0.1.41"
+zakhor-common = { workspace = true }
+gio = { workspace = true }
+tracker-rs = { workspace = true }
+oxrdf = { workspace = true }
+oxiri = { workspace = true }
+static-iref = { workspace = true }
+tracing = { workspace = true }

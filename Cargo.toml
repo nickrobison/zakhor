@@ -2,6 +2,29 @@
 members = ["crates/*", "."]
 resolver = "2"
 
+[workspace.dependencies]
+zakhor-api = { path = "crates/zakhor-api" }
+zakhor-common = { path = "crates/zakhor-common" }
+zakhor-model = { path = "crates/zakhor-model" }
+zakhor-search = { path = "crates/zakhor-search" }
+zakhor-storage = { path = "crates/zakhor-storage" }
+
+axum = "0.7"
+gio = "0.22.6"
+oxiri = "0.2"
+oxrdf = "0.3"
+rmcp = "1.7.0"
+schemars = "1.2.1"
+serde = "1.0.228"
+serde_json = "1.0.150"
+static-iref = "3"
+tantivy = "0.22"
+tokio = "1.52.3"
+tower-http = "0.6"
+tracing = "0.1.41"
+tracker-rs = "0.8.0"
+utoipa = "5.3.0"
+
 [package]
 name = "zakhor"
 version = "0.1.0"
@@ -9,27 +32,26 @@ edition = "2024"
 build = "build.rs"
 
 [dependencies]
-zakhor-api = { path = "crates/zakhor-api" }
-zakhor-common = { path = "crates/zakhor-common" }
-zakhor-model = { path = "crates/zakhor-model" }
-zakhor-search = { path = "crates/zakhor-search" }
-zakhor-storage = { path = "crates/zakhor-storage" }
+zakhor-api = { workspace = true }
+zakhor-common = { workspace = true }
+zakhor-model = { workspace = true }
+zakhor-search = { workspace = true }
+zakhor-storage = { workspace = true }
 
 clap = { version = "4", features = ["derive"] }
-rmcp = { version = "1.7.0", features = ["server", "transport-io", "transport-streamable-http-server"] }
-axum = { version = "0.7", features = ["http1", "http2", "macros", "tokio", "json"] }
-tokio = { version = "1.52.3", features = ["full"] }
-tower-http = { version = "0.6", features = ["cors", "fs"] }
-tracing = "0.1.41"
+rmcp = { workspace = true, features = ["server", "transport-io", "transport-streamable-http-server"] }
+axum = { workspace = true, features = ["http1", "http2", "macros", "tokio", "json"] }
+tokio = { workspace = true, features = ["full"] }
+tower-http = { workspace = true, features = ["cors", "fs"] }
+tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
 
 # Binary targets (migrate-v1-to-v2)
-gio = "0.22.6"
-tracker-rs = "0.8.0"
+gio = { workspace = true }
+tracker-rs = { workspace = true }
 
-oxrdf = "0.3"
-oxiri = "0.2"
+oxrdf = { workspace = true }
+oxiri = { workspace = true }
 
 [build-dependencies]
-serde_json = "1.0.150"
-
+serde_json = { workspace = true }
