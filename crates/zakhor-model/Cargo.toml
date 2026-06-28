@@ -19,6 +19,7 @@ oxrdf = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 oxiri = { workspace = true, features = ["serde"] }
+thiserror = "2"
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 utoipa = { workspace = true }

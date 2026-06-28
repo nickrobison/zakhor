@@ -8,6 +8,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.102"
 serde = { workspace = true, features = ["derive"] }
+thiserror = "2"
 tokio = { workspace = true, features = ["full"] }
 toml = "0.8.22"
 iref = "3"
