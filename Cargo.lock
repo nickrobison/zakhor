@@ -5242,6 +5242,7 @@ dependencies = [
  "oxiri",
  "serde",
  "static-iref",
+ "thiserror 2.0.18",
  "tokio",
  "toml 0.8.23",
 ]
@@ -5258,6 +5259,7 @@ dependencies = [
  "oxrdf",
  "schemars",
  "serde",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracker-rs",

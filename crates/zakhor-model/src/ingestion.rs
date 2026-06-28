@@ -47,28 +47,19 @@ pub struct IngestResult {
 }
 
 /// Error type for ingestion pipeline stages.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum IngestionError {
+    #[error("validation: {0}")]
     Validation(String),
+    #[error("resolution: {0}")]
     Resolution(String),
+    #[error("build: {0}")]
     Build(String),
+    #[error("persist: {0}")]
     Persist(String),
+    #[error("sync: {0}")]
     Sync(String),
 }
-
-impl std::fmt::Display for IngestionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            IngestionError::Validation(msg) => write!(f, "validation: {}", msg),
-            IngestionError::Resolution(msg) => write!(f, "resolution: {}", msg),
-            IngestionError::Build(msg) => write!(f, "build: {}", msg),
-            IngestionError::Persist(msg) => write!(f, "persist: {}", msg),
-            IngestionError::Sync(msg) => write!(f, "sync: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for IngestionError {}
 
 // ---------------------------------------------------------------------------
 // 5-Stage IngestionPipeline
@@ -671,6 +662,13 @@ mod tests {
         let e = IngestionError::Validation("bad input".into());
         let msg = format!("{}", e);
         assert!(msg.contains("validation: bad input"), "msg: {}", msg);
+    }
+
+    #[test]
+    fn test_ingestion_error_impl_error() {
+        let err = IngestionError::Build("broken".into());
+        let err_ref: &dyn std::error::Error = &err;
+        assert_eq!(err_ref.to_string(), "build: broken");
     }
 
     #[test]

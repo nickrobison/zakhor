@@ -83,30 +83,21 @@ impl Default for ExtractionConfig {
 // ---------------------------------------------------------------------------
 
 /// Errors produced by the extraction pipeline.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ExtractionError {
     /// Failed to load the ONNX model or tokenizer.
+    #[error("model load: {0}")]
     ModelLoad(String),
     /// ONNX inference or pipeline processing failed.
+    #[error("inference: {0}")]
     Inference(String),
     /// Mapping extracted values back to Zakhor types failed.
+    #[error("mapping: {0}")]
     Mapping(String),
     /// The async blocking task itself panicked or was cancelled.
+    #[error("task join: {0}")]
     TaskJoin(String),
 }
-
-impl std::fmt::Display for ExtractionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ExtractionError::ModelLoad(msg) => write!(f, "model load: {}", msg),
-            ExtractionError::Inference(msg) => write!(f, "inference: {}", msg),
-            ExtractionError::Mapping(msg) => write!(f, "mapping: {}", msg),
-            ExtractionError::TaskJoin(msg) => write!(f, "task join: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for ExtractionError {}
 
 // ---------------------------------------------------------------------------
 // Cached model state
