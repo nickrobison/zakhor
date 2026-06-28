@@ -7,10 +7,10 @@
 
 use gio::Cancellable;
 use oxrdf::Literal;
-use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 use tracker::SparqlConnection;
-use zakhor_storage::sparql::prefix_declarations;
+use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 use zakhor_storage::sparql::Prefix;
+use zakhor_storage::sparql::prefix_declarations;
 
 /// A named project in the knowledge graph.
 #[derive(Clone, Debug)]
