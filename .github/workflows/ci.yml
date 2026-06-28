@@ -19,16 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install native dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libglib2.0-dev libtracker-sparql-3.0-dev
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --check
-      - run: cargo clippy -- -D warnings
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - run: nix build .#checks.x86_64-linux.rust-fmt .#checks.x86_64-linux.rust-clippy
 
   backend-test:
     runs-on: ubuntu-latest
@@ -37,168 +30,125 @@ jobs:
       FASTEMBED_MODEL_CACHE_KEY: bge-small-en-v1.5
     steps:
       - uses: actions/checkout@v4
-      - name: Install native dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libglib2.0-dev libtracker-sparql-3.0-dev
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
       - uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.fastembed_cache
           key: ${{ runner.os }}-fastembed-${{ env.FASTEMBED_MODEL_CACHE_KEY }}
           restore-keys: |
             ${{ runner.os }}-fastembed-
-      - run: cargo test
+      - run: nix build .#checks.x86_64-linux.rust-test
 
   # ── Frontend ─────────────────────────────────────────────────────
   frontend-lint:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./ui
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: ./ui/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run lint
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - run: nix build .#checks.x86_64-linux.frontend-lint
 
   frontend-typecheck:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./ui
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: ./ui/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run typecheck
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - run: nix build .#checks.x86_64-linux.frontend-typecheck
 
   frontend-test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./ui
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: ./ui/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run test
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - run: nix build .#checks.x86_64-linux.frontend-test
 
   frontend-build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./ui
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: ./ui/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run build
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - run: nix build .#checks.x86_64-linux.frontend-build
 
   # ── Python integration tests ─────────────────────────────────────
   python-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
 
-      - name: Install native dependencies
+      - name: Install tinysparql runtime
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libglib2.0-dev libtracker-sparql-3.0-dev
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+          sudo apt-get install -y libglib2.0-dev libtracker-sparql-3.0-dev tinysparql
 
-      - name: Build Rust binary
-        run: cargo build
+      - name: Start tinysparql endpoint
+        run: |
+          tinysparql endpoint --port=7200 &
+          sleep 3
+          echo "tinysparql ready on port 7200"
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
+      - name: Build zakhor binary (Nix)
+        run: nix build .#zakhor
 
-      - name: Install Python dependencies
-        working-directory: ./tests/python
-        run: uv sync --frozen
+      - name: Link binary to conftest.py expected path
+        run: |
+          mkdir -p target/debug
+          ln -sf "$(pwd)/result/bin/zakhor" target/debug/zakhor
 
-      - name: Run Python tests
-        working-directory: ./tests/python
-        run: uv run pytest -v
+      - name: Build Python test environment (Nix)
+        run: nix build .#zakhor-python-tests
+
+      - name: Run Python integration tests
+        env:
+          ZAKHOR_SPARQL_ENDPOINT: http://localhost:7200
+        run: |
+          cd tests/python
+          ../../result/bin/pytest -v
+
+      - name: Cleanup tinysparql
+        if: always()
+        run: pkill -f tinysparql 2>/dev/null || true
 
   # ── End-to-end ───────────────────────────────────────────────────
   e2e:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./ui
     steps:
       - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
 
-      - name: Install native dependencies
+      - name: Build frontend (Nix)
+        run: nix build .#zakhor-frontend
+
+      - name: Copy built frontend to ui/dist/ for preview server
         run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libglib2.0-dev libtracker-sparql-3.0-dev
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+          rm -rf ui/dist
+          cp -r result/ ui/dist/
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: ./ui/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-
-      - name: Build frontend
-        run: pnpm run build
-
-      - name: Build Rust server
-        run: cargo build
-        working-directory: .
-
-      - name: Start Rust server (validate startup)
-        run: |
-          nohup target/debug/zakhor --http > /tmp/zakhor.log 2>&1 &
-          sleep 2
-          echo "--- Rust server log (may fail without Tracker) ---"
-          cat /tmp/zakhor.log || true
-        working-directory: .
+      - name: Install frontend deps (node_modules for playwright CLI)
+        run: nix shell nixpkgs#nodejs_22 nixpkgs#pnpm_11 -c pnpm install --frozen-lockfile
+        working-directory: ./ui
 
       - name: Install Playwright browsers
-        run: pnpm exec playwright install chromium
-
-      - name: Run Playwright tests
-        run: pnpm run e2e
-
-      - name: Cleanup background server
-        if: always()
         run: |
-          pkill -f "target/debug/zakhor" 2>/dev/null || true
+          nix shell nixpkgs#nodejs_22 nixpkgs#pnpm_11 -c pnpm exec playwright install chromium
+        working-directory: ./ui
+
+      - name: Start Xvfb for headless display
+        run: |
+          sudo apt-get install -y xvfb
+          Xvfb :99 -screen 0 1280x1024x24 &
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+
+      - name: Run Playwright e2e tests
+        run: nix shell nixpkgs#nodejs_22 nixpkgs#pnpm_11 -c pnpm run e2e
+        working-directory: ./ui
+
+      - name: Cleanup Xvfb
+        if: always()
+        run: pkill -f Xvfb 2>/dev/null || true
