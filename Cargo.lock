@@ -5232,6 +5232,7 @@ name = "zakhor-code"
 version = "0.1.0"
 dependencies = [
  "gio",
+ "tracing",
  "tracker-rs",
  "zakhor-storage",
 ]
@@ -5281,6 +5282,7 @@ dependencies = [
  "quickcheck",
  "quickcheck_macros",
  "tantivy",
+ "tracing",
  "tracker-rs",
  "zakhor-common",
 ]

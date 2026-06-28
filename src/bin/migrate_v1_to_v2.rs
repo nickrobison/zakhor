@@ -15,6 +15,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
+use clap::ValueEnum;
 use gio::Cancellable;
 use tracker::SparqlConnection;
 use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
@@ -25,6 +26,25 @@ const GRAPH_PREFIX: &str = "http://zakhor/ns/graph/";
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
+
+/// Log verbosity level.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum LogLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl std::fmt::Display for LogLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_possible_value()
+            .expect("no values are skipped")
+            .get_name()
+            .fmt(f)
+    }
+}
 
 #[derive(Parser)]
 #[command(
@@ -43,6 +63,10 @@ struct Cli {
     /// Verbose output: show every migrated observation.
     #[arg(short, long, default_value_t = false)]
     verbose: bool,
+
+    /// Log level (overridden by RUST_LOG if set)
+    #[arg(long, value_enum, default_value_t = LogLevel::Info)]
+    log_level: LogLevel,
 }
 
 // ---------------------------------------------------------------------------
@@ -52,12 +76,13 @@ struct Cli {
 fn main() {
     let cli = Cli::parse();
 
-    // Initialise tracking (minimal — no MCP server involved)
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    // Initialise tracing
+    let log_filter = if let Ok(filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
+        filter
+    } else {
+        tracing_subscriber::EnvFilter::new(format!("{}", cli.log_level))
+    };
+    tracing_subscriber::fmt().with_env_filter(log_filter).pretty().init();
 
     let db_path = cli.db_path.to_str().expect("valid db path");
     let conn = init_db(db_path);

@@ -185,6 +185,7 @@ impl ExtractionPipeline {
     /// an HTTP download).  Prefer the async variant
     /// [`new_with_setup_async`](Self::new_with_setup_async) when calling
     /// from an async context.
+    #[tracing::instrument(skip(config))]
     pub fn new_with_setup(
         config: ExtractionConfig,
         model_dir: &std::path::Path,
@@ -202,6 +203,7 @@ impl ExtractionPipeline {
     ///
     /// Runs the blocking model setup on a dedicated thread via
     /// [`tokio::task::spawn_blocking`].
+    #[tracing::instrument(skip(config))]
     pub async fn new_with_setup_async(
         config: ExtractionConfig,
         model_dir: std::path::PathBuf,
@@ -240,6 +242,7 @@ impl ExtractionPipeline {
     /// `http://zakhor/ns/entity/{class}` and labels set to the extracted span text.
     ///
     /// The ONNX model is loaded lazily on the first call and cached thereafter.
+    #[tracing::instrument(skip(self))]
     pub async fn extract_entities(&self, text: &str) -> Result<Vec<EntityRef>, ExtractionError> {
         let inner = self.get_or_init_model()?;
         let config = self.config.clone();
@@ -289,6 +292,7 @@ impl ExtractionPipeline {
     /// `http://zakhor/ns/entity/{text}` as its URI.
     ///
     /// The ONNX model is loaded lazily on the first call and cached thereafter.
+    #[tracing::instrument(skip(self))]
     pub async fn extract_relations(
         &self,
         text: &str,

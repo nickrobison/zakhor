@@ -104,6 +104,7 @@ impl IngestionPipeline {
     }
 
     /// Run the full 5-stage ingestion pipeline.
+    #[tracing::instrument(skip_all)]
     pub fn ingest(
         &mut self,
         conn: &SparqlConnection,
@@ -141,6 +142,7 @@ impl IngestionPipeline {
 
     /// Convenience: ingest + flush + return result.
     /// Flushes the in-memory provenance tracker to the SPARQL store.
+    #[tracing::instrument(skip_all)]
     pub fn ingest_and_flush(
         &mut self,
         conn: &SparqlConnection,
@@ -161,6 +163,7 @@ impl IngestionPipeline {
     /// 2. Call `extraction.extract_relations(text, &entities)` to extract relations
     /// 3. Create [`StoreObservationArgs`] from the results
     /// 4. Call [`Self::ingest`] to run the full 5-stage pipeline
+    #[tracing::instrument(skip_all)]
     pub async fn extract_and_ingest(
         &mut self,
         conn: &SparqlConnection,

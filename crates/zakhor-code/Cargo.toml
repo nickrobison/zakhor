@@ -10,3 +10,4 @@ zakhor-storage = { path = "../zakhor-storage" }
 
 gio = "0.22.6"
 tracker-rs = "0.8.0"
+tracing = "0.1.41"

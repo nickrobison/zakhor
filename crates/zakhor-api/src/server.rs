@@ -56,6 +56,7 @@ impl MemoryHandler {
         }
     }
 
+    #[tracing::instrument(skip(cfg, sync_mgr))]
     pub fn new_with_config(
         cfg: &Config,
         sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,

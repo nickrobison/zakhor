@@ -61,6 +61,7 @@ impl From<std::io::Error> for ModelSetupError {
 /// This function performs blocking I/O (directory creation, hf-hub cache
 /// lookup, and possibly an HTTP download).  Call it from a blocking context
 /// or wrap with [`tokio::task::spawn_blocking`].
+#[tracing::instrument(skip(model_dir))]
 pub fn ensure_model_files(model_dir: &Path) -> Result<ModelFiles, ModelSetupError> {
     std::fs::create_dir_all(model_dir)?;
 
@@ -94,6 +95,7 @@ pub fn ensure_model_files(model_dir: &Path) -> Result<ModelFiles, ModelSetupErro
 
 /// Async wrapper around [`ensure_model_files`] that runs the blocking
 /// setup on a dedicated thread via [`tokio::task::spawn_blocking`].
+#[tracing::instrument(skip(model_dir))]
 pub async fn ensure_model_files_async(
     model_dir: PathBuf,
 ) -> Result<ModelFiles, ModelSetupError> {
