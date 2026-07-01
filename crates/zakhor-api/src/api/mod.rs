@@ -16,7 +16,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::Serialize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -33,14 +33,11 @@ use crate::server::{
 #[derive(Clone)]
 pub struct ApiState {
     conn: tracker::SparqlConnection,
-    sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,
+    sync_mgr: Option<Arc<IndexSyncManager>>,
 }
 
 impl ApiState {
-    pub fn new(
-        conn: tracker::SparqlConnection,
-        sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,
-    ) -> Self {
+    pub fn new(conn: tracker::SparqlConnection, sync_mgr: Option<Arc<IndexSyncManager>>) -> Self {
         Self { conn, sync_mgr }
     }
 
@@ -49,7 +46,7 @@ impl ApiState {
     }
 
     #[allow(dead_code)]
-    pub fn sync_manager(&self) -> Option<&Arc<Mutex<IndexSyncManager>>> {
+    pub fn sync_manager(&self) -> Option<&Arc<IndexSyncManager>> {
         self.sync_mgr.as_ref()
     }
 }

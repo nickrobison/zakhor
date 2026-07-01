@@ -119,7 +119,11 @@ impl IngestionPipeline {
         if self.entity_resolver.is_some() {
             let before = args.entities.len();
             self.resolve_entities(&mut args)?;
-            tracing::trace!(before = before, after = args.entities.len(), "Stage 2 [resolve] complete");
+            tracing::trace!(
+                before = before,
+                after = args.entities.len(),
+                "Stage 2 [resolve] complete"
+            );
         } else {
             tracing::trace!("Stage 2 [resolve] skipped — no resolver configured");
         }

@@ -225,7 +225,10 @@ impl ExtractionPipeline {
             return Ok(inner.clone());
         }
 
-        tracing::info!("Loading ONNX model from {}", self.config.model_path.display());
+        tracing::info!(
+            "Loading ONNX model from {}",
+            self.config.model_path.display()
+        );
         let runtime_params = orp::params::RuntimeParameters::default();
         let model = orp::model::Model::new(&self.config.model_path, runtime_params)
             .map_err(|e| ExtractionError::ModelLoad(format!("ONNX model: {}", e)))?;
@@ -284,7 +287,11 @@ impl ExtractionPipeline {
         .await
         .map_err(|e| ExtractionError::TaskJoin(format!("spawn_blocking: {}", e)))??;
 
-        tracing::debug!(entity_count = entities.len(), text_len, "NER extraction complete");
+        tracing::debug!(
+            entity_count = entities.len(),
+            text_len,
+            "NER extraction complete"
+        );
         Ok(entities)
     }
 
@@ -354,11 +361,8 @@ impl ExtractionPipeline {
                 .map(|(label, uri)| (label.as_str(), uri.as_str()))
                 .collect();
 
-            let raw_relation_count: usize = relation_output
-                .relations
-                .iter()
-                .map(|seq| seq.len())
-                .sum();
+            let raw_relation_count: usize =
+                relation_output.relations.iter().map(|seq| seq.len()).sum();
 
             let relations: Vec<Relation> = relation_output
                 .relations

@@ -82,7 +82,10 @@ fn main() {
     } else {
         tracing_subscriber::EnvFilter::new(format!("{}", cli.log_level))
     };
-    tracing_subscriber::fmt().with_env_filter(log_filter).pretty().init();
+    tracing_subscriber::fmt()
+        .with_env_filter(log_filter)
+        .pretty()
+        .init();
 
     let db_path = cli.db_path.to_str().expect("valid db path");
     let conn = init_db(db_path);
