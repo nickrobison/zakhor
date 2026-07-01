@@ -193,20 +193,31 @@ impl SemanticIndex {
     /// Create a new index at `db_path`, loading the model and any existing snapshot.
     ///
     /// The snapshot directory `<db-path>/semantic/` is created if missing.
-    /// Model auto-download occurs on first use (blocking IO, CPU only).
+    /// The embedding model binary is cached under `<db-path>/semantic/fastembed-cache/`
+    /// so that re-initialisation does not re-download the ~70 MB model file.
     pub fn new(db_path: &Path) -> Result<Self, String> {
         let snapshot_path = db_path.join("semantic").join("vectors.bin");
-        std::fs::create_dir_all(
-            snapshot_path
-                .parent()
-                .expect("snapshot path must have parent directory"),
-        )
-        .map_err(|e| format!("Failed to create semantic dir: {}", e))?;
+        let cache_dir = db_path.join("semantic").join("fastembed-cache");
+        let semantic_dir = snapshot_path
+            .parent()
+            .expect("snapshot path must have parent directory");
+        std::fs::create_dir_all(semantic_dir)
+            .map_err(|e| format!("Failed to create semantic dir: {}", e))?;
 
+        // If the new cache is empty but the old default fastembed cache has the
+        // model, migrate it so we don't re-download the ~133 MB ONNX model.
+        migrate_cache_from_legacy_location(&cache_dir);
+
+        tracing::info!("Initialising ONNX inference session (this may take ~30 s on first run)");
         let model = TextEmbedding::try_new(
-            InitOptions::new(EmbeddingModel::BGESmallENV15).with_show_download_progress(false),
+            InitOptions::new(EmbeddingModel::BGESmallENV15)
+                .with_cache_dir(cache_dir)
+                .with_execution_providers(vec![ort::ep::CPU::default().build()])
+                .with_intra_threads(1)
+                .with_show_download_progress(true),
         )
         .map_err(|e| format!("Failed to init embedding model: {}", e))?;
+        tracing::info!("ONNX inference session ready");
 
         let mut index = Self {
             model,
@@ -334,6 +345,82 @@ impl SemanticIndex {
         }
 
         Ok(())
+    }
+}
+
+/// Recursively copy a directory tree using `std::fs`.
+/// Preserves symlinks as symlinks.
+fn copy_recursively(src: &Path, dst: &Path) -> std::io::Result<()> {
+    for entry in src.read_dir()? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if ty.is_symlink() {
+            let target = std::fs::read_link(&src_path)?;
+            std::os::unix::fs::symlink(&target, &dst_path)?;
+        } else if ty.is_dir() {
+            std::fs::create_dir_all(&dst_path)?;
+            copy_recursively(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
+}
+
+/// Migrate the ONNX model from fastembed-rs's default cache (`.fastembed_cache/`)
+/// to our custom cache directory if the custom cache is empty.
+///
+/// fastembed-rs's `InitOptions::with_cache_dir()` takes effect *after* hf-hub
+/// resolves the model in the HuggingFace hub cache (`~/.cache/huggingface/hub/`).
+/// If the user has the model in a legacy `.fastembed_cache/` location from a
+/// previous version, copying it avoids a full re-download of the ~133 MB model.
+fn migrate_cache_from_legacy_location(cache_dir: &Path) {
+    let model_rel = Path::new("models--Xenova--bge-small-en-v1.5");
+    let dest = cache_dir.join(model_rel);
+
+    // Only migrate if the destination snapshot dir is missing the onnx blob.
+    if dest.join("snapshots").exists() {
+        return;
+    }
+
+    // Build list of candidate legacy locations, most specific first.
+    let candidates = [
+        // CWD-relative default used by earlier zakhor versions
+        PathBuf::from(".fastembed_cache"),
+        // fastembed-rs documented default (FASTEMBED_CACHE_DIR or env-var fallback)
+        std::env::current_dir()
+            .ok()
+            .map(|cwd| cwd.join(".fastembed_cache"))
+            .unwrap_or_default(),
+    ];
+
+    let src = candidates.iter().find_map(|p| {
+        let full = p.join(model_rel);
+        if full.join("snapshots").exists() {
+            Some(full)
+        } else {
+            None
+        }
+    });
+
+    let Some(src) = src else {
+        return;
+    };
+
+    tracing::info!(
+        "Migrating embedding model from legacy cache {:?} to {:?}",
+        src,
+        dest
+    );
+
+    if let Err(e) = std::fs::create_dir_all(&dest).and_then(|()| copy_recursively(&src, &dest)) {
+        tracing::warn!(
+            error = %e,
+            "Failed to migrate legacy model cache — will re-download if needed"
+        );
     }
 }
 

@@ -5,7 +5,7 @@ use rmcp::ServiceExt;
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::io::{stdin, stdout};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::EnvFilter;
@@ -108,10 +108,8 @@ async fn serve_combined(
     let mcp_service = StreamableHttpService::new(
         move || Ok(service.clone()),
         Arc::new(LocalSessionManager::default()),
-        StreamableHttpServerConfig::default().with_allowed_hosts([
-            "localhost".to_string(),
-            cfg.http.host.clone(),
-        ]),
+        StreamableHttpServerConfig::default()
+            .with_allowed_hosts(["localhost".to_string(), cfg.http.host.clone()]),
     );
 
     // SPA static file service: serve ui/dist with index.html fallback for client-side routing
@@ -139,11 +137,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     let log_filter = build_log_filter(cli.log_level, cli.verbose);
-    let subscriber = tracing_subscriber::fmt()
-        .with_env_filter(log_filter);
+    let subscriber = tracing_subscriber::fmt().with_env_filter(log_filter);
     match cli.log_format {
         LogFormat::Json => subscriber.json().init(),
         LogFormat::Pretty => subscriber.pretty().init(),
+    }
+
+    // Initialize ONNX Runtime globally with the CPU execution provider.
+    // This configures the process-wide `OrtEnv` used by all sessions (fastembed
+    // for embeddings, orp/gline-rs for GLiNER/RELEX). Without at least one EP
+    // registered, `Session::builder().commit_from_file(...)` hangs.
+    if !ort::init()
+        .with_execution_providers([ort::ep::CPU::default().build()])
+        .commit()
+    {
+        tracing::warn!(
+            "ORT already initialized (benign — global env already set by another crate)"
+        );
     }
 
     let mut cfg = Config::load();
@@ -162,21 +172,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
     let conn = tracker_db::init_db(db_path);
 
+    let embedding_enabled = cfg.embedding.enabled;
     let sync_mgr = if cli.rebuild_indexes {
-        let mgr = IndexSyncManager::new(&cfg.database.path)?;
+        let mgr = IndexSyncManager::new(&cfg.database.path, embedding_enabled)?;
         mgr.rebuild_all(&conn)?;
         tracing::info!("Indexes rebuilt successfully");
-        Some(Arc::new(Mutex::new(mgr)))
+        Some(Arc::new(mgr))
     } else {
-        None
-        // FIXME: This seems to be causing things to hang
-        // match IndexSyncManager::new(&cfg.database.path) {
-        //     Ok(mgr) => Some(Arc::new(Mutex::new(mgr))),
-        //     Err(e) => {
-        //         tracing::warn!("Failed to init sync manager (indexes unavailable): {e}");
-        //         None
-        //     }
-        // }
+        match IndexSyncManager::new(&cfg.database.path, embedding_enabled) {
+            Ok(mgr) => Some(Arc::new(mgr)),
+            Err(e) => {
+                tracing::warn!("Failed to init sync manager (indexes unavailable): {e}");
+                None
+            }
+        }
     };
 
     let service = MemoryHandler::new_with_config(&cfg, sync_mgr, cli.ephemeral);
@@ -209,7 +218,7 @@ fn build_log_filter(cli_level: LogLevel, verbose: u8) -> EnvFilter {
     };
 
     EnvFilter::new(format!(
-        "{level},rmcp::service=warn,h2=warn,hyper=warn,tantivy=warn"
+        "{level},rmcp::service=warn,h2=warn,hyper=warn,tantivy=warn,ureq=warn,ureq_proto=warn"
     ))
 }
 
@@ -229,13 +238,18 @@ mod tests {
             rendered.contains("rmcp::service=warn"),
             "missing rmcp::service=warn: {rendered}"
         );
-        assert!(
-            rendered.contains("h2=warn"),
-            "missing h2=warn: {rendered}"
-        );
+        assert!(rendered.contains("h2=warn"), "missing h2=warn: {rendered}");
         assert!(
             rendered.contains("tantivy=warn"),
             "missing tantivy=warn: {rendered}"
+        );
+        assert!(
+            rendered.contains("ureq=warn"),
+            "missing ureq=warn: {rendered}"
+        );
+        assert!(
+            rendered.contains("ureq_proto=warn"),
+            "missing ureq_proto=warn: {rendered}"
         );
     }
 
@@ -263,9 +277,6 @@ mod tests {
     fn explicit_log_level_respected_without_verbose() {
         let filter = build_log_filter(LogLevel::Warn, 0);
         let rendered = filter.to_string();
-        assert!(
-            rendered.contains("warn"),
-            "expected warn level: {rendered}"
-        );
+        assert!(rendered.contains("warn"), "expected warn level: {rendered}");
     }
 }

@@ -21,6 +21,7 @@ axum = { version = "0.7", features = ["http1", "http2", "macros", "tokio", "json
 tokio = { version = "1.52.3", features = ["full"] }
 tower-http = { version = "0.6", features = ["cors", "fs"] }
 tracing = "0.1.41"
+ort = { version = "2.0.0-rc.12", features = ["tracing"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
 
 # Binary targets (migrate-v1-to-v2)
