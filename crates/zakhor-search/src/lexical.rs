@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
-use tantivy::{Index, IndexWriter, TantivyDocument, doc};
+use tantivy::{doc, Index, IndexWriter, TantivyDocument};
 use tracker::prelude::SparqlCursorExtManual;
 
 use crate::semantic::ScoredDoc;
@@ -145,9 +145,16 @@ impl LexicalIndex {
                 .ok_or_else(|| ZakhorError::Internal("Missing id field in document".into()))?
                 .to_string();
 
+            let text = tantivy_doc
+                .get_first(self.text_field)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
             results.push(ScoredDoc {
                 id,
                 score: score.into(),
+                text,
             });
         }
 

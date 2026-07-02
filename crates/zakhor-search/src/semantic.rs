@@ -7,6 +7,7 @@ use tracker::prelude::SparqlCursorExtManual;
 pub struct ScoredDoc {
     pub id: String,
     pub score: f64,
+    pub text: String,
 }
 
 /// Cosine similarity between two f32 vectors.
@@ -269,6 +270,7 @@ impl SemanticIndex {
             .map(|(id, vec)| ScoredDoc {
                 id: id.clone(),
                 score: cosine_similarity(&query_vec, vec),
+                text: String::new(),
             })
             .collect();
 
@@ -539,6 +541,7 @@ mod tests {
         let doc = ScoredDoc {
             id: "test-123".to_string(),
             score: 0.95,
+            text: String::new(),
         };
         assert_eq!(doc.id, "test-123");
         assert!((doc.score - 0.95).abs() < 1e-6);

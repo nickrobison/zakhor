@@ -236,6 +236,7 @@ pub struct TraverseGraphResponse {
 pub struct SearchResult {
     pub id: String,
     pub score: f64,
+    pub text: String,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
@@ -359,8 +360,24 @@ impl MemoryHandler {
         })();
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-        span.record("result", if result.is_ok() { "success" } else { "error" });
+        let result_label = if result.is_ok() { "success" } else { "error" };
+        span.record("result", result_label);
         span.record("duration_ms", duration_ms);
+        match &result {
+            Ok(resp) => {
+                let count = resp.0.count;
+                let pattern = &args.pattern;
+                tracing::info!(
+                    pattern = %pattern,
+                    count = count,
+                    "query_entities: {count} results for pattern \"{pattern}\" in {duration_ms:.1}ms"
+                );
+            }
+            Err(e) => tracing::warn!(
+                error = %e,
+                "query_entities failed: {e}"
+            ),
+        }
         result
     }
 
@@ -501,6 +518,7 @@ impl MemoryHandler {
                     .map(|d| SearchResult {
                         id: d.id,
                         score: d.score,
+                        text: d.text,
                     })
                     .collect();
                 let count = docs.len() as u64;
@@ -518,8 +536,29 @@ impl MemoryHandler {
         };
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-        span.record("result", if result.is_ok() { "success" } else { "error" });
+        let result_label = if result.is_ok() { "success" } else { "error" };
+        span.record("result", result_label);
         span.record("duration_ms", duration_ms);
+        match &result {
+            Ok(resp) => {
+                let count = resp.0.count;
+                let query = &args.query;
+                let has_warning = resp.0.warning.is_some();
+                let detail = if has_warning { " (with warning)" } else { "" };
+                tracing::info!(
+                    query = %query,
+                    count = count,
+                    "search_hybrid: {count} results for \"{query}\" in {duration_ms:.1}ms{detail}"
+                );
+                if let Some(w) = &resp.0.warning {
+                    tracing::warn!("search_hybrid warning: {w}");
+                }
+            }
+            Err(e) => tracing::warn!(
+                error = %e,
+                "search_hybrid failed: {e}"
+            ),
+        }
         result
     }
 

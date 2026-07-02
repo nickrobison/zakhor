@@ -8,8 +8,8 @@ use gio::Cancellable;
 use oxiri::Iri;
 use serde::Serialize;
 use std::collections::HashMap;
-use tracker::SparqlConnection;
 use tracker::prelude::SparqlCursorExtManual;
+use tracker::SparqlConnection;
 use zakhor_search::ScoredDoc;
 use zakhor_storage::sparql::Prefix;
 
@@ -227,6 +227,7 @@ pub fn rank_search_results(
         ranked.push(ScoredDoc {
             id: doc.id,
             score: doc.score * boost,
+            text: doc.text,
         });
     }
 

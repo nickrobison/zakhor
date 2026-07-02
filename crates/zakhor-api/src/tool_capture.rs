@@ -16,11 +16,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::{
-    JsonObjectOptions, NumericOptions, OwnedValue, STORED, STRING, Schema, TEXT, Value,
+    JsonObjectOptions, NumericOptions, OwnedValue, Schema, Value, STORED, STRING, TEXT,
 };
 use tantivy::{Index, IndexWriter, TantivyDocument};
-use tracker::SparqlConnection;
 use tracker::prelude::SparqlConnectionExtManual;
+use tracker::SparqlConnection;
 use zakhor_common::error::{ZakhorError, ZakhorResult};
 use zakhor_search::ScoredDoc;
 use zakhor_storage::sparql::Prefix;
@@ -223,6 +223,7 @@ impl ToolCallIndex {
             results.push(ScoredDoc {
                 id,
                 score: score.into(),
+                text: String::new(),
             });
         }
 

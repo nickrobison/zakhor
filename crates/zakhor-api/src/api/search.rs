@@ -78,6 +78,7 @@ pub async fn search(
         .map(|doc| SearchResult {
             id: doc.id,
             score: doc.score,
+            text: doc.text,
         })
         .collect::<Vec<_>>();
     let count = results.len() as u64;

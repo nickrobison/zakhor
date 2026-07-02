@@ -15,17 +15,27 @@ pub fn hybrid_search(mgr: &IndexSyncManager, query: &str, limit: usize) -> Vec<S
     // RRF fusion with k=60
     let k = 60.0;
     let mut scores: HashMap<String, f64> = HashMap::new();
+    let mut texts: HashMap<String, String> = HashMap::new();
 
     for (rank, doc) in lexical_results.iter().enumerate() {
         *scores.entry(doc.id.clone()).or_insert(0.0) += 1.0 / (k + rank as f64);
+        texts
+            .entry(doc.id.clone())
+            .or_insert_with(|| doc.text.clone());
     }
     for (rank, doc) in semantic_results.iter().enumerate() {
         *scores.entry(doc.id.clone()).or_insert(0.0) += 1.0 / (k + rank as f64);
+        texts
+            .entry(doc.id.clone())
+            .or_insert_with(|| doc.text.clone());
     }
 
     let mut sorted: Vec<ScoredDoc> = scores
         .into_iter()
-        .map(|(id, score)| ScoredDoc { id, score })
+        .map(|(id, score)| {
+            let text = texts.remove(&id).unwrap_or_default();
+            ScoredDoc { id, score, text }
+        })
         .collect();
     sorted.sort_by(|a, b| {
         b.score
