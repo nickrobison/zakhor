@@ -14,10 +14,16 @@ use zakhor_storage::sparql::prefix_declarations;
 pub struct ObservationQuery {
     #[serde(default)]
     entity_id: Option<String>,
+    #[serde(default = "default_sort")]
+    sort: String,
     #[serde(default = "default_offset")]
     offset: u32,
     #[serde(default = "default_limit")]
     limit: u32,
+}
+
+fn default_sort() -> String {
+    "newest".to_string()
 }
 
 fn default_offset() -> u32 {
@@ -77,12 +83,16 @@ pub struct ObservationDetail {
 // ---------------------------------------------------------------------------
 
 /// SELECT query returning a paginated list of observations.
-fn build_all_observations_query(offset: u32, limit: u32, entity_id: Option<&str>) -> String {
+fn build_all_observations_query(offset: u32, limit: u32, entity_id: Option<&str>, sort: &str) -> String {
     let filter = observation_entity_filter(entity_id);
     let filter_block = if filter.is_empty() {
         String::new()
     } else {
         format!("{filter}\n")
+    };
+    let order_clause = match sort {
+        "oldest" => "ORDER BY ?created ?obs",
+        _ => "ORDER BY DESC(?created) DESC(?obs)",
     };
     let prefixes = prefix_declarations();
 
@@ -94,11 +104,12 @@ WHERE {{
        nie:plainTextContent ?text .
   OPTIONAL {{ ?obs nie:contentCreated ?created . }}
 {filter_block}}}
-ORDER BY DESC(?obs)
+{order_clause}
 LIMIT {limit}
 OFFSET {offset}",
         prefixes = prefixes,
         filter_block = filter_block,
+        order_clause = order_clause,
         limit = limit,
         offset = offset,
     )
@@ -174,6 +185,7 @@ pub async fn list_observations(
 ) -> ApiResult<Json<ObservationListResponse>> {
     let limit = clamp_limit(query.limit);
     let offset = query.offset;
+    let sort = if query.sort == "oldest" { "oldest" } else { "newest" };
     let entity_id = query
         .entity_id
         .as_deref()
@@ -207,7 +219,7 @@ pub async fn list_observations(
     };
 
     // Paginated results
-    let sparql = build_all_observations_query(offset, limit, entity_id);
+    let sparql = build_all_observations_query(offset, limit, entity_id, sort);
     let cursor = state
         .connection()
         .query(&sparql, None::<&gio::Cancellable>)
@@ -334,17 +346,24 @@ mod tests {
 
     #[test]
     fn test_build_all_observations_query() {
-        let q = build_all_observations_query(10, 20, None);
+        let q = build_all_observations_query(10, 20, None, "newest");
         assert!(q.contains("nie:InformationElement"));
         assert!(q.contains("nie:plainTextContent"));
         assert!(q.contains("LIMIT 20"));
         assert!(q.contains("OFFSET 10"));
         assert!(q.contains("nie:contentCreated"));
+        assert!(q.contains("ORDER BY DESC(?created) DESC(?obs)"));
+    }
+
+    #[test]
+    fn test_build_all_observations_query_oldest_sort() {
+        let q = build_all_observations_query(0, 10, None, "oldest");
+        assert!(q.contains("ORDER BY ?created ?obs"));
     }
 
     #[test]
     fn test_build_all_observations_query_with_entity_filter() {
-        let q = build_all_observations_query(0, 10, Some("http://example.org/entity"));
+        let q = build_all_observations_query(0, 10, Some("http://example.org/entity"), "newest");
         assert!(q.contains("<http://example.org/entity> zakhor:hasEntity ?entity"));
     }
 
