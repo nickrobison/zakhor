@@ -9,6 +9,7 @@ use tracker::prelude::SparqlConnectionExtManual;
 use crate::entity_resolver::EntityResolver;
 use crate::extraction::ExtractionPipeline;
 use crate::provenance::ProvenanceTracker;
+use zakhor_search::IndexSyncManager;
 use zakhor_storage::sparql::{self as storage_sparql, Prefix};
 
 // ---------------------------------------------------------------------------
@@ -89,6 +90,7 @@ pub enum IngestionError {
 pub struct IngestionPipeline {
     provenance: ProvenanceTracker,
     entity_resolver: Option<Arc<EntityResolver>>,
+    sync_manager: Option<Arc<IndexSyncManager>>,
 }
 
 impl IngestionPipeline {
@@ -96,6 +98,7 @@ impl IngestionPipeline {
         Self {
             provenance: ProvenanceTracker::new(),
             entity_resolver: None,
+            sync_manager: None,
         }
     }
 
@@ -104,6 +107,16 @@ impl IngestionPipeline {
         Self {
             provenance: ProvenanceTracker::new(),
             entity_resolver: resolver,
+            sync_manager: None,
+        }
+    }
+
+    /// Create a pipeline with an optional index sync manager.
+    pub fn with_sync_manager(sync_manager: Option<Arc<IndexSyncManager>>) -> Self {
+        Self {
+            provenance: ProvenanceTracker::new(),
+            entity_resolver: None,
+            sync_manager,
         }
     }
 
@@ -225,16 +238,60 @@ impl IngestionPipeline {
             "Stage 3 [build] complete"
         );
 
-        // Stage 4: Persist — offloaded to blocking thread for SPARQL I/O
+        // Extract data for index sync (after resolve stage may have mutated entities)
+        let text = args.text.clone();
+        let entity_uris: Vec<String> = args.entities.iter().map(|e| e.uri.clone()).collect();
+
+        // Stage 4: Persist + Index Sync (concurrent via tokio::join!)
         let persist_conn = conn.clone();
-        tokio::task::spawn_blocking(move || {
+        let sync_manager = self.sync_manager.clone();
+        let uuid_urn_for_sync = uuid_urn.clone();
+
+        let persist_fut = tokio::task::spawn_blocking(move || {
             persist_conn
                 .update(&sparql, None::<&Cancellable>)
                 .map_err(|e| IngestionError::Persist(format!("SPARQL update failed: {}", e), "persist", Some(Box::new(e))))
-        })
-        .await
-        .map_err(|e| IngestionError::Join(format!("task join: {}", e), "join", Some(Box::new(e))))??;
-        tracing::debug!("Stage 4 [persist] SPARQL update succeeded");
+        });
+
+        let sync_fut = tokio::task::spawn_blocking(move || {
+            if let Some(ref mgr) = sync_manager {
+                mgr.sync_observation(&uuid_urn_for_sync, &text, &entity_uris)
+                    .map_err(|e| IngestionError::Sync(format!("index sync failed: {}", e), "sync", None))
+            } else {
+                Ok(())
+            }
+        });
+
+        let (persist_result, sync_result) = tokio::join!(persist_fut, sync_fut);
+
+        // Handle persist result (must succeed — propagate errors)
+        match persist_result {
+            Err(join_err) => {
+                return Err(IngestionError::Join(
+                    format!("persist task panicked: {}", join_err), "join", Some(Box::new(join_err)),
+                ));
+            }
+            Ok(Err(ingest_err)) => {
+                tracing::error!(error = %ingest_err, "Stage 4 [persist] failed");
+                return Err(ingest_err);
+            }
+            Ok(Ok(())) => {
+                tracing::debug!("Stage 4 [persist] SPARQL update succeeded");
+            }
+        }
+
+        // Handle sync result (best-effort — log warning, don't fail)
+        match sync_result {
+            Err(join_err) => {
+                tracing::warn!(error = %join_err, "Index sync task panicked (non-fatal)");
+            }
+            Ok(Err(sync_err)) => {
+                tracing::warn!(error = %sync_err, "Index sync failed (non-fatal)");
+            }
+            Ok(Ok(())) => {
+                tracing::debug!("Stage 4 [sync] index sync succeeded");
+            }
+        }
 
         // Stage 5: Track
         let triple_count = provenance_triples.len();

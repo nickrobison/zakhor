@@ -285,42 +285,21 @@ impl MemoryHandler {
         let _guard = span.enter();
         let start = Instant::now();
 
-        let text = args.text.clone();
-        let entity_uris: Vec<String> = args.entities.iter().map(|e| e.uri.clone()).collect();
-
-        // Everything past here is blocking I/O (SPARQL ingest + model-init sync).
-        // Run on a blocking thread so it doesn't starve the tokio runtime.
-        let this = self.clone();
-        let result = tokio::task::spawn_blocking(
-            move || -> Result<Json<StoreObservationResponse>, String> {
-                let mut pipeline = IngestionPipeline::new();
-                let ingest_result = pipeline
-                    .ingest(&this.conn, args, &correlation_id)
-                    .map_err(|e| format!("Ingest failed: {e}"))?;
-
-                if let Some(ref sync_mgr) = this.sync_mgr
-                    && let Err(e) = sync_mgr.sync_observation(
-                        &ingest_result.observation_uri,
-                        &text,
-                        &entity_uris,
-                    )
-                {
-                    tracing::warn!(error = %e, "Failed to sync observation to indexes");
-                }
-
-                Ok(Json(StoreObservationResponse {
-                    observation_uri: ingest_result.observation_uri,
-                    triple_count: ingest_result.triple_count as u64,
-                }))
-            },
-        )
-        .await
-        .map_err(|e| format!("Task join error: {e}"))?;
+        // Use the async pipeline which runs SPARQL persist and index sync concurrently.
+        let mut pipeline = IngestionPipeline::with_sync_manager(self.sync_mgr.clone());
+        let ingest_result = pipeline
+            .ingest_async(Arc::new(self.conn.clone()), args, &correlation_id)
+            .await
+            .map_err(|e| format!("Ingest failed: {e}"))?;
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-        span.record("result", if result.is_ok() { "success" } else { "error" });
+        span.record("result", "success");
         span.record("duration_ms", duration_ms);
-        result
+
+        Ok(Json(StoreObservationResponse {
+            observation_uri: ingest_result.observation_uri,
+            triple_count: ingest_result.triple_count as u64,
+        }))
     }
 
     #[tool(description = "Query entities by label pattern in the knowledge graph")]
@@ -628,18 +607,11 @@ impl MemoryHandler {
 
         let extraction = self.ensure_extraction().await?;
 
-        let mut pipeline = IngestionPipeline::new();
+        let mut pipeline = IngestionPipeline::with_sync_manager(self.sync_mgr.clone());
         let ingest_result = pipeline
-            .extract_and_ingest(&self.conn, &args.text, &extraction, &correlation_id)
+            .extract_and_ingest_async(Arc::new(self.conn.clone()), &args.text, &extraction, &correlation_id)
             .await
             .map_err(|e| format!("Extract and ingest failed: {e}"))?;
-
-        if let Some(ref sync_mgr) = self.sync_mgr
-            && let Err(e) =
-                sync_mgr.sync_observation(&ingest_result.observation_uri, &args.text, &[])
-        {
-            tracing::warn!(error = %e, "Failed to sync extracted observation to indexes");
-        }
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
         span.record("result", "success");
