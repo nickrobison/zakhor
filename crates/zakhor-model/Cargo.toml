@@ -13,6 +13,7 @@ zakhor-common = { path = "../zakhor-common" }
 zakhor-storage = { path = "../zakhor-storage" }
 zakhor-search = { path = "../zakhor-search" }
 
+thiserror = "2"
 gio = "0.22.6"
 tracker-rs = "0.8.0"
 oxrdf = "0.3"

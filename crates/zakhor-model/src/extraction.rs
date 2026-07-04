@@ -84,34 +84,33 @@ impl Default for ExtractionConfig {
 // ---------------------------------------------------------------------------
 
 /// Errors produced by the extraction pipeline.
-#[derive(Debug)]
+///
+/// Each variant carries:
+/// - A human-readable message (for Display / user-facing output).
+/// - A `stage_name` identifying which pipeline stage produced the error.
+/// - An optional `#[source]` wrapping the underlying error when applicable.
+#[derive(Debug, thiserror::Error)]
 pub enum ExtractionError {
     /// Failed to load the ONNX model or tokenizer.
-    ModelLoad(String),
+    #[error("model load: {0}")]
+    ModelLoad(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+
     /// ONNX inference or pipeline processing failed.
-    Inference(String),
+    #[error("inference: {0}")]
+    Inference(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+
     /// Mapping extracted values back to Zakhor types failed.
-    Mapping(String),
+    #[error("mapping: {0}")]
+    Mapping(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+
     /// The async blocking task itself panicked or was cancelled.
-    TaskJoin(String),
+    #[error("task join: {0}")]
+    TaskJoin(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
 }
-
-impl std::fmt::Display for ExtractionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ExtractionError::ModelLoad(msg) => write!(f, "model load: {}", msg),
-            ExtractionError::Inference(msg) => write!(f, "inference: {}", msg),
-            ExtractionError::Mapping(msg) => write!(f, "mapping: {}", msg),
-            ExtractionError::TaskJoin(msg) => write!(f, "task join: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for ExtractionError {}
 
 impl From<model_setup::ModelSetupError> for ExtractionError {
     fn from(e: model_setup::ModelSetupError) -> Self {
-        ExtractionError::ModelLoad(e.to_string())
+        ExtractionError::ModelLoad(e.to_string(), "model_setup", Some(Box::new(e)))
     }
 }
 
@@ -231,7 +230,7 @@ impl ExtractionPipeline {
         );
         let runtime_params = orp::params::RuntimeParameters::default();
         let model = orp::model::Model::new(&self.config.model_path, runtime_params)
-            .map_err(|e| ExtractionError::ModelLoad(format!("ONNX model: {}", e)))?;
+            .map_err(|e| ExtractionError::ModelLoad(format!("ONNX model: {}", e), "model_load", Some(e)))?;
 
         let params = gliner::model::params::Parameters::default()
             .with_threshold(self.config.entity_threshold);
@@ -255,16 +254,16 @@ impl ExtractionPipeline {
         let entity_strs: Vec<&str> = config.entity_labels.iter().map(|s| s.as_str()).collect();
 
         let text_input = gliner::model::input::text::TextInput::from_str(&[text], &entity_strs)
-            .map_err(|e| ExtractionError::Inference(format!("text input: {}", e)))?;
+            .map_err(|e| ExtractionError::Inference(format!("text input: {}", e), "inference", Some(e)))?;
 
         let token_pipeline =
             gliner::model::pipeline::token::TokenPipeline::new(&config.tokenizer_path)
-                .map_err(|e| ExtractionError::ModelLoad(format!("tokenizer: {}", e)))?;
+                .map_err(|e| ExtractionError::ModelLoad(format!("tokenizer: {}", e), "model_load", Some(e)))?;
 
         let span_output: gliner::model::output::decoded::SpanOutput = inner
             .model
             .inference(text_input, &token_pipeline, &inner.params)
-            .map_err(|e| ExtractionError::Inference(format!("NER inference: {}", e)))?;
+            .map_err(|e| ExtractionError::Inference(format!("NER inference: {}", e), "inference", Some(e)))?;
 
         Ok(span_output)
     }
@@ -319,13 +318,13 @@ impl ExtractionPipeline {
                 &config.tokenizer_path,
                 &relation_schema,
             )
-            .map_err(|e| ExtractionError::ModelLoad(format!("relation pipeline: {}", e)))?;
+            .map_err(|e| ExtractionError::ModelLoad(format!("relation pipeline: {}", e), "model_load", Some(e)))?;
 
             // Relation extraction pipeline consumes span_output
             let relation_output: gliner::model::output::relation::RelationOutput = inner
                 .model
                 .inference(span_output, &rel_pipeline, &inner.params)
-                .map_err(|e| ExtractionError::Inference(format!("RE inference: {}", e)))?;
+                .map_err(|e| ExtractionError::Inference(format!("RE inference: {}", e), "inference", Some(e)))?;
 
             // Build label → URI lookup from extracted entities
             let lookup: std::collections::HashMap<&str, &str> = entities
@@ -366,7 +365,7 @@ impl ExtractionPipeline {
             Ok::<(Vec<EntityRef>, Vec<Relation>), ExtractionError>((entities, relations))
         })
         .await
-        .map_err(|e| ExtractionError::TaskJoin(format!("spawn_blocking: {}", e)))??;
+        .map_err(|e| ExtractionError::TaskJoin(format!("spawn_blocking: {}", e), "task_join", Some(Box::new(e))))??;
 
         tracing::debug!(
             entity_count = entities.len(),
@@ -492,23 +491,23 @@ mod tests {
 
     #[test]
     fn test_extraction_error_display() {
-        let err = ExtractionError::ModelLoad("file not found".into());
+        let err = ExtractionError::ModelLoad("file not found".into(), "model_load", None);
         let msg = format!("{}", err);
         assert!(msg.contains("model load: file not found"), "msg: {}", msg);
 
-        let err = ExtractionError::Inference("timeout".into());
+        let err = ExtractionError::Inference("timeout".into(), "inference", None);
         assert!(format!("{}", err).contains("inference: timeout"));
 
-        let err = ExtractionError::Mapping("bad label".into());
+        let err = ExtractionError::Mapping("bad label".into(), "mapping", None);
         assert!(format!("{}", err).contains("mapping: bad label"));
 
-        let err = ExtractionError::TaskJoin("cancelled".into());
+        let err = ExtractionError::TaskJoin("cancelled".into(), "task_join", None);
         assert!(format!("{}", err).contains("task join: cancelled"));
     }
 
     #[test]
     fn test_extraction_error_impl_error() {
-        let err = ExtractionError::ModelLoad("fail".into());
+        let err = ExtractionError::ModelLoad("fail".into(), "model_load", None);
         let err_ref: &dyn std::error::Error = &err;
         assert!(err_ref.to_string().contains("model load: fail"));
     }

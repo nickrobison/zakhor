@@ -5260,6 +5260,7 @@ dependencies = [
  "oxrdf",
  "schemars",
  "serde",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracker-rs",

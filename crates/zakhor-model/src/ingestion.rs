@@ -47,31 +47,32 @@ pub struct IngestResult {
 }
 
 /// Error type for ingestion pipeline stages.
-#[derive(Debug)]
+///
+/// Each variant carries:
+/// - A human-readable message (for Display / user-facing output).
+/// - A `stage_name` identifying which pipeline stage produced the error.
+/// - An optional `#[source]` wrapping the underlying error when applicable.
+#[derive(Debug, thiserror::Error)]
 pub enum IngestionError {
-    Validation(String),
-    Resolution(String),
-    Build(String),
-    Persist(String),
-    Sync(String),
+    #[error("validation: {0}")]
+    Validation(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+
+    #[error("resolution: {0}")]
+    Resolution(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+
+    #[error("build: {0}")]
+    Build(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+
+    #[error("persist: {0}")]
+    Persist(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+
+    #[error("sync: {0}")]
+    Sync(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+
     /// Error from tokio task join (e.g. `spawn_blocking` panicked or was cancelled).
-    Join(String),
+    #[error("join: {0}")]
+    Join(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
 }
-
-impl std::fmt::Display for IngestionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            IngestionError::Validation(msg) => write!(f, "validation: {}", msg),
-            IngestionError::Resolution(msg) => write!(f, "resolution: {}", msg),
-            IngestionError::Build(msg) => write!(f, "build: {}", msg),
-            IngestionError::Persist(msg) => write!(f, "persist: {}", msg),
-            IngestionError::Sync(msg) => write!(f, "sync: {}", msg),
-            IngestionError::Join(msg) => write!(f, "join: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for IngestionError {}
 
 // ---------------------------------------------------------------------------
 // 5-Stage IngestionPipeline
@@ -134,7 +135,7 @@ impl IngestionPipeline {
 
         // Stage 3: Build
         let uuid_urn: String = tracker::functions::sparql_get_uuid_urn()
-            .ok_or_else(|| IngestionError::Build("Failed to generate UUID".to_string()))?
+            .ok_or_else(|| IngestionError::Build("Failed to generate UUID".to_string(), "build", None))?
             .to_string();
         let (sparql, provenance_triples) = self.build_triples(&args, &uuid_urn);
         tracing::debug!(
@@ -177,7 +178,7 @@ impl IngestionPipeline {
         let result = self.ingest(conn, args, correlation_id)?;
         self.provenance
             .flush_to_sparql(conn)
-            .map_err(|e| IngestionError::Persist(format!("flush failed: {}", e)))?;
+            .map_err(|e| IngestionError::Persist(format!("flush failed: {}", e), "persist", None))?;
         Ok(result)
     }
 
@@ -214,7 +215,7 @@ impl IngestionPipeline {
 
         // Stage 3: Build
         let uuid_urn: String = tracker::functions::sparql_get_uuid_urn()
-            .ok_or_else(|| IngestionError::Build("Failed to generate UUID".to_string()))?
+            .ok_or_else(|| IngestionError::Build("Failed to generate UUID".to_string(), "build", None))?
             .to_string();
         let (sparql, provenance_triples) = self.build_triples(&args, &uuid_urn);
         tracing::debug!(
@@ -224,15 +225,15 @@ impl IngestionPipeline {
             "Stage 3 [build] complete"
         );
 
-        // Stage 4: Persist \u{2014} offloaded to blocking thread for SPARQL I/O
+        // Stage 4: Persist — offloaded to blocking thread for SPARQL I/O
         let persist_conn = conn.clone();
         tokio::task::spawn_blocking(move || {
             persist_conn
                 .update(&sparql, None::<&Cancellable>)
-                .map_err(|e| IngestionError::Persist(format!("SPARQL update failed: {}", e)))
+                .map_err(|e| IngestionError::Persist(format!("SPARQL update failed: {}", e), "persist", Some(Box::new(e))))
         })
         .await
-        .map_err(|e| IngestionError::Join(format!("task join: {}", e)))??;
+        .map_err(|e| IngestionError::Join(format!("task join: {}", e), "join", Some(Box::new(e))))??;
         tracing::debug!("Stage 4 [persist] SPARQL update succeeded");
 
         // Stage 5: Track
@@ -273,13 +274,13 @@ impl IngestionPipeline {
         let entities = extraction
             .extract_entities(text, correlation_id)
             .await
-            .map_err(|e| IngestionError::Build(format!("entity extraction failed: {}", e)))?;
+            .map_err(|e| IngestionError::Build(format!("entity extraction failed: {}", e), "build", Some(Box::new(e))))?;
         tracing::debug!(entity_count = entities.len(), "NER extraction complete");
 
         let relations = extraction
             .extract_relations(text, &entities, correlation_id)
             .await
-            .map_err(|e| IngestionError::Build(format!("relation extraction failed: {}", e)))?;
+            .map_err(|e| IngestionError::Build(format!("relation extraction failed: {}", e), "build", Some(Box::new(e))))?;
         tracing::debug!(relation_count = relations.len(), "RE extraction complete");
 
         let args = StoreObservationArgs {
@@ -318,13 +319,13 @@ impl IngestionPipeline {
         let entities = extraction
             .extract_entities(text, correlation_id)
             .await
-            .map_err(|e| IngestionError::Build(format!("entity extraction failed: {}", e)))?;
+            .map_err(|e| IngestionError::Build(format!("entity extraction failed: {}", e), "build", Some(Box::new(e))))?;
         tracing::debug!(entity_count = entities.len(), "NER extraction complete");
 
         let relations = extraction
             .extract_relations(text, &entities, correlation_id)
             .await
-            .map_err(|e| IngestionError::Build(format!("relation extraction failed: {}", e)))?;
+            .map_err(|e| IngestionError::Build(format!("relation extraction failed: {}", e), "build", Some(Box::new(e))))?;
         tracing::debug!(relation_count = relations.len(), "RE extraction complete");
 
         let args = StoreObservationArgs {
@@ -357,12 +358,16 @@ impl IngestionPipeline {
         if args.text.trim().is_empty() {
             return Err(IngestionError::Validation(
                 "observation text must not be empty".to_string(),
+                "validate",
+                None,
             ));
         }
         for entity in &args.entities {
             if entity.uri.trim().is_empty() {
                 return Err(IngestionError::Validation(
                     "entity URI must not be empty".to_string(),
+                    "validate",
+                    None,
                 ));
             }
         }
@@ -373,7 +378,7 @@ impl IngestionPipeline {
     #[tracing::instrument(skip_all)]
     fn resolve_entities(&self, args: &mut StoreObservationArgs) -> Result<(), IngestionError> {
         let resolver = self.entity_resolver.as_ref().ok_or_else(|| {
-            IngestionError::Resolution("entity resolver not configured".to_string())
+            IngestionError::Resolution("entity resolver not configured".to_string(), "resolve", None)
         })?;
 
         for entity in &mut args.entities {
@@ -403,7 +408,7 @@ impl IngestionPipeline {
     #[tracing::instrument(skip_all)]
     fn persist(&self, conn: &SparqlConnection, sparql: &str) -> Result<(), IngestionError> {
         conn.update(sparql, None::<&Cancellable>)
-            .map_err(|e| IngestionError::Persist(format!("SPARQL update failed: {}", e)))
+            .map_err(|e| IngestionError::Persist(format!("SPARQL update failed: {}", e), "persist", Some(Box::new(e))))
     }
 }
 
@@ -828,20 +833,20 @@ mod tests {
 
     #[test]
     fn test_ingestion_error_display() {
-        let e = IngestionError::Validation("bad input".into());
+        let e = IngestionError::Validation("bad input".into(), "validate", None);
         let msg = format!("{}", e);
         assert!(msg.contains("validation: bad input"), "msg: {}", msg);
     }
 
     #[test]
     fn test_ingestion_error_from_string() {
-        let e: String = IngestionError::Persist("disk full".into()).into();
+        let e: String = IngestionError::Persist("disk full".into(), "persist", None).into();
         assert_eq!(e, "persist: disk full");
     }
 
     #[test]
     fn test_ingestion_error_join_display() {
-        let e = IngestionError::Join("task cancelled".into());
+        let e = IngestionError::Join("task cancelled".into(), "join", None);
         let msg = format!("{}", e);
         assert!(msg.contains("join: task cancelled"), "msg: {}", msg);
     }
