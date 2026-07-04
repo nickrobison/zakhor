@@ -273,10 +273,11 @@ impl MemoryHandler {
         &self,
         Parameters(args): Parameters<StoreObservationArgs>,
     ) -> Result<Json<StoreObservationResponse>, String> {
+        let correlation_id = crate::new_correlation_id();
         let span = info_span!(
             "mcp_tool",
             tool = "store_observation",
-            correlation_id = %crate::new_correlation_id(),
+            correlation_id = %correlation_id,
             args_hash = %args_hash(&args),
             duration_ms = tracing::field::Empty,
             result = tracing::field::Empty,
@@ -294,7 +295,7 @@ impl MemoryHandler {
             move || -> Result<Json<StoreObservationResponse>, String> {
                 let mut pipeline = IngestionPipeline::new();
                 let ingest_result = pipeline
-                    .ingest(&this.conn, args)
+                    .ingest(&this.conn, args, &correlation_id)
                     .map_err(|e| format!("Ingest failed: {e}"))?;
 
                 if let Some(ref sync_mgr) = this.sync_mgr
@@ -613,10 +614,11 @@ impl MemoryHandler {
         &self,
         Parameters(args): Parameters<ExtractAndStoreArgs>,
     ) -> Result<Json<ExtractAndStoreResponse>, String> {
+        let correlation_id = crate::new_correlation_id();
         let span = info_span!(
             "mcp_tool",
             tool = "extract_and_store",
-            correlation_id = %crate::new_correlation_id(),
+            correlation_id = %correlation_id,
             args_hash = %args_hash(&args),
             duration_ms = tracing::field::Empty,
             result = tracing::field::Empty,
@@ -628,7 +630,7 @@ impl MemoryHandler {
 
         let mut pipeline = IngestionPipeline::new();
         let ingest_result = pipeline
-            .extract_and_ingest(&self.conn, &args.text, &extraction)
+            .extract_and_ingest(&self.conn, &args.text, &extraction, &correlation_id)
             .await
             .map_err(|e| format!("Extract and ingest failed: {e}"))?;
 

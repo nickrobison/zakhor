@@ -280,10 +280,11 @@ impl ExtractionPipeline {
     /// Returns a tuple of `(entities, relations)` where:
     /// - `entities` are the named entities extracted from `text`
     /// - `relations` are the relations between those entities
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self), fields(correlation_id = %correlation_id))]
     pub async fn extract_entities_and_relations(
         &self,
         text: &str,
+        correlation_id: &str,
     ) -> Result<(Vec<EntityRef>, Vec<Relation>), ExtractionError> {
         let inner = self.get_or_init_model()?;
         let config = self.config.clone();
@@ -382,9 +383,13 @@ impl ExtractionPipeline {
     /// `http://zakhor/ns/entity/{class}` and labels set to the extracted span text.
     ///
     /// The ONNX model is loaded lazily on the first call and cached thereafter.
-    #[tracing::instrument(skip(self))]
-    pub async fn extract_entities(&self, text: &str) -> Result<Vec<EntityRef>, ExtractionError> {
-        let (entities, _) = self.extract_entities_and_relations(text).await?;
+    #[tracing::instrument(skip(self), fields(correlation_id = %correlation_id))]
+    pub async fn extract_entities(
+        &self,
+        text: &str,
+        correlation_id: &str,
+    ) -> Result<Vec<EntityRef>, ExtractionError> {
+        let (entities, _) = self.extract_entities_and_relations(text, correlation_id).await?;
         tracing::debug!(
             entity_count = entities.len(),
             "NER extraction complete (delegated)"
@@ -401,14 +406,15 @@ impl ExtractionPipeline {
     /// that have resolved or modified entities before calling this method.
     ///
     /// The ONNX model is loaded lazily on the first call and cached thereafter.
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self), fields(correlation_id = %correlation_id))]
     pub async fn extract_relations(
         &self,
         text: &str,
         entities: &[EntityRef],
+        correlation_id: &str,
     ) -> Result<Vec<Relation>, ExtractionError> {
         let (extracted_entities, mut relations) =
-            self.extract_entities_and_relations(text).await?;
+            self.extract_entities_and_relations(text, correlation_id).await?;
 
         // If caller provided entities, re-map URIs using the caller's entities
         // (preserves backward compatibility where callers have resolved

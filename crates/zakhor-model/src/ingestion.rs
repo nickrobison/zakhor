@@ -107,11 +107,12 @@ impl IngestionPipeline {
     }
 
     /// Run the full 5-stage ingestion pipeline.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(correlation_id = %correlation_id))]
     pub fn ingest(
         &mut self,
         conn: &SparqlConnection,
         args: StoreObservationArgs,
+        correlation_id: &str,
     ) -> Result<IngestResult, IngestionError> {
         // Stage 1: Validate
         self.validate(&args)?;
@@ -166,13 +167,14 @@ impl IngestionPipeline {
 
     /// Convenience: ingest + flush + return result.
     /// Flushes the in-memory provenance tracker to the SPARQL store.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(correlation_id = %correlation_id))]
     pub fn ingest_and_flush(
         &mut self,
         conn: &SparqlConnection,
         args: StoreObservationArgs,
+        correlation_id: &str,
     ) -> Result<IngestResult, IngestionError> {
-        let result = self.ingest(conn, args)?;
+        let result = self.ingest(conn, args, correlation_id)?;
         self.provenance
             .flush_to_sparql(conn)
             .map_err(|e| IngestionError::Persist(format!("flush failed: {}", e)))?;
@@ -185,11 +187,12 @@ impl IngestionPipeline {
     /// Stage 4 (persist) is offloaded to a blocking thread via `spawn_blocking`
     /// because the underlying SPARQL update performs I/O through FFI.
     /// Stage 5 (track) runs in-memory after persist completes.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(correlation_id = %correlation_id))]
     pub async fn ingest_async(
         &mut self,
         conn: Arc<SparqlConnection>,
         args: StoreObservationArgs,
+        correlation_id: &str,
     ) -> Result<IngestResult, IngestionError> {
         // Stage 1: Validate
         self.validate(&args)?;
@@ -257,23 +260,24 @@ impl IngestionPipeline {
     /// 2. Call `extraction.extract_relations(text, &entities)` to extract relations
     /// 3. Create [`StoreObservationArgs`] from the results
     /// 4. Call [`Self::ingest_async`] to run the full 5-stage pipeline
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(correlation_id = %correlation_id))]
     pub async fn extract_and_ingest_async(
         &mut self,
         conn: Arc<SparqlConnection>,
         text: &str,
         extraction: &ExtractionPipeline,
+        correlation_id: &str,
     ) -> Result<IngestResult, IngestionError> {
         let text_len = text.len();
 
         let entities = extraction
-            .extract_entities(text)
+            .extract_entities(text, correlation_id)
             .await
             .map_err(|e| IngestionError::Build(format!("entity extraction failed: {}", e)))?;
         tracing::debug!(entity_count = entities.len(), "NER extraction complete");
 
         let relations = extraction
-            .extract_relations(text, &entities)
+            .extract_relations(text, &entities, correlation_id)
             .await
             .map_err(|e| IngestionError::Build(format!("relation extraction failed: {}", e)))?;
         tracing::debug!(relation_count = relations.len(), "RE extraction complete");
@@ -290,7 +294,7 @@ impl IngestionPipeline {
             relation_count = args.relations.len(),
             "Starting 5-stage async ingest from extracted results"
         );
-        self.ingest_async(conn, args).await
+        self.ingest_async(conn, args, correlation_id).await
     }
 
     /// Extract entities and relations from text using the extraction pipeline,
@@ -301,23 +305,24 @@ impl IngestionPipeline {
     /// 2. Call `extraction.extract_relations(text, &entities)` to extract relations
     /// 3. Create [`StoreObservationArgs`] from the results
     /// 4. Call [`Self::ingest`] to run the full 5-stage pipeline
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(correlation_id = %correlation_id))]
     pub async fn extract_and_ingest(
         &mut self,
         conn: &SparqlConnection,
         text: &str,
         extraction: &ExtractionPipeline,
+        correlation_id: &str,
     ) -> Result<IngestResult, IngestionError> {
         let text_len = text.len();
 
         let entities = extraction
-            .extract_entities(text)
+            .extract_entities(text, correlation_id)
             .await
             .map_err(|e| IngestionError::Build(format!("entity extraction failed: {}", e)))?;
         tracing::debug!(entity_count = entities.len(), "NER extraction complete");
 
         let relations = extraction
-            .extract_relations(text, &entities)
+            .extract_relations(text, &entities, correlation_id)
             .await
             .map_err(|e| IngestionError::Build(format!("relation extraction failed: {}", e)))?;
         tracing::debug!(relation_count = relations.len(), "RE extraction complete");
@@ -334,7 +339,7 @@ impl IngestionPipeline {
             relation_count = args.relations.len(),
             "Starting 5-stage ingest from extracted results"
         );
-        self.ingest(conn, args)
+        self.ingest(conn, args, correlation_id)
     }
 
     /// Get the provenance tracker (for querying graph history).
