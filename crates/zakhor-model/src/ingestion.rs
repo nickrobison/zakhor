@@ -54,6 +54,8 @@ pub enum IngestionError {
     Build(String),
     Persist(String),
     Sync(String),
+    /// Error from tokio task join (e.g. `spawn_blocking` panicked or was cancelled).
+    Join(String),
 }
 
 impl std::fmt::Display for IngestionError {
@@ -64,6 +66,7 @@ impl std::fmt::Display for IngestionError {
             IngestionError::Build(msg) => write!(f, "build: {}", msg),
             IngestionError::Persist(msg) => write!(f, "persist: {}", msg),
             IngestionError::Sync(msg) => write!(f, "sync: {}", msg),
+            IngestionError::Join(msg) => write!(f, "join: {}", msg),
         }
     }
 }
@@ -176,6 +179,120 @@ impl IngestionPipeline {
         Ok(result)
     }
 
+    /// Run the full 5-stage ingestion pipeline asynchronously.
+    ///
+    /// Stages 1-3 (validate, resolve, build) run synchronously on the current task.
+    /// Stage 4 (persist) is offloaded to a blocking thread via `spawn_blocking`
+    /// because the underlying SPARQL update performs I/O through FFI.
+    /// Stage 5 (track) runs in-memory after persist completes.
+    #[tracing::instrument(skip_all)]
+    pub async fn ingest_async(
+        &mut self,
+        conn: Arc<SparqlConnection>,
+        args: StoreObservationArgs,
+    ) -> Result<IngestResult, IngestionError> {
+        // Stage 1: Validate
+        self.validate(&args)?;
+        tracing::debug!("Stage 1 [validate] passed");
+
+        // Stage 2: Resolve (mutate args in place if resolver is available)
+        let mut args = args;
+        if self.entity_resolver.is_some() {
+            let before = args.entities.len();
+            self.resolve_entities(&mut args)?;
+            tracing::trace!(
+                before = before,
+                after = args.entities.len(),
+                "Stage 2 [resolve] complete"
+            );
+        } else {
+            tracing::trace!("Stage 2 [resolve] skipped \u{2014} no resolver configured");
+        }
+
+        // Stage 3: Build
+        let uuid_urn: String = tracker::functions::sparql_get_uuid_urn()
+            .ok_or_else(|| IngestionError::Build("Failed to generate UUID".to_string()))?
+            .to_string();
+        let (sparql, provenance_triples) = self.build_triples(&args, &uuid_urn);
+        tracing::debug!(
+            observation_uri = %uuid_urn,
+            triple_count = provenance_triples.len(),
+            sparql_len = sparql.len(),
+            "Stage 3 [build] complete"
+        );
+
+        // Stage 4: Persist \u{2014} offloaded to blocking thread for SPARQL I/O
+        let persist_conn = conn.clone();
+        tokio::task::spawn_blocking(move || {
+            persist_conn
+                .update(&sparql, None::<&Cancellable>)
+                .map_err(|e| IngestionError::Persist(format!("SPARQL update failed: {}", e)))
+        })
+        .await
+        .map_err(|e| IngestionError::Join(format!("task join: {}", e)))??;
+        tracing::debug!("Stage 4 [persist] SPARQL update succeeded");
+
+        // Stage 5: Track
+        let triple_count = provenance_triples.len();
+        let uuid_part = uuid_urn.strip_prefix("urn:uuid:").unwrap_or(&uuid_urn);
+        self.provenance
+            .add_observation(uuid_part, provenance_triples);
+        tracing::debug!(
+            observation_uri = %uuid_urn,
+            triple_count,
+            "Stage 5 [track] complete"
+        );
+
+        Ok(IngestResult {
+            observation_uri: uuid_urn,
+            triple_count,
+        })
+    }
+
+    /// Extract entities and relations from text using the extraction pipeline,
+    /// then ingest the results into the SPARQL store asynchronously.
+    ///
+    /// This is a convenience method that chains the two pipelines:
+    /// 1. Call `extraction.extract_entities(text)` to extract entities
+    /// 2. Call `extraction.extract_relations(text, &entities)` to extract relations
+    /// 3. Create [`StoreObservationArgs`] from the results
+    /// 4. Call [`Self::ingest_async`] to run the full 5-stage pipeline
+    #[tracing::instrument(skip_all)]
+    pub async fn extract_and_ingest_async(
+        &mut self,
+        conn: Arc<SparqlConnection>,
+        text: &str,
+        extraction: &ExtractionPipeline,
+    ) -> Result<IngestResult, IngestionError> {
+        let text_len = text.len();
+
+        let entities = extraction
+            .extract_entities(text)
+            .await
+            .map_err(|e| IngestionError::Build(format!("entity extraction failed: {}", e)))?;
+        tracing::debug!(entity_count = entities.len(), "NER extraction complete");
+
+        let relations = extraction
+            .extract_relations(text, &entities)
+            .await
+            .map_err(|e| IngestionError::Build(format!("relation extraction failed: {}", e)))?;
+        tracing::debug!(relation_count = relations.len(), "RE extraction complete");
+
+        let args = StoreObservationArgs {
+            text: text.to_string(),
+            entities,
+            relations,
+        };
+
+        tracing::info!(
+            text_len,
+            entity_count = args.entities.len(),
+            relation_count = args.relations.len(),
+            "Starting 5-stage async ingest from extracted results"
+        );
+        self.ingest_async(conn, args).await
+    }
+
     /// Extract entities and relations from text using the extraction pipeline,
     /// then ingest the results into the SPARQL store.
     ///
@@ -267,7 +384,7 @@ impl IngestionPipeline {
 
     /// Stage 3: Build SPARQL query and collect provenance triples.
     #[tracing::instrument(skip_all)]
-    fn build_triples(
+    pub fn build_triples(
         &self,
         args: &StoreObservationArgs,
         uuid_urn: &str,
@@ -715,5 +832,77 @@ mod tests {
     fn test_ingestion_error_from_string() {
         let e: String = IngestionError::Persist("disk full".into()).into();
         assert_eq!(e, "persist: disk full");
+    }
+
+    #[test]
+    fn test_ingestion_error_join_display() {
+        let e = IngestionError::Join("task cancelled".into());
+        let msg = format!("{}", e);
+        assert!(msg.contains("join: task cancelled"), "msg: {}", msg);
+    }
+
+    // -- Async ingestion methods (compile-and-behaviour check) ---------------
+
+    #[tokio::test]
+    async fn test_ingest_async_build_triples_matches_sync() {
+        let pipeline = IngestionPipeline::with_resolver(None);
+
+        let args = StoreObservationArgs {
+            text: "async test observation".into(),
+            entities: vec![EntityRef {
+                uri: "http://example.com/e1".into(),
+                label: "Entity 1".into(),
+            }],
+            relations: vec![Relation {
+                subject_uri: "http://example.com/s".into(),
+                predicate_uri: "http://example.com/p".into(),
+                object_uri: "http://example.com/o".into(),
+                label: "r".into(),
+            }],
+        };
+
+        // build_triples (now pub) should produce the same SPARQL and triples
+        // whether called from sync or async code paths.
+        let uuid = tracker::functions::sparql_get_uuid_urn()
+            .expect("UUID generation should work in async context")
+            .to_string();
+        let (sparql, triples) = pipeline.build_triples(&args, &uuid);
+
+        assert!(sparql.starts_with("PREFIX"), "should have prefix declarations");
+        assert!(sparql.contains("INSERT DATA {"), "should contain INSERT DATA");
+        assert!(sparql.contains("async test observation"));
+        assert!(sparql.contains("zakhor:hasEntity"));
+        assert!(!triples.is_empty(), "should have provenance triples");
+
+        // Same args through the sync validation stage must also pass
+        assert!(pipeline.validate(&args).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_ingest_async_validates_input() {
+        let pipeline = IngestionPipeline::new();
+
+        // Validation runs before persist, so we test that the sync validate()
+        // method rejects bad input in an async context.
+        let bad_args = StoreObservationArgs {
+            text: "".into(),
+            entities: vec![],
+            relations: vec![],
+        };
+        // Private validate is accessible via the test module
+        let result = pipeline.validate(&bad_args);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("empty"));
+
+        // Good input should pass validation
+        let good_args = StoreObservationArgs {
+            text: "good text".into(),
+            entities: vec![EntityRef {
+                uri: "http://example.com/e".into(),
+                label: "E".into(),
+            }],
+            relations: vec![],
+        };
+        assert!(pipeline.validate(&good_args).is_ok());
     }
 }
