@@ -242,104 +242,74 @@ impl ExtractionPipeline {
         Ok(inner)
     }
 
-    /// Extract named entities from `text`.
+    /// Run NER only and return the span output.
     ///
-    /// Returns a list of [`EntityRef`] values with URIs formed as
-    /// `http://zakhor/ns/entity/{class}` and labels set to the extracted span text.
+    /// This is the shared computation that both entity and relation extraction
+    /// need.  Defined as an associated function so it can be called from inside
+    /// [`spawn_blocking`] closures.
+    fn run_ner_inner(
+        inner: &Inner,
+        config: &ExtractionConfig,
+        text: &str,
+    ) -> Result<gliner::model::output::decoded::SpanOutput, ExtractionError> {
+        let entity_strs: Vec<&str> = config.entity_labels.iter().map(|s| s.as_str()).collect();
+
+        let text_input = gliner::model::input::text::TextInput::from_str(&[text], &entity_strs)
+            .map_err(|e| ExtractionError::Inference(format!("text input: {}", e)))?;
+
+        let token_pipeline =
+            gliner::model::pipeline::token::TokenPipeline::new(&config.tokenizer_path)
+                .map_err(|e| ExtractionError::ModelLoad(format!("tokenizer: {}", e)))?;
+
+        let span_output: gliner::model::output::decoded::SpanOutput = inner
+            .model
+            .inference(text_input, &token_pipeline, &inner.params)
+            .map_err(|e| ExtractionError::Inference(format!("NER inference: {}", e)))?;
+
+        Ok(span_output)
+    }
+
+    /// Extract entities and relations from `text` in a single NER pass.
     ///
-    /// The ONNX model is loaded lazily on the first call and cached thereafter.
+    /// Runs the GLiNER token pipeline once and uses the extracted spans for both
+    /// entity mapping and the relation extraction pipeline.  This is more
+    /// efficient than calling [`extract_entities`](Self::extract_entities) and
+    /// [`extract_relations`](Self::extract_relations) separately because NER is
+    /// only run once.
+    ///
+    /// Returns a tuple of `(entities, relations)` where:
+    /// - `entities` are the named entities extracted from `text`
+    /// - `relations` are the relations between those entities
     #[tracing::instrument(skip(self))]
-    pub async fn extract_entities(&self, text: &str) -> Result<Vec<EntityRef>, ExtractionError> {
+    pub async fn extract_entities_and_relations(
+        &self,
+        text: &str,
+    ) -> Result<(Vec<EntityRef>, Vec<Relation>), ExtractionError> {
         let inner = self.get_or_init_model()?;
         let config = self.config.clone();
         let text = text.to_string();
         let text_len = text.len();
 
-        let entities = spawn_blocking(move || {
-            let entity_strs: Vec<&str> = config.entity_labels.iter().map(|s| s.as_str()).collect();
+        let (entities, relations) = spawn_blocking(move || {
+            // Shared NER — runs once for both entity and relation extraction
+            let span_output = Self::run_ner_inner(&inner, &config, &text)?;
 
-            let text_input =
-                gliner::model::input::text::TextInput::from_str(&[&text], &entity_strs)
-                    .map_err(|e| ExtractionError::Inference(format!("text input: {}", e)))?;
-
-            let pipeline =
-                gliner::model::pipeline::token::TokenPipeline::new(&config.tokenizer_path)
-                    .map_err(|e| ExtractionError::ModelLoad(format!("tokenizer: {}", e)))?;
-
-            let span_output: gliner::model::output::decoded::SpanOutput = inner
-                .model
-                .inference(text_input, &pipeline, &inner.params)
-                .map_err(|e| ExtractionError::Inference(format!("NER inference: {}", e)))?;
-
+            // Entity extraction from span_output (non-consuming iteration so
+            // span_output can be passed to the RE pipeline below)
             let entities: Vec<EntityRef> = span_output
                 .spans
-                .into_iter()
+                .iter()
                 .flat_map(|seq| {
-                    seq.into_iter().map(|span| EntityRef {
+                    seq.iter().map(|span| EntityRef {
                         uri: format!("http://zakhor/ns/entity/{}", span.class()),
                         label: span.text().to_string(),
                     })
                 })
                 .collect();
 
-            Ok::<Vec<EntityRef>, ExtractionError>(entities)
-        })
-        .await
-        .map_err(|e| ExtractionError::TaskJoin(format!("spawn_blocking: {}", e)))??;
-
-        tracing::debug!(
-            entity_count = entities.len(),
-            text_len,
-            "NER extraction complete"
-        );
-        Ok(entities)
-    }
-
-    /// Extract relations between entities in `text`.
-    ///
-    /// Internally runs the GLiNER token pipeline (NER) first, then feeds the
-    /// extracted spans into the relation extraction pipeline.
-    ///
-    /// `entities` is used to map relation subject/object texts to their Zakhor
-    /// entity URIs. Any subject or object text that does not appear in the
-    /// `entities` list falls back to
-    /// `http://zakhor/ns/entity/{text}` as its URI.
-    ///
-    /// The ONNX model is loaded lazily on the first call and cached thereafter.
-    #[tracing::instrument(skip(self))]
-    pub async fn extract_relations(
-        &self,
-        text: &str,
-        entities: &[EntityRef],
-    ) -> Result<Vec<Relation>, ExtractionError> {
-        let inner = self.get_or_init_model()?;
-        let config = self.config.clone();
-        let text = text.to_string();
-        let entity_uris: Vec<(String, String)> = entities
-            .iter()
-            .map(|e| (e.label.clone(), e.uri.clone()))
-            .collect();
-        let input_entity_count = entities.len();
-
-        let relations = spawn_blocking(move || {
-            // ---- Step 1: NER ----
-            let entity_strs: Vec<&str> = config.entity_labels.iter().map(|s| s.as_str()).collect();
-
-            let text_input =
-                gliner::model::input::text::TextInput::from_str(&[&text], &entity_strs)
-                    .map_err(|e| ExtractionError::Inference(format!("text input: {}", e)))?;
-
-            let token_pipeline =
-                gliner::model::pipeline::token::TokenPipeline::new(&config.tokenizer_path)
-                    .map_err(|e| ExtractionError::ModelLoad(format!("tokenizer: {}", e)))?;
-
-            let span_output: gliner::model::output::decoded::SpanOutput = inner
-                .model
-                .inference(text_input, &token_pipeline, &inner.params)
-                .map_err(|e| ExtractionError::Inference(format!("NER inference: {}", e)))?;
-
-            // ---- Step 2: Relation Extraction ----
-            let mut relation_schema = gliner::model::input::relation::schema::RelationSchema::new();
+            // Relation schema
+            let mut relation_schema =
+                gliner::model::input::relation::schema::RelationSchema::new();
             for label in &config.relation_labels {
                 relation_schema.push(label);
             }
@@ -350,61 +320,131 @@ impl ExtractionPipeline {
             )
             .map_err(|e| ExtractionError::ModelLoad(format!("relation pipeline: {}", e)))?;
 
+            // Relation extraction pipeline consumes span_output
             let relation_output: gliner::model::output::relation::RelationOutput = inner
                 .model
                 .inference(span_output, &rel_pipeline, &inner.params)
                 .map_err(|e| ExtractionError::Inference(format!("RE inference: {}", e)))?;
 
-            // ---- Step 3: Map to Zakhor Relation types ----
-            let lookup: std::collections::HashMap<&str, &str> = entity_uris
+            // Build label → URI lookup from extracted entities
+            let lookup: std::collections::HashMap<&str, &str> = entities
                 .iter()
-                .map(|(label, uri)| (label.as_str(), uri.as_str()))
+                .map(|e| (e.label.as_str(), e.uri.as_str()))
                 .collect();
 
-            let raw_relation_count: usize =
-                relation_output.relations.iter().map(|seq| seq.len()).sum();
-
+            // Map GLiNER relations to Zakhor Relation types
             let relations: Vec<Relation> = relation_output
                 .relations
                 .into_iter()
                 .flat_map(|seq| {
                     seq.into_iter().map(|rel| {
-                        let subject_fallback = format!("http://zakhor/ns/entity/{}", rel.subject());
-                        let object_fallback = format!("http://zakhor/ns/entity/{}", rel.object());
-
+                        let subject_label = rel.subject();
+                        let object_label = rel.object();
                         let subject_uri = lookup
-                            .get(rel.subject())
-                            .copied()
-                            .unwrap_or(subject_fallback.as_str());
+                            .get(subject_label)
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| {
+                                format!("http://zakhor/ns/entity/{}", subject_label)
+                            });
                         let object_uri = lookup
-                            .get(rel.object())
-                            .copied()
-                            .unwrap_or(object_fallback.as_str());
-
+                            .get(object_label)
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| {
+                                format!("http://zakhor/ns/entity/{}", object_label)
+                            });
                         Relation {
-                            subject_uri: subject_uri.to_string(),
+                            subject_uri,
                             predicate_uri: format!("http://zakhor/ns/relation/{}", rel.class()),
-                            object_uri: object_uri.to_string(),
+                            object_uri,
                             label: rel.class().to_string(),
                         }
                     })
                 })
                 .collect();
 
-            tracing::debug!(
-                raw_relation_count,
-                mapped_relation_count = relations.len(),
-                "RE inference complete"
-            );
-            Ok::<Vec<Relation>, ExtractionError>(relations)
+            Ok::<(Vec<EntityRef>, Vec<Relation>), ExtractionError>((entities, relations))
         })
         .await
         .map_err(|e| ExtractionError::TaskJoin(format!("spawn_blocking: {}", e)))??;
 
         tracing::debug!(
-            input_entity_count,
+            entity_count = entities.len(),
             relation_count = relations.len(),
-            "RE extraction complete"
+            text_len,
+            "entity and relation extraction complete"
+        );
+        Ok((entities, relations))
+    }
+
+    /// Extract named entities from `text`.
+    ///
+    /// Returns a list of [`EntityRef`] values with URIs formed as
+    /// `http://zakhor/ns/entity/{class}` and labels set to the extracted span text.
+    ///
+    /// The ONNX model is loaded lazily on the first call and cached thereafter.
+    #[tracing::instrument(skip(self))]
+    pub async fn extract_entities(&self, text: &str) -> Result<Vec<EntityRef>, ExtractionError> {
+        let (entities, _) = self.extract_entities_and_relations(text).await?;
+        tracing::debug!(
+            entity_count = entities.len(),
+            "NER extraction complete (delegated)"
+        );
+        Ok(entities)
+    }
+
+    /// Extract relations between entities in `text`.
+    ///
+    /// Delegates to [`extract_entities_and_relations`](Self::extract_entities_and_relations)
+    /// to share the single NER pass.  If a non-empty `entities` slice is provided,
+    /// those entity URIs are used for relation subject/object mapping instead of the
+    /// internally-extracted ones, preserving backward compatibility with callers
+    /// that have resolved or modified entities before calling this method.
+    ///
+    /// The ONNX model is loaded lazily on the first call and cached thereafter.
+    #[tracing::instrument(skip(self))]
+    pub async fn extract_relations(
+        &self,
+        text: &str,
+        entities: &[EntityRef],
+    ) -> Result<Vec<Relation>, ExtractionError> {
+        let (extracted_entities, mut relations) =
+            self.extract_entities_and_relations(text).await?;
+
+        // If caller provided entities, re-map URIs using the caller's entities
+        // (preserves backward compatibility where callers have resolved
+        //  or modified entities before calling extract_relations)
+        if !entities.is_empty() {
+            let caller_lookup: std::collections::HashMap<&str, &str> = entities
+                .iter()
+                .map(|e| (e.label.as_str(), e.uri.as_str()))
+                .collect();
+
+            let internal_uri_to_label: std::collections::HashMap<&str, &str> =
+                extracted_entities
+                    .iter()
+                    .map(|e| (e.uri.as_str(), e.label.as_str()))
+                    .collect();
+
+            for relation in &mut relations {
+                // Re-map subject_uri if caller has a different URI for this label
+                if let Some(label) = internal_uri_to_label.get(relation.subject_uri.as_str())
+                    && let Some(caller_uri) = caller_lookup.get(label)
+                {
+                    relation.subject_uri = caller_uri.to_string();
+                }
+                // Re-map object_uri if caller has a different URI for this label
+                if let Some(label) = internal_uri_to_label.get(relation.object_uri.as_str())
+                    && let Some(caller_uri) = caller_lookup.get(label)
+                {
+                    relation.object_uri = caller_uri.to_string();
+                }
+            }
+        }
+
+        tracing::debug!(
+            entity_count = extracted_entities.len(),
+            relation_count = relations.len(),
+            "RE extraction complete (delegated)"
         );
         Ok(relations)
     }
