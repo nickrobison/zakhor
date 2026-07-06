@@ -314,10 +314,9 @@ impl IngestionPipeline {
     /// then ingest the results into the SPARQL store asynchronously.
     ///
     /// This is a convenience method that chains the two pipelines:
-    /// 1. Call `extraction.extract_entities(text)` to extract entities
-    /// 2. Call `extraction.extract_relations(text, &entities)` to extract relations
-    /// 3. Create [`StoreObservationArgs`] from the results
-    /// 4. Call [`Self::ingest_async`] to run the full 5-stage pipeline
+    /// 1. Call [`ExtractionPipeline::extract_entities_and_relations`] once (shared NER pass)
+    /// 2. Create [`StoreObservationArgs`] from the results
+    /// 3. Call [`Self::ingest_async`] to run the full 5-stage pipeline
     #[tracing::instrument(skip_all, fields(correlation_id = %correlation_id))]
     pub async fn extract_and_ingest_async(
         &mut self,
@@ -328,17 +327,11 @@ impl IngestionPipeline {
     ) -> Result<IngestResult, IngestionError> {
         let text_len = text.len();
 
-        let entities = extraction
-            .extract_entities(text, correlation_id)
+        let (entities, relations) = extraction
+            .extract_entities_and_relations(text, correlation_id)
             .await
-            .map_err(|e| IngestionError::Build(format!("entity extraction failed: {}", e), "build", Some(Box::new(e))))?;
-        tracing::debug!(entity_count = entities.len(), "NER extraction complete");
-
-        let relations = extraction
-            .extract_relations(text, &entities, correlation_id)
-            .await
-            .map_err(|e| IngestionError::Build(format!("relation extraction failed: {}", e), "build", Some(Box::new(e))))?;
-        tracing::debug!(relation_count = relations.len(), "RE extraction complete");
+            .map_err(|e| IngestionError::Build(format!("extraction failed: {}", e), "build", Some(Box::new(e))))?;
+        tracing::debug!(entity_count = entities.len(), relation_count = relations.len(), "NER+RE extraction complete (shared pass)");
 
         let args = StoreObservationArgs {
             text: text.to_string(),
@@ -359,10 +352,9 @@ impl IngestionPipeline {
     /// then ingest the results into the SPARQL store.
     ///
     /// This is a convenience method that chains the two pipelines:
-    /// 1. Call `extraction.extract_entities(text)` to extract entities
-    /// 2. Call `extraction.extract_relations(text, &entities)` to extract relations
-    /// 3. Create [`StoreObservationArgs`] from the results
-    /// 4. Call [`Self::ingest`] to run the full 5-stage pipeline
+    /// 1. Call [`ExtractionPipeline::extract_entities_and_relations`] once (shared NER pass)
+    /// 2. Create [`StoreObservationArgs`] from the results
+    /// 3. Call [`Self::ingest`] to run the full 5-stage pipeline
     #[tracing::instrument(skip_all, fields(correlation_id = %correlation_id))]
     pub async fn extract_and_ingest(
         &mut self,
@@ -373,17 +365,11 @@ impl IngestionPipeline {
     ) -> Result<IngestResult, IngestionError> {
         let text_len = text.len();
 
-        let entities = extraction
-            .extract_entities(text, correlation_id)
+        let (entities, relations) = extraction
+            .extract_entities_and_relations(text, correlation_id)
             .await
-            .map_err(|e| IngestionError::Build(format!("entity extraction failed: {}", e), "build", Some(Box::new(e))))?;
-        tracing::debug!(entity_count = entities.len(), "NER extraction complete");
-
-        let relations = extraction
-            .extract_relations(text, &entities, correlation_id)
-            .await
-            .map_err(|e| IngestionError::Build(format!("relation extraction failed: {}", e), "build", Some(Box::new(e))))?;
-        tracing::debug!(relation_count = relations.len(), "RE extraction complete");
+            .map_err(|e| IngestionError::Build(format!("extraction failed: {}", e), "build", Some(Box::new(e))))?;
+        tracing::debug!(entity_count = entities.len(), relation_count = relations.len(), "NER+RE extraction complete (shared pass)");
 
         let args = StoreObservationArgs {
             text: text.to_string(),
