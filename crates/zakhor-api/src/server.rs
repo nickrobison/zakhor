@@ -104,9 +104,16 @@ impl MemoryHandler {
         }
     }
 
-    /// Ensure the extraction pipeline is initialized (async wait for background
-    /// init).
     pub async fn ensure_extraction(&self) -> Result<Arc<ExtractionPipeline>, String> {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            self._wait_for_extraction(),
+        )
+        .await
+        .map_err(|_| "Extraction pipeline not ready within 120s timeout".to_string())?
+    }
+
+    async fn _wait_for_extraction(&self) -> Result<Arc<ExtractionPipeline>, String> {
         loop {
             if let Some(result) = self.extraction_init.get() {
                 return result.clone();
