@@ -609,7 +609,12 @@ impl MemoryHandler {
 
         let mut pipeline = IngestionPipeline::with_sync_manager(self.sync_mgr.clone());
         let ingest_result = pipeline
-            .extract_and_ingest_async(Arc::new(self.conn.clone()), &args.text, &extraction, &correlation_id)
+            .extract_and_ingest_async(
+                Arc::new(self.conn.clone()),
+                &args.text,
+                &extraction,
+                &correlation_id,
+            )
             .await
             .map_err(|e| format!("Extract and ingest failed: {e}"))?;
 

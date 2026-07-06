@@ -56,23 +56,47 @@ pub struct IngestResult {
 #[derive(Debug, thiserror::Error)]
 pub enum IngestionError {
     #[error("validation: {0}")]
-    Validation(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+    Validation(
+        String,
+        &'static str,
+        #[source] Option<Box<dyn std::error::Error + Send + Sync>>,
+    ),
 
     #[error("resolution: {0}")]
-    Resolution(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+    Resolution(
+        String,
+        &'static str,
+        #[source] Option<Box<dyn std::error::Error + Send + Sync>>,
+    ),
 
     #[error("build: {0}")]
-    Build(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+    Build(
+        String,
+        &'static str,
+        #[source] Option<Box<dyn std::error::Error + Send + Sync>>,
+    ),
 
     #[error("persist: {0}")]
-    Persist(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+    Persist(
+        String,
+        &'static str,
+        #[source] Option<Box<dyn std::error::Error + Send + Sync>>,
+    ),
 
     #[error("sync: {0}")]
-    Sync(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+    Sync(
+        String,
+        &'static str,
+        #[source] Option<Box<dyn std::error::Error + Send + Sync>>,
+    ),
 
     /// Error from tokio task join (e.g. `spawn_blocking` panicked or was cancelled).
     #[error("join: {0}")]
-    Join(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+    Join(
+        String,
+        &'static str,
+        #[source] Option<Box<dyn std::error::Error + Send + Sync>>,
+    ),
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +172,9 @@ impl IngestionPipeline {
 
         // Stage 3: Build
         let uuid_urn: String = tracker::functions::sparql_get_uuid_urn()
-            .ok_or_else(|| IngestionError::Build("Failed to generate UUID".to_string(), "build", None))?
+            .ok_or_else(|| {
+                IngestionError::Build("Failed to generate UUID".to_string(), "build", None)
+            })?
             .to_string();
         let (sparql, provenance_triples) = self.build_triples(&args, &uuid_urn);
         tracing::debug!(
@@ -189,9 +215,9 @@ impl IngestionPipeline {
         correlation_id: &str,
     ) -> Result<IngestResult, IngestionError> {
         let result = self.ingest(conn, args, correlation_id)?;
-        self.provenance
-            .flush_to_sparql(conn)
-            .map_err(|e| IngestionError::Persist(format!("flush failed: {}", e), "persist", None))?;
+        self.provenance.flush_to_sparql(conn).map_err(|e| {
+            IngestionError::Persist(format!("flush failed: {}", e), "persist", None)
+        })?;
         Ok(result)
     }
 
@@ -228,7 +254,9 @@ impl IngestionPipeline {
 
         // Stage 3: Build
         let uuid_urn: String = tracker::functions::sparql_get_uuid_urn()
-            .ok_or_else(|| IngestionError::Build("Failed to generate UUID".to_string(), "build", None))?
+            .ok_or_else(|| {
+                IngestionError::Build("Failed to generate UUID".to_string(), "build", None)
+            })?
             .to_string();
         let (sparql, provenance_triples) = self.build_triples(&args, &uuid_urn);
         tracing::debug!(
@@ -250,13 +278,21 @@ impl IngestionPipeline {
         let persist_fut = tokio::task::spawn_blocking(move || {
             persist_conn
                 .update(&sparql, None::<&Cancellable>)
-                .map_err(|e| IngestionError::Persist(format!("SPARQL update failed: {}", e), "persist", Some(Box::new(e))))
+                .map_err(|e| {
+                    IngestionError::Persist(
+                        format!("SPARQL update failed: {}", e),
+                        "persist",
+                        Some(Box::new(e)),
+                    )
+                })
         });
 
         let sync_fut = tokio::task::spawn_blocking(move || {
             if let Some(ref mgr) = sync_manager {
                 mgr.sync_observation(&uuid_urn_for_sync, &text, &entity_uris)
-                    .map_err(|e| IngestionError::Sync(format!("index sync failed: {}", e), "sync", None))
+                    .map_err(|e| {
+                        IngestionError::Sync(format!("index sync failed: {}", e), "sync", None)
+                    })
             } else {
                 Ok(())
             }
@@ -268,7 +304,9 @@ impl IngestionPipeline {
         match persist_result {
             Err(join_err) => {
                 return Err(IngestionError::Join(
-                    format!("persist task panicked: {}", join_err), "join", Some(Box::new(join_err)),
+                    format!("persist task panicked: {}", join_err),
+                    "join",
+                    Some(Box::new(join_err)),
                 ));
             }
             Ok(Err(ingest_err)) => {
@@ -330,8 +368,18 @@ impl IngestionPipeline {
         let (entities, relations) = extraction
             .extract_entities_and_relations(text, correlation_id)
             .await
-            .map_err(|e| IngestionError::Build(format!("extraction failed: {}", e), "build", Some(Box::new(e))))?;
-        tracing::debug!(entity_count = entities.len(), relation_count = relations.len(), "NER+RE extraction complete (shared pass)");
+            .map_err(|e| {
+                IngestionError::Build(
+                    format!("extraction failed: {}", e),
+                    "build",
+                    Some(Box::new(e)),
+                )
+            })?;
+        tracing::debug!(
+            entity_count = entities.len(),
+            relation_count = relations.len(),
+            "NER+RE extraction complete (shared pass)"
+        );
 
         let args = StoreObservationArgs {
             text: text.to_string(),
@@ -368,8 +416,18 @@ impl IngestionPipeline {
         let (entities, relations) = extraction
             .extract_entities_and_relations(text, correlation_id)
             .await
-            .map_err(|e| IngestionError::Build(format!("extraction failed: {}", e), "build", Some(Box::new(e))))?;
-        tracing::debug!(entity_count = entities.len(), relation_count = relations.len(), "NER+RE extraction complete (shared pass)");
+            .map_err(|e| {
+                IngestionError::Build(
+                    format!("extraction failed: {}", e),
+                    "build",
+                    Some(Box::new(e)),
+                )
+            })?;
+        tracing::debug!(
+            entity_count = entities.len(),
+            relation_count = relations.len(),
+            "NER+RE extraction complete (shared pass)"
+        );
 
         let args = StoreObservationArgs {
             text: text.to_string(),
@@ -421,7 +479,11 @@ impl IngestionPipeline {
     #[tracing::instrument(skip_all)]
     fn resolve_entities(&self, args: &mut StoreObservationArgs) -> Result<(), IngestionError> {
         let resolver = self.entity_resolver.as_ref().ok_or_else(|| {
-            IngestionError::Resolution("entity resolver not configured".to_string(), "resolve", None)
+            IngestionError::Resolution(
+                "entity resolver not configured".to_string(),
+                "resolve",
+                None,
+            )
         })?;
 
         for entity in &mut args.entities {
@@ -450,8 +512,13 @@ impl IngestionPipeline {
     /// Stage 4: Persist to SPARQL triplestore.
     #[tracing::instrument(skip_all)]
     fn persist(&self, conn: &SparqlConnection, sparql: &str) -> Result<(), IngestionError> {
-        conn.update(sparql, None::<&Cancellable>)
-            .map_err(|e| IngestionError::Persist(format!("SPARQL update failed: {}", e), "persist", Some(Box::new(e))))
+        conn.update(sparql, None::<&Cancellable>).map_err(|e| {
+            IngestionError::Persist(
+                format!("SPARQL update failed: {}", e),
+                "persist",
+                Some(Box::new(e)),
+            )
+        })
     }
 }
 
@@ -921,8 +988,14 @@ mod tests {
             .to_string();
         let (sparql, triples) = pipeline.build_triples(&args, &uuid);
 
-        assert!(sparql.starts_with("PREFIX"), "should have prefix declarations");
-        assert!(sparql.contains("INSERT DATA {"), "should contain INSERT DATA");
+        assert!(
+            sparql.starts_with("PREFIX"),
+            "should have prefix declarations"
+        );
+        assert!(
+            sparql.contains("INSERT DATA {"),
+            "should contain INSERT DATA"
+        );
         assert!(sparql.contains("async test observation"));
         assert!(sparql.contains("zakhor:hasEntity"));
         assert!(!triples.is_empty(), "should have provenance triples");
@@ -1032,8 +1105,7 @@ mod tests {
         {
             stages.push(("Resolution", stage));
         }
-        if let IngestionError::Build(_, stage, _) =
-            IngestionError::Build("".into(), "build", None)
+        if let IngestionError::Build(_, stage, _) = IngestionError::Build("".into(), "build", None)
         {
             stages.push(("Build", stage));
         }
@@ -1042,14 +1114,10 @@ mod tests {
         {
             stages.push(("Persist", stage));
         }
-        if let IngestionError::Sync(_, stage, _) =
-            IngestionError::Sync("".into(), "sync", None)
-        {
+        if let IngestionError::Sync(_, stage, _) = IngestionError::Sync("".into(), "sync", None) {
             stages.push(("Sync", stage));
         }
-        if let IngestionError::Join(_, stage, _) =
-            IngestionError::Join("".into(), "join", None)
-        {
+        if let IngestionError::Join(_, stage, _) = IngestionError::Join("".into(), "join", None) {
             stages.push(("Join", stage));
         }
 
@@ -1157,6 +1225,9 @@ mod tests {
         assert!(sparql.contains("rdfs:label"));
         let opens = sparql.matches('{').count();
         let closes = sparql.matches('}').count();
-        assert_eq!(opens, closes, "braces should be balanced in async code path");
+        assert_eq!(
+            opens, closes,
+            "braces should be balanced in async code path"
+        );
     }
 }

@@ -16,11 +16,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::{
-    JsonObjectOptions, NumericOptions, OwnedValue, Schema, Value, STORED, STRING, TEXT,
+    JsonObjectOptions, NumericOptions, OwnedValue, STORED, STRING, Schema, TEXT, Value,
 };
 use tantivy::{Index, IndexWriter, TantivyDocument};
-use tracker::prelude::SparqlConnectionExtManual;
 use tracker::SparqlConnection;
+use tracker::prelude::SparqlConnectionExtManual;
 use zakhor_common::error::{ZakhorError, ZakhorResult};
 use zakhor_search::ScoredDoc;
 use zakhor_storage::sparql::Prefix;

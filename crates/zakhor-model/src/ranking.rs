@@ -8,8 +8,8 @@ use gio::Cancellable;
 use oxiri::Iri;
 use serde::Serialize;
 use std::collections::HashMap;
-use tracker::prelude::SparqlCursorExtManual;
 use tracker::SparqlConnection;
+use tracker::prelude::SparqlCursorExtManual;
 use zakhor_search::ScoredDoc;
 use zakhor_storage::sparql::Prefix;
 

@@ -93,19 +93,35 @@ impl Default for ExtractionConfig {
 pub enum ExtractionError {
     /// Failed to load the ONNX model or tokenizer.
     #[error("model load: {0}")]
-    ModelLoad(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+    ModelLoad(
+        String,
+        &'static str,
+        #[source] Option<Box<dyn std::error::Error + Send + Sync>>,
+    ),
 
     /// ONNX inference or pipeline processing failed.
     #[error("inference: {0}")]
-    Inference(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+    Inference(
+        String,
+        &'static str,
+        #[source] Option<Box<dyn std::error::Error + Send + Sync>>,
+    ),
 
     /// Mapping extracted values back to Zakhor types failed.
     #[error("mapping: {0}")]
-    Mapping(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+    Mapping(
+        String,
+        &'static str,
+        #[source] Option<Box<dyn std::error::Error + Send + Sync>>,
+    ),
 
     /// The async blocking task itself panicked or was cancelled.
     #[error("task join: {0}")]
-    TaskJoin(String, &'static str, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+    TaskJoin(
+        String,
+        &'static str,
+        #[source] Option<Box<dyn std::error::Error + Send + Sync>>,
+    ),
 }
 
 impl From<model_setup::ModelSetupError> for ExtractionError {
@@ -229,8 +245,10 @@ impl ExtractionPipeline {
             self.config.model_path.display()
         );
         let runtime_params = orp::params::RuntimeParameters::default();
-        let model = orp::model::Model::new(&self.config.model_path, runtime_params)
-            .map_err(|e| ExtractionError::ModelLoad(format!("ONNX model: {}", e), "model_load", Some(e)))?;
+        let model =
+            orp::model::Model::new(&self.config.model_path, runtime_params).map_err(|e| {
+                ExtractionError::ModelLoad(format!("ONNX model: {}", e), "model_load", Some(e))
+            })?;
 
         let params = gliner::model::params::Parameters::default()
             .with_threshold(self.config.entity_threshold);
@@ -254,16 +272,21 @@ impl ExtractionPipeline {
         let entity_strs: Vec<&str> = config.entity_labels.iter().map(|s| s.as_str()).collect();
 
         let text_input = gliner::model::input::text::TextInput::from_str(&[text], &entity_strs)
-            .map_err(|e| ExtractionError::Inference(format!("text input: {}", e), "inference", Some(e)))?;
+            .map_err(|e| {
+                ExtractionError::Inference(format!("text input: {}", e), "inference", Some(e))
+            })?;
 
         let token_pipeline =
-            gliner::model::pipeline::token::TokenPipeline::new(&config.tokenizer_path)
-                .map_err(|e| ExtractionError::ModelLoad(format!("tokenizer: {}", e), "model_load", Some(e)))?;
+            gliner::model::pipeline::token::TokenPipeline::new(&config.tokenizer_path).map_err(
+                |e| ExtractionError::ModelLoad(format!("tokenizer: {}", e), "model_load", Some(e)),
+            )?;
 
         let span_output: gliner::model::output::decoded::SpanOutput = inner
             .model
             .inference(text_input, &token_pipeline, &inner.params)
-            .map_err(|e| ExtractionError::Inference(format!("NER inference: {}", e), "inference", Some(e)))?;
+            .map_err(|e| {
+                ExtractionError::Inference(format!("NER inference: {}", e), "inference", Some(e))
+            })?;
 
         Ok(span_output)
     }
@@ -308,8 +331,7 @@ impl ExtractionPipeline {
                 .collect();
 
             // Relation schema
-            let mut relation_schema =
-                gliner::model::input::relation::schema::RelationSchema::new();
+            let mut relation_schema = gliner::model::input::relation::schema::RelationSchema::new();
             for label in &config.relation_labels {
                 relation_schema.push(label);
             }
@@ -318,13 +340,21 @@ impl ExtractionPipeline {
                 &config.tokenizer_path,
                 &relation_schema,
             )
-            .map_err(|e| ExtractionError::ModelLoad(format!("relation pipeline: {}", e), "model_load", Some(e)))?;
+            .map_err(|e| {
+                ExtractionError::ModelLoad(
+                    format!("relation pipeline: {}", e),
+                    "model_load",
+                    Some(e),
+                )
+            })?;
 
             // Relation extraction pipeline consumes span_output
             let relation_output: gliner::model::output::relation::RelationOutput = inner
                 .model
                 .inference(span_output, &rel_pipeline, &inner.params)
-                .map_err(|e| ExtractionError::Inference(format!("RE inference: {}", e), "inference", Some(e)))?;
+                .map_err(|e| {
+                    ExtractionError::Inference(format!("RE inference: {}", e), "inference", Some(e))
+                })?;
 
             // Build label → URI lookup from extracted entities
             let lookup: std::collections::HashMap<&str, &str> = entities
@@ -349,9 +379,7 @@ impl ExtractionPipeline {
                         let object_uri = lookup
                             .get(object_label)
                             .map(|s| s.to_string())
-                            .unwrap_or_else(|| {
-                                format!("http://zakhor/ns/entity/{}", object_label)
-                            });
+                            .unwrap_or_else(|| format!("http://zakhor/ns/entity/{}", object_label));
                         Relation {
                             subject_uri,
                             predicate_uri: format!("http://zakhor/ns/relation/{}", rel.class()),
@@ -365,7 +393,13 @@ impl ExtractionPipeline {
             Ok::<(Vec<EntityRef>, Vec<Relation>), ExtractionError>((entities, relations))
         })
         .await
-        .map_err(|e| ExtractionError::TaskJoin(format!("spawn_blocking: {}", e), "task_join", Some(Box::new(e))))??;
+        .map_err(|e| {
+            ExtractionError::TaskJoin(
+                format!("spawn_blocking: {}", e),
+                "task_join",
+                Some(Box::new(e)),
+            )
+        })??;
 
         tracing::debug!(
             entity_count = entities.len(),
@@ -388,7 +422,9 @@ impl ExtractionPipeline {
         text: &str,
         correlation_id: &str,
     ) -> Result<Vec<EntityRef>, ExtractionError> {
-        let (entities, _) = self.extract_entities_and_relations(text, correlation_id).await?;
+        let (entities, _) = self
+            .extract_entities_and_relations(text, correlation_id)
+            .await?;
         tracing::debug!(
             entity_count = entities.len(),
             "NER extraction complete (delegated)"
@@ -412,8 +448,9 @@ impl ExtractionPipeline {
         entities: &[EntityRef],
         correlation_id: &str,
     ) -> Result<Vec<Relation>, ExtractionError> {
-        let (extracted_entities, mut relations) =
-            self.extract_entities_and_relations(text, correlation_id).await?;
+        let (extracted_entities, mut relations) = self
+            .extract_entities_and_relations(text, correlation_id)
+            .await?;
 
         // If caller provided entities, re-map URIs using the caller's entities
         // (preserves backward compatibility where callers have resolved
@@ -424,11 +461,10 @@ impl ExtractionPipeline {
                 .map(|e| (e.label.as_str(), e.uri.as_str()))
                 .collect();
 
-            let internal_uri_to_label: std::collections::HashMap<&str, &str> =
-                extracted_entities
-                    .iter()
-                    .map(|e| (e.uri.as_str(), e.label.as_str()))
-                    .collect();
+            let internal_uri_to_label: std::collections::HashMap<&str, &str> = extracted_entities
+                .iter()
+                .map(|e| (e.uri.as_str(), e.label.as_str()))
+                .collect();
 
             for relation in &mut relations {
                 // Re-map subject_uri if caller has a different URI for this label
@@ -541,12 +577,9 @@ mod tests {
 
     #[test]
     fn test_extraction_error_source_chain_inference() {
-        let inner = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused");
-        let err = ExtractionError::Inference(
-            "timeout".into(),
-            "inference",
-            Some(Box::new(inner)),
-        );
+        let inner =
+            std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused");
+        let err = ExtractionError::Inference("timeout".into(), "inference", Some(Box::new(inner)));
         let source = std::error::Error::source(&err);
         assert!(source.is_some());
         assert!(source.unwrap().to_string().contains("connection refused"));
