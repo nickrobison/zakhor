@@ -46,11 +46,30 @@ impl From<std::io::Error> for ModelSetupError {
     }
 }
 
+/// Resolve the effective hf-hub cache directory.
+///
+/// If `model_dir` is empty (the default config value), defer to the
+/// `HF_HUB_CACHE` environment variable so that callers (especially CI)
+/// can control where models are cached without a config file.  If
+/// `HF_HUB_CACHE` is also unset, fall back to the current working
+/// directory, which has been the historical default for this project.
+fn resolve_cache_dir(model_dir: &Path) -> PathBuf {
+    if model_dir.as_os_str().is_empty() {
+        std::env::var("HF_HUB_CACHE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("."))
+    } else {
+        model_dir.to_path_buf()
+    }
+}
+
 /// Ensure the GLiNER-RELEX model and tokenizer are available on disk.
 ///
 /// `model_dir` is the directory where model files should be stored (it will
-/// be created if it does not exist).  Files are resolved through the
-/// `hf-hub` content-addressed cache rooted at `model_dir`; if a file is
+/// be created if it does not exist).  When `model_dir` is empty, the
+/// [`HF_HUB_CACHE`] environment variable is consulted as a fallback (see
+/// [`resolve_cache_dir`]).  Files are resolved through the `hf-hub`
+/// content-addressed cache rooted at the resolved directory; if a file is
 /// not yet cached it will be downloaded from
 /// [`nickrobison/gliner-relex-onnx`](https://huggingface.co/nickrobison/gliner-relex-onnx).
 ///
@@ -63,10 +82,11 @@ impl From<std::io::Error> for ModelSetupError {
 /// or wrap with [`tokio::task::spawn_blocking`].
 #[tracing::instrument(skip(model_dir))]
 pub fn ensure_model_files(model_dir: &Path) -> Result<ModelFiles, ModelSetupError> {
-    std::fs::create_dir_all(model_dir)?;
+    let effective_dir = resolve_cache_dir(model_dir);
+    std::fs::create_dir_all(&effective_dir)?;
 
     let api = hf_hub::api::sync::ApiBuilder::new()
-        .with_cache_dir(model_dir.to_path_buf())
+        .with_cache_dir(effective_dir)
         .with_progress(true)
         .build()
         .map_err(|e| ModelSetupError::Download(format!("hf-hub init: {e}")))?;

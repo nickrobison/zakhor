@@ -106,11 +106,11 @@ impl MemoryHandler {
 
     pub async fn ensure_extraction(&self) -> Result<Arc<ExtractionPipeline>, String> {
         tokio::time::timeout(
-            std::time::Duration::from_secs(120),
+            std::time::Duration::from_secs(60),
             self._wait_for_extraction(),
         )
         .await
-        .map_err(|_| "Extraction pipeline not ready within 120s timeout".to_string())?
+        .map_err(|_| "Extraction pipeline not ready within 60s timeout".to_string())?
     }
 
     async fn _wait_for_extraction(&self) -> Result<Arc<ExtractionPipeline>, String> {
