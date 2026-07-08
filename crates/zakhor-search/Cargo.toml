@@ -6,12 +6,14 @@ edition = "2024"
 [lib]
 
 [dependencies]
-zakhor-common = { path = "../zakhor-common" }
-tantivy = "0.22"
-tracker-rs = "0.8.0"
-gio = "0.22.6"
+zakhor-common = { workspace = true }
+tantivy = { workspace = true }
+tracker-rs = { workspace = true }
+gio = { workspace = true }
 fastembed = "5.17"
 bincode = "1.3"
+tracing = "0.1.41"
+ort = "2.0.0-rc.12"
 
 [dev-dependencies]
 quickcheck = "1.1.0"

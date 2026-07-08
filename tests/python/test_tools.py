@@ -340,7 +340,13 @@ async def test_search_hybrid(mcp_session: ClientSession) -> None:
     rebuild_result = await mcp_session.call_tool("rebuild_indexes", {})
     rebuild_text = _get_text(rebuild_result)
     assert rebuild_text, "rebuild_indexes should return a non-empty result"
-    assert "success" in rebuild_text.lower() or "error" in rebuild_text.lower(), (
+    lowered_rebuild_text = rebuild_text.lower()
+    assert (
+        "success" in lowered_rebuild_text
+        or "error" in lowered_rebuild_text
+        or "disabled" in lowered_rebuild_text
+        or "not available" in lowered_rebuild_text
+    ), (
         f"Expected rebuild status message, got: {rebuild_text}"
     )
 

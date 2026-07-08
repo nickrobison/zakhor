@@ -20,6 +20,8 @@ pub struct Config {
     pub background: BackgroundConfig,
     #[serde(default)]
     pub extraction: ExtractionConfig,
+    #[serde(default)]
+    pub embedding: EmbeddingConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -77,10 +79,28 @@ pub struct BackgroundConfig {
 pub struct ExtractionConfig {
     pub model_path: PathBuf,
     pub tokenizer_path: PathBuf,
+    /// Directory for auto-downloading the model from HuggingFace Hub.
+    ///
+    /// When non-empty and `model_path` is empty, the model is downloaded
+    /// automatically on startup via `hf-hub`.
+    #[serde(default)]
+    pub model_dir: PathBuf,
     pub entity_labels: Vec<String>,
     pub relation_labels: Vec<String>,
     pub entity_threshold: f32,
     pub relation_threshold: f32,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct EmbeddingConfig {
+    /// Enable Fastembed semantic search index.
+    ///
+    /// Disabled by default because Fastembed model initialisation (model
+    /// download + ONNX runtime warm-up) can hang or crash in some
+    /// environments. Set to `true` in `zakhor.toml` when semantic search
+    /// is desired.
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 impl Default for HttpConfig {
@@ -153,6 +173,7 @@ impl Default for ExtractionConfig {
         Self {
             model_path: PathBuf::default(),
             tokenizer_path: PathBuf::default(),
+            model_dir: PathBuf::default(),
             entity_labels: Vec::new(),
             relation_labels: Vec::new(),
             entity_threshold: 0.5,
@@ -175,6 +196,7 @@ impl Default for Config {
             tool_capture: ToolCaptureConfig::default(),
             background: BackgroundConfig::default(),
             extraction: ExtractionConfig::default(),
+            embedding: EmbeddingConfig::default(),
         }
     }
 }
@@ -196,6 +218,7 @@ impl Config {
             config.tool_capture = file_config.tool_capture;
             config.background = file_config.background;
             config.extraction = file_config.extraction;
+            config.embedding = file_config.embedding;
         }
 
         if let Ok(path) = std::env::var("ZAKHOR_DB_PATH") {

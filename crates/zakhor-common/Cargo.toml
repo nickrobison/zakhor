@@ -7,9 +7,9 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.102"
-serde = { version = "1.0.228", features = ["derive"] }
-tokio = { version = "1.52.3", features = ["full"] }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["full"] }
 toml = "0.8.22"
 iref = "3"
-oxiri = "0.2"
-static-iref = "3"
+oxiri = { workspace = true }
+static-iref = { workspace = true }

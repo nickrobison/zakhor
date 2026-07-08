@@ -13,8 +13,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::OnceCell;
 use tracing::info_span;
 use tracker::prelude::SparqlCursorExtManual;
 use zakhor_common::config::Config;
@@ -36,9 +37,9 @@ fn args_hash<T: Serialize>(args: &T) -> String {
 #[derive(Clone)]
 pub struct MemoryHandler {
     conn: tracker::SparqlConnection,
-    pub sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,
+    pub sync_mgr: Option<Arc<IndexSyncManager>>,
     pub is_ephemeral: bool,
-    pub extraction: Option<Arc<ExtractionPipeline>>,
+    extraction_init: Arc<OnceCell<Result<Arc<ExtractionPipeline>, String>>>,
 }
 
 impl MemoryHandler {
@@ -46,23 +47,25 @@ impl MemoryHandler {
     #[allow(dead_code)]
     pub fn with_connection(
         conn: tracker::SparqlConnection,
-        sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,
+        sync_mgr: Option<Arc<IndexSyncManager>>,
     ) -> Self {
         Self {
             conn,
             sync_mgr,
             is_ephemeral: false,
-            extraction: None,
+            extraction_init: Arc::new(OnceCell::new()),
         }
     }
 
+    #[tracing::instrument(skip(cfg, sync_mgr))]
     pub fn new_with_config(
         cfg: &Config,
-        sync_mgr: Option<Arc<Mutex<IndexSyncManager>>>,
+        sync_mgr: Option<Arc<IndexSyncManager>>,
         is_ephemeral: bool,
     ) -> Self {
         let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
         let conn = zakhor_storage::tracker_db::init_db(db_path);
+
         let extraction_cfg = ExtractionConfig {
             model_path: cfg.extraction.model_path.clone(),
             tokenizer_path: cfg.extraction.tokenizer_path.clone(),
@@ -71,16 +74,51 @@ impl MemoryHandler {
             entity_threshold: cfg.extraction.entity_threshold,
             relation_threshold: cfg.extraction.relation_threshold,
         };
-        let extraction = if !extraction_cfg.model_path.as_os_str().is_empty() {
-            Some(Arc::new(ExtractionPipeline::new(extraction_cfg)))
-        } else {
-            None
-        };
+        let model_dir = cfg.extraction.model_dir.clone();
+        let extraction_init: Arc<OnceCell<Result<Arc<ExtractionPipeline>, String>>> =
+            Arc::new(OnceCell::new());
+        let extraction_bg = extraction_init.clone();
+        tokio::spawn(async move {
+            tracing::info!("Starting extraction model download from HF in background");
+            let result = match ExtractionPipeline::new_with_setup(extraction_cfg, &model_dir) {
+                Ok(pipeline) => {
+                    tracing::info!("Extraction model ready in {}", model_dir.display());
+                    Ok(Arc::new(pipeline))
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to set up extraction model — extraction disabled"
+                    );
+                    Err(format!("Extraction pipeline init failed: {e}"))
+                }
+            };
+            let _ = extraction_bg.set(result);
+        });
+
         Self {
             conn,
             sync_mgr,
             is_ephemeral,
-            extraction,
+            extraction_init,
+        }
+    }
+
+    pub async fn ensure_extraction(&self) -> Result<Arc<ExtractionPipeline>, String> {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(180),
+            self._wait_for_extraction(),
+        )
+        .await
+        .map_err(|_| "Extraction pipeline not ready within 180s timeout".to_string())?
+    }
+
+    async fn _wait_for_extraction(&self) -> Result<Arc<ExtractionPipeline>, String> {
+        loop {
+            if let Some(result) = self.extraction_init.get() {
+                return result.clone();
+            }
+            tokio::task::yield_now().await;
         }
     }
 
@@ -205,6 +243,7 @@ pub struct TraverseGraphResponse {
 pub struct SearchResult {
     pub id: String,
     pub score: f64,
+    pub text: String,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
@@ -241,10 +280,11 @@ impl MemoryHandler {
         &self,
         Parameters(args): Parameters<StoreObservationArgs>,
     ) -> Result<Json<StoreObservationResponse>, String> {
+        let correlation_id = crate::new_correlation_id();
         let span = info_span!(
             "mcp_tool",
             tool = "store_observation",
-            correlation_id = %crate::new_correlation_id(),
+            correlation_id = %correlation_id,
             args_hash = %args_hash(&args),
             duration_ms = tracing::field::Empty,
             result = tracing::field::Empty,
@@ -252,34 +292,21 @@ impl MemoryHandler {
         let _guard = span.enter();
         let start = Instant::now();
 
-        let result = (|| -> Result<Json<StoreObservationResponse>, String> {
-            let text = args.text.clone();
-            let entity_uris: Vec<String> = args.entities.iter().map(|e| e.uri.clone()).collect();
-
-            let mut pipeline = IngestionPipeline::new();
-            let ingest_result = pipeline
-                .ingest(&self.conn, args)
-                .map_err(|e| format!("Ingest failed: {e}"))?;
-
-            if let Some(ref sync_mgr) = self.sync_mgr {
-                let mgr = sync_mgr.lock().expect("sync manager lock poisoned");
-                if let Err(e) =
-                    mgr.sync_observation(&ingest_result.observation_uri, &text, &entity_uris)
-                {
-                    tracing::warn!(error = %e, "Failed to sync observation to indexes");
-                }
-            }
-
-            Ok(Json(StoreObservationResponse {
-                observation_uri: ingest_result.observation_uri,
-                triple_count: ingest_result.triple_count as u64,
-            }))
-        })();
+        // Use the async pipeline which runs SPARQL persist and index sync concurrently.
+        let mut pipeline = IngestionPipeline::with_sync_manager(self.sync_mgr.clone());
+        let ingest_result = pipeline
+            .ingest_async(Arc::new(self.conn.clone()), args, &correlation_id)
+            .await
+            .map_err(|e| format!("Ingest failed: {e}"))?;
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-        span.record("result", if result.is_ok() { "success" } else { "error" });
+        span.record("result", "success");
         span.record("duration_ms", duration_ms);
-        result
+
+        Ok(Json(StoreObservationResponse {
+            observation_uri: ingest_result.observation_uri,
+            triple_count: ingest_result.triple_count as u64,
+        }))
     }
 
     #[tool(description = "Query entities by label pattern in the knowledge graph")]
@@ -320,8 +347,24 @@ impl MemoryHandler {
         })();
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-        span.record("result", if result.is_ok() { "success" } else { "error" });
+        let result_label = if result.is_ok() { "success" } else { "error" };
+        span.record("result", result_label);
         span.record("duration_ms", duration_ms);
+        match &result {
+            Ok(resp) => {
+                let count = resp.0.count;
+                let pattern = &args.pattern;
+                tracing::info!(
+                    pattern = %pattern,
+                    count = count,
+                    "query_entities: {count} results for pattern \"{pattern}\" in {duration_ms:.1}ms"
+                );
+            }
+            Err(e) => tracing::warn!(
+                error = %e,
+                "query_entities failed: {e}"
+            ),
+        }
         result
     }
 
@@ -456,18 +499,13 @@ impl MemoryHandler {
 
         let result = match self.sync_mgr {
             Some(ref sync_mgr) => {
-                let mgr = sync_mgr.lock().expect("sync manager lock poisoned");
-                let results = tools::hybrid_search(
-                    &mgr.lexical,
-                    &mgr.semantic,
-                    &args.query,
-                    args.limit as usize,
-                );
+                let results = tools::hybrid_search(sync_mgr, &args.query, args.limit as usize);
                 let docs: Vec<SearchResult> = results
                     .into_iter()
                     .map(|d| SearchResult {
                         id: d.id,
                         score: d.score,
+                        text: d.text,
                     })
                     .collect();
                 let count = docs.len() as u64;
@@ -485,8 +523,29 @@ impl MemoryHandler {
         };
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-        span.record("result", if result.is_ok() { "success" } else { "error" });
+        let result_label = if result.is_ok() { "success" } else { "error" };
+        span.record("result", result_label);
         span.record("duration_ms", duration_ms);
+        match &result {
+            Ok(resp) => {
+                let count = resp.0.count;
+                let query = &args.query;
+                let has_warning = resp.0.warning.is_some();
+                let detail = if has_warning { " (with warning)" } else { "" };
+                tracing::info!(
+                    query = %query,
+                    count = count,
+                    "search_hybrid: {count} results for \"{query}\" in {duration_ms:.1}ms{detail}"
+                );
+                if let Some(w) = &resp.0.warning {
+                    tracing::warn!("search_hybrid warning: {w}");
+                }
+            }
+            Err(e) => tracing::warn!(
+                error = %e,
+                "search_hybrid failed: {e}"
+            ),
+        }
         result
     }
 
@@ -541,10 +600,11 @@ impl MemoryHandler {
         &self,
         Parameters(args): Parameters<ExtractAndStoreArgs>,
     ) -> Result<Json<ExtractAndStoreResponse>, String> {
+        let correlation_id = crate::new_correlation_id();
         let span = info_span!(
             "mcp_tool",
             tool = "extract_and_store",
-            correlation_id = %crate::new_correlation_id(),
+            correlation_id = %correlation_id,
             args_hash = %args_hash(&args),
             duration_ms = tracing::field::Empty,
             result = tracing::field::Empty,
@@ -552,23 +612,18 @@ impl MemoryHandler {
         let _guard = span.enter();
         let start = Instant::now();
 
-        let extraction = self
-            .extraction
-            .as_ref()
-            .ok_or_else(|| "Extraction pipeline not configured. Set model_path in [extraction] section of zakhor.toml.".to_string())?;
+        let extraction = self.ensure_extraction().await?;
 
-        let mut pipeline = IngestionPipeline::new();
+        let mut pipeline = IngestionPipeline::with_sync_manager(self.sync_mgr.clone());
         let ingest_result = pipeline
-            .extract_and_ingest(&self.conn, &args.text, extraction)
+            .extract_and_ingest_async(
+                Arc::new(self.conn.clone()),
+                &args.text,
+                &extraction,
+                &correlation_id,
+            )
             .await
             .map_err(|e| format!("Extract and ingest failed: {e}"))?;
-
-        if let Some(ref sync_mgr) = self.sync_mgr {
-            let mgr = sync_mgr.lock().expect("sync manager lock poisoned");
-            if let Err(e) = mgr.sync_observation(&ingest_result.observation_uri, &args.text, &[]) {
-                tracing::warn!(error = %e, "Failed to sync extracted observation to indexes");
-            }
-        }
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
         span.record("result", "success");
@@ -604,13 +659,10 @@ impl MemoryHandler {
         let result = tokio::task::spawn_blocking(move || {
             let _guard = propagate_span.enter();
             match &this.sync_mgr {
-                Some(mgr) => match mgr.lock() {
-                    Ok(guard) => guard
-                        .rebuild_all(&this.conn)
-                        .map_err(|e| format!("Rebuild failed: {e}"))
-                        .map(|_| "Indexes rebuilt successfully".to_string()),
-                    Err(e) => Err(format!("Sync manager lock poisoned: {e}")),
-                },
+                Some(mgr) => mgr
+                    .rebuild_all(&this.conn)
+                    .map_err(|e| format!("Rebuild failed: {e}"))
+                    .map(|_| "Indexes rebuilt successfully".to_string()),
                 None => Err("No sync manager available (indexes disabled)".to_string()),
             }
         })
@@ -648,13 +700,10 @@ impl MemoryHandler {
         let result = tokio::task::spawn_blocking(move || {
             let _guard = propagate_span.enter();
             match &this.sync_mgr {
-                Some(mgr) => match mgr.lock() {
-                    Ok(guard) => guard
-                        .rebuild_all(&this.conn)
-                        .map_err(|e| format!("Rebuild failed: {e}"))
-                        .map(|_| "Indexes rebuilt successfully".to_string()),
-                    Err(e) => Err(format!("Sync manager lock poisoned: {e}")),
-                },
+                Some(mgr) => mgr
+                    .rebuild_all(&this.conn)
+                    .map_err(|e| format!("Rebuild failed: {e}"))
+                    .map(|_| "Indexes rebuilt successfully".to_string()),
                 None => Err("No sync manager available (indexes disabled)".to_string()),
             }
         })

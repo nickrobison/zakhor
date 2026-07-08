@@ -227,6 +227,7 @@ pub fn rank_search_results(
         ranked.push(ScoredDoc {
             id: doc.id,
             score: doc.score * boost,
+            text: doc.text,
         });
     }
 

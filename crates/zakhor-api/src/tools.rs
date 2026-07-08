@@ -1,40 +1,41 @@
 use oxrdf::Literal;
 use std::collections::HashMap;
-use std::sync::Mutex;
-use zakhor_search::{LexicalIndex, ScoredDoc, SemanticIndex};
+use zakhor_search::{IndexSyncManager, ScoredDoc};
 use zakhor_storage::sparql::prefix_declarations;
 
 /// RRF k=60 fusion: run lexical + semantic search, fuse by reciprocal rank
-pub fn hybrid_search(
-    lexical: &LexicalIndex,
-    semantic: &Mutex<SemanticIndex>,
-    query: &str,
-    limit: usize,
-) -> Vec<ScoredDoc> {
+pub fn hybrid_search(mgr: &IndexSyncManager, query: &str, limit: usize) -> Vec<ScoredDoc> {
     let overfetch = limit.max(20) * 2;
 
     // Lexical search
-    let lexical_results = lexical.search(query, overfetch).unwrap_or_default();
-    // Semantic search (lock mutex)
-    let semantic_results = semantic
-        .lock()
-        .expect("semantic index lock poisoned")
-        .search(query, overfetch);
+    let lexical_results = mgr.lexical.search(query, overfetch).unwrap_or_default();
+    // Semantic search (lazy-init safe)
+    let semantic_results = mgr.semantic_search(query, overfetch);
 
     // RRF fusion with k=60
     let k = 60.0;
     let mut scores: HashMap<String, f64> = HashMap::new();
+    let mut texts: HashMap<String, String> = HashMap::new();
 
     for (rank, doc) in lexical_results.iter().enumerate() {
         *scores.entry(doc.id.clone()).or_insert(0.0) += 1.0 / (k + rank as f64);
+        texts
+            .entry(doc.id.clone())
+            .or_insert_with(|| doc.text.clone());
     }
     for (rank, doc) in semantic_results.iter().enumerate() {
         *scores.entry(doc.id.clone()).or_insert(0.0) += 1.0 / (k + rank as f64);
+        texts
+            .entry(doc.id.clone())
+            .or_insert_with(|| doc.text.clone());
     }
 
     let mut sorted: Vec<ScoredDoc> = scores
         .into_iter()
-        .map(|(id, score)| ScoredDoc { id, score })
+        .map(|(id, score)| {
+            let text = texts.remove(&id).unwrap_or_default();
+            ScoredDoc { id, score, text }
+        })
         .collect();
     sorted.sort_by(|a, b| {
         b.score

@@ -145,9 +145,16 @@ impl LexicalIndex {
                 .ok_or_else(|| ZakhorError::Internal("Missing id field in document".into()))?
                 .to_string();
 
+            let text = tantivy_doc
+                .get_first(self.text_field)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
             results.push(ScoredDoc {
                 id,
                 score: score.into(),
+                text,
             });
         }
 

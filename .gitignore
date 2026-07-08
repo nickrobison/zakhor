@@ -11,3 +11,4 @@
 **/*.pyc
 tests/python/.pytest_cache/
 tests/python/*.egg-info/
+models--*
