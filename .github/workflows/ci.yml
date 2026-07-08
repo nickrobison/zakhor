@@ -89,7 +89,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libglib2.0-dev libtracker-sparql-3.0-dev tinysparql
 
-<<<<<<< HEAD
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.hf_cache
+          key: ${{ runner.os }}-hf-${{ env.HF_HUB_MODEL_KEY }}
+          restore-keys: |
+            ${{ runner.os }}-hf-
+
       - name: Start tinysparql endpoint
         run: |
           tinysparql endpoint --port=7200 &
@@ -98,30 +104,21 @@ jobs:
 
       - name: Build zakhor binary (Nix)
         run: nix build .#zakhor
-=======
-      - uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/.hf_cache
-          key: ${{ runner.os }}-hf-${{ env.HF_HUB_MODEL_KEY }}
-          restore-keys: |
-            ${{ runner.os }}-hf-
 
-      - name: Build Rust binary
-        run: cargo build
+      - name: Link binary to conftest.py expected path
+        run: |
+          mkdir -p target/debug
+          ln -sf "$(pwd)/result/bin/zakhor" target/debug/zakhor
 
       - name: Pre-download GLiNER model
         env:
           HF_HUB_CACHE: ${{ github.workspace }}/.hf_cache
         run: |
-          # Start server in ephemeral mode — this triggers the model download
-          # in a background task (see MemoryHandler::new_with_config).
           mkdir -p /tmp/zakhor-predownload
           target/debug/zakhor --http --ephemeral --db-path=/tmp/zakhor-predownload &
           PID=$!
           echo "Server pid=$PID, waiting for model..."
 
-          # Poll for the model files in the hf_hub cache.
-          # The refs/main file is written atomically after download completes.
           OK=0
           for i in $(seq 90); do
             if [ -f "$HF_HUB_CACHE/models--nickrobison--gliner-relex-onnx/refs/main" ]; then
@@ -141,16 +138,6 @@ jobs:
             echo "WARNING: model pre-download did not complete — tests will attempt download at runtime"
           fi
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
->>>>>>> origin/master
-
-      - name: Link binary to conftest.py expected path
-        run: |
-          mkdir -p target/debug
-          ln -sf "$(pwd)/result/bin/zakhor" target/debug/zakhor
-
-<<<<<<< HEAD
       - name: Build Python test environment (Nix)
         run: nix build .#zakhor-python-tests
 
@@ -159,16 +146,11 @@ jobs:
           ZAKHOR_SPARQL_ENDPOINT: http://localhost:7200
         run: |
           cd tests/python
-          ../../result/bin/pytest -v
+          ../../result/bin/pytest -v --timeout=180
 
       - name: Cleanup tinysparql
         if: always()
         run: pkill -f tinysparql 2>/dev/null || true
-=======
-      - name: Run Python tests
-        working-directory: ./tests/python
-        run: uv run pytest -v --timeout=180
->>>>>>> origin/master
 
   # ── End-to-end ───────────────────────────────────────────────────
   e2e:
