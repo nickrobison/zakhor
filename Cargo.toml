@@ -44,14 +44,7 @@ axum = { workspace = true, features = ["http1", "http2", "macros", "tokio", "jso
 tokio = { workspace = true, features = ["full"] }
 tower-http = { workspace = true, features = ["cors", "fs"] }
 tracing = { workspace = true }
+ort = { version = "2.0.0-rc.12", features = ["tracing"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
-
-# Binary targets (migrate-v1-to-v2)
-gio = { workspace = true }
-tracker-rs = { workspace = true }
-
-oxrdf = { workspace = true }
-oxiri = { workspace = true }
-
 [build-dependencies]
 serde_json = { workspace = true }

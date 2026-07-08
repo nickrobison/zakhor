@@ -39,27 +39,19 @@ pub struct AdminStatusResponse {
     )
 )]
 pub async fn rebuild_indexes(State(state): State<ApiState>) -> ApiResult<Json<RebuildResponse>> {
-    let sync_arc: Arc<std::sync::Mutex<IndexSyncManager>> = state
+    let sync_arc: Arc<IndexSyncManager> = state
         .sync_manager()
         .ok_or_else(|| ApiError::internal("Index sync manager not configured"))?
         .clone();
 
-    {
-        let mgr = sync_arc
-            .lock()
-            .map_err(|e| ApiError::internal(format!("Sync lock: {e}")))?;
-        if mgr.is_rebuild_in_progress() {
-            return Err(ApiError::conflict("Rebuild already in progress"));
-        }
+    if sync_arc.is_rebuild_in_progress() {
+        return Err(ApiError::conflict("Rebuild already in progress"));
     }
 
     let state_for_bg = state.clone();
     tokio::spawn(async move {
-        let mgr = sync_arc
-            .lock()
-            .expect("sync manager lock poisoned in background task");
         let conn = state_for_bg.connection();
-        match mgr.rebuild_all(conn) {
+        match sync_arc.rebuild_all(conn) {
             Ok(()) => tracing::info!("Index rebuild completed"),
             Err(e) => tracing::warn!("Index rebuild error: {e}"),
         }
@@ -79,9 +71,7 @@ pub async fn rebuild_indexes(State(state): State<ApiState>) -> ApiResult<Json<Re
     )
 )]
 pub async fn admin_status(State(state): State<ApiState>) -> ApiResult<Json<AdminStatusResponse>> {
-    let Some(sync_arc): Option<Arc<std::sync::Mutex<IndexSyncManager>>> =
-        state.sync_manager().cloned()
-    else {
+    let Some(sync_arc): Option<Arc<IndexSyncManager>> = state.sync_manager().cloned() else {
         return Ok(Json(AdminStatusResponse {
             rebuild_in_progress: false,
             lexical_docs: 0,
@@ -91,14 +81,10 @@ pub async fn admin_status(State(state): State<ApiState>) -> ApiResult<Json<Admin
         }));
     };
 
-    let mgr = sync_arc
-        .lock()
-        .map_err(|e| ApiError::internal(format!("Sync lock: {e}")))?;
-
-    let rebuild_in_progress = mgr.is_rebuild_in_progress();
-    let lexical_docs = mgr.lexical.num_docs();
-    let semantic_vectors = mgr.semantic.lock().map(|sem| sem.len()).unwrap_or(0);
-    let last_rebuild_at_ms = mgr.last_rebuild_ms();
+    let rebuild_in_progress = sync_arc.is_rebuild_in_progress();
+    let lexical_docs = sync_arc.lexical.num_docs();
+    let semantic_vectors = sync_arc.semantic_len();
+    let last_rebuild_at_ms = sync_arc.last_rebuild_ms();
     let indexes_available = lexical_docs > 0 || semantic_vectors > 0;
 
     Ok(Json(AdminStatusResponse {

@@ -13,6 +13,7 @@ zakhor-common = { workspace = true }
 zakhor-storage = { workspace = true }
 zakhor-search = { workspace = true }
 
+thiserror = "2"
 gio = { workspace = true }
 tracker-rs = { workspace = true }
 oxrdf = { workspace = true }
@@ -22,6 +23,9 @@ oxiri = { workspace = true, features = ["serde"] }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 utoipa = { workspace = true }
+
+# HuggingFace Hub model downloads
+hf-hub = "0.5"
 
 # GLiNER extraction pipeline - using forked gline-rs/orp with ort =2.0.0-rc.12 to match fastembed
 gline-rs = { git = "https://github.com/nickrobison/gline-rs", branch = "ort-rc12", features = ["load-dynamic"] }

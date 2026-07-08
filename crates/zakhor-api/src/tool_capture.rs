@@ -223,6 +223,7 @@ impl ToolCallIndex {
             results.push(ScoredDoc {
                 id,
                 score: score.into(),
+                text: String::new(),
             });
         }
 

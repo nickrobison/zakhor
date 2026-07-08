@@ -10,3 +10,4 @@ zakhor-storage = { workspace = true }
 
 gio = { workspace = true }
 tracker-rs = { workspace = true }
+tracing = { workspace = true }

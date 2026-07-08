@@ -12,6 +12,8 @@ tracker-rs = { workspace = true }
 gio = { workspace = true }
 fastembed = "5.17"
 bincode = "1.3"
+tracing = "0.1.41"
+ort = "2.0.0-rc.12"
 
 [dev-dependencies]
 quickcheck = "1.1.0"

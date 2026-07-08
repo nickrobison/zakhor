@@ -1556,16 +1556,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aef3982638978efa195ff11b305f51f1f22f4f0a6cabee7af79b383ebee6a213"
 dependencies = [
  "dirs",
+ "futures",
  "http",
  "indicatif 0.18.4",
  "libc",
  "log",
  "native-tls",
+ "num_cpus",
  "rand 0.9.4",
  "reqwest",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "tokio",
  "ureq 3.3.0",
  "windows-sys 0.61.2",
 ]
@@ -5182,16 +5185,13 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "clap",
- "gio",
- "oxiri",
- "oxrdf",
+ "ort",
  "rmcp",
  "serde_json",
  "tokio",
  "tower-http",
  "tracing",
  "tracing-subscriber",
- "tracker-rs",
  "zakhor-api",
  "zakhor-common",
  "zakhor-model",
@@ -5229,6 +5229,7 @@ name = "zakhor-code"
 version = "0.1.0"
 dependencies = [
  "gio",
+ "tracing",
  "tracker-rs",
  "zakhor-storage",
 ]
@@ -5252,12 +5253,14 @@ version = "0.1.0"
 dependencies = [
  "gio",
  "gline-rs",
+ "hf-hub 0.5.0",
  "orp",
  "ort",
  "oxiri",
  "oxrdf",
  "schemars",
  "serde",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracker-rs",
@@ -5274,9 +5277,11 @@ dependencies = [
  "bincode",
  "fastembed",
  "gio",
+ "ort",
  "quickcheck",
  "quickcheck_macros",
  "tantivy",
+ "tracing",
  "tracker-rs",
  "zakhor-common",
 ]

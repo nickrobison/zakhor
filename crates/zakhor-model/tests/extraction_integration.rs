@@ -45,7 +45,7 @@ async fn test_extraction_pipeline_extracts_entities_and_relations() {
     let text = "John works at Google in Mountain View.";
 
     let entities = pipeline
-        .extract_entities(text)
+        .extract_entities(text, "")
         .await
         .expect("entity extraction should succeed");
 
@@ -55,7 +55,7 @@ async fn test_extraction_pipeline_extracts_entities_and_relations() {
     );
 
     let relations = pipeline
-        .extract_relations(text, &entities)
+        .extract_relations(text, &entities, "")
         .await
         .expect("relation extraction should succeed");
 
@@ -75,7 +75,7 @@ async fn test_extraction_pipeline_empty_text() {
     let pipeline = ExtractionPipeline::new(config);
 
     let entities = pipeline
-        .extract_entities("")
+        .extract_entities("", "")
         .await
         .expect("entity extraction on empty string should not panic");
 

@@ -127,6 +127,9 @@ jobs:
   # ── Python integration tests ─────────────────────────────────────
   python-test:
     runs-on: ubuntu-latest
+    env:
+      HF_HUB_CACHE: ${{ github.workspace }}/.hf_cache
+      HF_HUB_MODEL_KEY: gliner-relex-onnx
     steps:
       - uses: actions/checkout@v4
 
@@ -137,8 +140,47 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.hf_cache
+          key: ${{ runner.os }}-hf-${{ env.HF_HUB_MODEL_KEY }}
+          restore-keys: |
+            ${{ runner.os }}-hf-
+
       - name: Build Rust binary
         run: cargo build
+
+      - name: Pre-download GLiNER model
+        env:
+          HF_HUB_CACHE: ${{ github.workspace }}/.hf_cache
+        run: |
+          # Start server in ephemeral mode — this triggers the model download
+          # in a background task (see MemoryHandler::new_with_config).
+          mkdir -p /tmp/zakhor-predownload
+          target/debug/zakhor --http --ephemeral --db-path=/tmp/zakhor-predownload &
+          PID=$!
+          echo "Server pid=$PID, waiting for model..."
+
+          # Poll for the model files in the hf_hub cache.
+          # The refs/main file is written atomically after download completes.
+          OK=0
+          for i in $(seq 90); do
+            if [ -f "$HF_HUB_CACHE/models--nickrobison--gliner-relex-onnx/refs/main" ]; then
+              echo "Model downloaded and cached after $((i * 2))s"
+              ls -lh "$HF_HUB_CACHE/models--nickrobison--gliner-relex-onnx/snapshots/"*/model.onnx
+              OK=1
+              break
+            fi
+            sleep 2
+          done
+
+          kill $PID 2>/dev/null || true
+          wait $PID 2>/dev/null || true
+          rm -rf /tmp/zakhor-predownload
+
+          if [ "$OK" != "1" ]; then
+            echo "WARNING: model pre-download did not complete — tests will attempt download at runtime"
+          fi
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
@@ -149,7 +191,7 @@ jobs:
 
       - name: Run Python tests
         working-directory: ./tests/python
-        run: uv run pytest -v
+        run: uv run pytest -v --timeout=180
 
   # ── End-to-end ───────────────────────────────────────────────────
   e2e:

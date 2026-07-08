@@ -57,7 +57,7 @@ pub async fn search(
     }
 
     let limit = clamp_limit(query.limit) as usize;
-    let Some(sync_mgr) = state.sync_manager() else {
+    let Some(mgr) = state.sync_manager() else {
         return Ok(Json(SearchHybridResponse {
             results: vec![],
             count: 0,
@@ -65,26 +65,20 @@ pub async fn search(
         }));
     };
 
-    let mgr = sync_mgr
-        .lock()
-        .map_err(|_| ApiError::conflict("Sync manager lock poisoned"))?;
     let docs = match query.mode {
-        SearchMode::Hybrid => tools::hybrid_search(&mgr.lexical, &mgr.semantic, query_text, limit),
+        SearchMode::Hybrid => tools::hybrid_search(mgr, query_text, limit),
         SearchMode::Lexical => mgr
             .lexical
             .search(query_text, limit)
             .map_err(|e| ApiError::internal(format!("Lexical search failed: {e}")))?,
-        SearchMode::Semantic => mgr
-            .semantic
-            .lock()
-            .map_err(|_| ApiError::conflict("Semantic index lock poisoned"))?
-            .search(query_text, limit),
+        SearchMode::Semantic => mgr.semantic_search(query_text, limit),
     };
     let results = docs
         .into_iter()
         .map(|doc| SearchResult {
             id: doc.id,
             score: doc.score,
+            text: doc.text,
         })
         .collect::<Vec<_>>();
     let count = results.len() as u64;
