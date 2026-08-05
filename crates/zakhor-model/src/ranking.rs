@@ -8,8 +8,8 @@ use gio::Cancellable;
 use oxiri::Iri;
 use serde::Serialize;
 use std::collections::HashMap;
-use tracker::SparqlConnection;
 use tracker::prelude::SparqlCursorExtManual;
+use tracker::SparqlConnection;
 use zakhor_search::ScoredDoc;
 use zakhor_storage::sparql::Prefix;
 
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_scored_entity_sort_order() {
-        let mut items = vec![
+        let mut items = [
             ScoredEntity {
                 uri: Iri::parse("http://example.com/a".to_string()).expect("valid test iri"),
                 label: "A".into(),
@@ -278,7 +278,7 @@ mod tests {
                 importance: 0.5,
             },
         ];
-        items.sort_by(|a, b| b.connectivity.cmp(&a.connectivity));
+        items.sort_by_key(|item| std::cmp::Reverse(item.connectivity));
         assert_eq!(items[0].uri.as_str(), "http://example.com/b");
         assert_eq!(items[1].uri.as_str(), "http://example.com/c");
         assert_eq!(items[2].uri.as_str(), "http://example.com/a");

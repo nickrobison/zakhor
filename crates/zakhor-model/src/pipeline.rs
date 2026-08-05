@@ -636,7 +636,7 @@ mod tests {
 
     #[test]
     fn test_ingestion_error_source_chain() {
-        let inner = std::io::Error::new(std::io::ErrorKind::Other, "disk failure");
+        let inner = std::io::Error::other("disk failure");
         let err = IngestionError::Persist(
             "SPARQL update failed".into(),
             "persist",

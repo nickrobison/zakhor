@@ -560,7 +560,7 @@ mod tests {
 
     #[test]
     fn test_extraction_error_source_chain() {
-        let inner = std::io::Error::new(std::io::ErrorKind::Other, "io failure");
+        let inner = std::io::Error::other("io failure");
         let err = ExtractionError::ModelLoad(
             "ONNX load failed".into(),
             "model_load",

@@ -4,8 +4,6 @@
 //! historical `zakhor_model::ingestion` path for compatibility.
 
 pub use crate::errors::IngestionError;
-pub use crate::ingest::*;
-pub use crate::ingest_async::*;
 pub use crate::pipeline::{
     EntityRef, IngestResult, IngestionPipeline, Relation, StoreObservationArgs,
 };
