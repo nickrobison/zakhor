@@ -45,12 +45,19 @@ jobs:
         run: cargo test --workspace 2>&1 | tee test-output.log
       - name: Verify tests actually ran
         run: |
+          echo "=== test-output.log ==="
+          ls -la test-output.log 2>&1 || echo "FILE MISSING"
+          head -20 test-output.log 2>&1 || true
+          echo "=== grep debug ==="
+          grep -ac "test result:" test-output.log || true
+          wc -l test-output.log 2>&1
+          COUNT=$(grep -ac "test result:" test-output.log || true)
+          echo "COUNT=$COUNT"
           if [ ! -s test-output.log ]; then
             echo "::error::test-output.log is empty or missing — no test output captured"
             exit 1
           fi
-          COUNT=$(grep -ac "test result:" test-output.log || true)
-          if [ "$COUNT" -eq 0 ]; then
+          if [ "$COUNT" -lt 1 ]; then
             echo "::error::Zero test result lines — check for silent skip regressions"
             exit 1
           fi
