@@ -78,7 +78,7 @@ impl MemoryHandler {
         let extraction_init: Arc<OnceCell<Result<Arc<ExtractionPipeline>, String>>> =
             Arc::new(OnceCell::new());
         let extraction_bg = extraction_init.clone();
-        tokio::spawn(async move {
+        tokio::task::spawn_blocking(move || {
             tracing::info!("Starting extraction model download from HF in background");
             let result = match ExtractionPipeline::new_with_setup(extraction_cfg, &model_dir) {
                 Ok(pipeline) => {
@@ -105,21 +105,10 @@ impl MemoryHandler {
     }
 
     pub async fn ensure_extraction(&self) -> Result<Arc<ExtractionPipeline>, String> {
-        tokio::time::timeout(
-            std::time::Duration::from_secs(180),
-            self._wait_for_extraction(),
-        )
-        .await
-        .map_err(|_| "Extraction pipeline not ready within 180s timeout".to_string())?
-    }
-
-    async fn _wait_for_extraction(&self) -> Result<Arc<ExtractionPipeline>, String> {
-        loop {
-            if let Some(result) = self.extraction_init.get() {
-                return result.clone();
-            }
-            tokio::task::yield_now().await;
+        if let Some(result) = self.extraction_init.get() {
+            return result.clone();
         }
+        Err("Extraction model not initialized, see logs".to_string())
     }
 
     pub fn api_state(&self) -> crate::api::ApiState {
