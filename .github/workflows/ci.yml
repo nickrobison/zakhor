@@ -60,9 +60,12 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 9
-      - working-directory: ./ui
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run lint
+      - name: Install frontend deps
+        working-directory: ./ui
+        run: pnpm install --frozen-lockfile
+      - name: Run lint
+        working-directory: ./ui
+        run: pnpm run lint
 
   frontend-typecheck:
     runs-on: ubuntu-latest
@@ -76,9 +79,12 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 9
-      - working-directory: ./ui
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run check
+      - name: Install frontend deps
+        working-directory: ./ui
+        run: pnpm install --frozen-lockfile
+      - name: Run typecheck
+        working-directory: ./ui
+        run: pnpm run check
 
   # ── Python integration tests ─────────────────────────────────────
   python-test:
