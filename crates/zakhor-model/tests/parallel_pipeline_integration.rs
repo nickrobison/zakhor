@@ -1,13 +1,9 @@
 //! Integration tests for the parallel extraction + ingestion pipeline.
 //!
 //! These tests load a real ONNX model from disk and optionally connect to a
-//! Tracker SPARQL database.  Tests that require SPARQL skip gracefully if
-//! the Tracker runtime is not available.
-//!
-//! Feature-gated behind `gliner-integration` — like extraction_integration.rs,
-//! tests are silently skipped when the model file is missing.
-
-#![cfg(feature = "gliner-integration")]
+//! Tracker SPARQL database.  Tests that require the model are marked with
+//! `#[ignore]` so they are skipped by default and only run when explicitly
+//! requested via `cargo test -- --ignored`.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -50,10 +46,10 @@ fn load_config() -> Option<ExtractionConfig> {
 
 /// Try to initialise a temporary in-process Tracker SPARQL database.
 ///
-/// Returns `None` when the Tracker runtime library is not available (e.g. not
+/// Returns `Err` when the Tracker runtime library is not available (e.g. not
 /// installed or GLib initialisation fails), causing the calling test to skip
 /// gracefully rather than fail.
-fn try_sparql_connection() -> Option<tracker::SparqlConnection> {
+fn try_sparql_connection() -> Result<tracker::SparqlConnection, String> {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -61,18 +57,12 @@ fn try_sparql_connection() -> Option<tracker::SparqlConnection> {
     let tmp_dir = std::env::temp_dir().join(format!("zakhor-integration-{timestamp}"));
 
     // `init_db` panics when the Tracker C library is missing or GLib
-    // resources are unavailable — catch that and treat as "not available".
+    // resources are unavailable — catch that and convert to a Result.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         zakhor_storage::tracker_db::init_db(tmp_dir.to_str().expect("temp path is valid UTF-8"))
     }));
 
-    match result {
-        Ok(conn) => Some(conn),
-        Err(_) => {
-            eprintln!("skipping SPARQL-dependent test: Tracker runtime not available");
-            None
-        }
-    }
+    result.map_err(|_| "Tracker runtime not available".to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -80,6 +70,7 @@ fn try_sparql_connection() -> Option<tracker::SparqlConnection> {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[ignore = "requires GLiNER model at /models/gliner-relex/model.onnx"]
 async fn test_extract_entities_and_relations_parallel() {
     // Verify that `extract_entities_and_relations` returns both entities and
     // relations from a single NER pass for a sentence that contains known
@@ -134,6 +125,7 @@ async fn test_extract_entities_and_relations_parallel() {
 }
 
 #[tokio::test]
+#[ignore = "requires GLiNER model at /models/gliner-relex/model.onnx"]
 async fn test_extract_entities_and_relations_single_ner_pass() {
     // Smoke test: `extract_entities_and_relations` returns results for a
     // short sentence — lighter-weight version of the parallel test above.
@@ -167,6 +159,7 @@ async fn test_extract_entities_and_relations_single_ner_pass() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[ignore = "requires GLiNER model at /models/gliner-relex/model.onnx"]
 async fn test_async_ingestion_pipeline_functional() {
     // Full pipeline integration test:
     // 1. Load ONNX model
@@ -180,8 +173,11 @@ async fn test_async_ingestion_pipeline_functional() {
     };
 
     let conn = match try_sparql_connection() {
-        Some(c) => Arc::new(c),
-        None => return,
+        Ok(c) => Arc::new(c),
+        Err(e) => {
+            eprintln!("skipping SPARQL-dependent test: {e}");
+            return;
+        }
     };
 
     let extraction = ExtractionPipeline::new(config);
@@ -238,6 +234,7 @@ async fn test_async_ingestion_pipeline_functional() {
 }
 
 #[tokio::test]
+#[ignore = "requires GLiNER model at /models/gliner-relex/model.onnx"]
 async fn test_ingest_async_with_empty_text() {
     // Verify that extract_and_ingest_async returns a validation error when the
     // text is empty — validation is Stage 1, before any SPARQL operation.
@@ -247,8 +244,11 @@ async fn test_ingest_async_with_empty_text() {
     };
 
     let conn = match try_sparql_connection() {
-        Some(c) => Arc::new(c),
-        None => return,
+        Ok(c) => Arc::new(c),
+        Err(e) => {
+            eprintln!("skipping SPARQL-dependent test: {e}");
+            return;
+        }
     };
 
     let extraction = ExtractionPipeline::new(config);
@@ -277,6 +277,7 @@ async fn test_ingest_async_with_empty_text() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[ignore = "requires GLiNER model at /models/gliner-relex/model.onnx"]
 async fn test_correlation_id_in_trace_logs() {
     // Verify that extract_entities_and_relations propagates a correlation_id
     // through the tracing layer's #[tracing::instrument] span field.
