@@ -33,33 +33,26 @@ jobs:
   backend-test:
     runs-on: ubuntu-latest
     env:
-      CARGO_TERM_COLOR: never
       FASTEMBED_CACHE_DIR: ${{ github.workspace }}/.fastembed_cache
       FASTEMBED_MODEL_CACHE_KEY: bge-small-en-v1.5
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libglib2.0-dev libtracker-sparql-3.0-dev
       - name: Run backend tests
         env:
           CARGO_TERM_COLOR: never
         run: cargo test --workspace 2>&1 | tee test-output.log
       - name: Verify tests actually ran
         run: |
-          echo "file exists: $([ -f test-output.log ] && echo yes || echo no)"
-          echo "file size: $(wc -c < test-output.log 2>/dev/null || echo 0)"
-          echo "line count: $(wc -l < test-output.log 2>/dev/null || echo 0)"
-          echo "--- first 5 lines ---"
-          head -5 test-output.log 2>/dev/null || true
-          echo "--- grep for 'test result' ---"
-          grep -c "test result:" test-output.log 2>&1 || echo "grep returned nonzero"
-          echo "--- grep for 'test ' at line start ---"
-          grep -c "^test " test-output.log 2>&1 || echo "grep returned nonzero"
-          COUNT=$(grep -c "test result:" test-output.log 2>/dev/null || echo 0)
-          echo "COUNT=$COUNT"
-          if [ "$COUNT" -lt 1 ]; then
+          COUNT=$(grep -c "^test " test-output.log 2>/dev/null || true)
+          echo "Found $COUNT test lines"
+          if [ -z "$COUNT" ] || [ "$COUNT" -lt 1 ]; then
             echo "::error::Zero tests ran — check for silent skip regressions"
             exit 1
-          fi
           fi
 
   # ── Frontend ─────────────────────────────────────────────────────
