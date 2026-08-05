@@ -49,7 +49,14 @@ jobs:
           key: ${{ runner.os }}-fastembed-${{ env.FASTEMBED_MODEL_CACHE_KEY }}
           restore-keys: |
             ${{ runner.os }}-fastembed-
-      - run: cargo test
+      - name: Run tests with count guard
+        run: |
+          cargo test --workspace 2>&1 | tee test-output.log
+          COUNT=$(grep -c "^test " test-output.log)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::Zero tests ran"
+            exit 1
+          fi
 
   # ── Frontend ─────────────────────────────────────────────────────
   frontend-lint:
