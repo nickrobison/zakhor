@@ -190,8 +190,8 @@ async def zakhor_server(tmp_path: Path) -> AsyncIterator[str]:
         "--ephemeral",
         f"--db-path={db_path}",
         env=env,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
     )
 
     # Wait for server to be ready
@@ -230,15 +230,6 @@ async def zakhor_server(tmp_path: Path) -> AsyncIterator[str]:
                     proc.kill()
                     await asyncio.wait_for(proc.wait(), timeout=2)
                 except (asyncio.TimeoutError, ProcessLookupError):
-                    pass
-
-        # Read and discard remaining stdout/stderr
-        for stream_name in ("stdout", "stderr"):
-            stream = getattr(proc, stream_name)
-            if stream and not stream.at_eof():
-                try:
-                    await asyncio.wait_for(stream.read(), timeout=1)
-                except (asyncio.TimeoutError, OSError):
                     pass
 
         logger.info("zakhor server (pid=%d) terminated", proc.pid)
@@ -291,4 +282,11 @@ async def mcp_session(zakhor_server: str) -> AsyncIterator[ClientSession]:
         yield session_holder[0]
     finally:
         test_done.set()
-        await task
+        try:
+            await asyncio.wait_for(task, timeout=10)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            task.cancel()
+            try:
+                await asyncio.wait_for(task, timeout=2)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass

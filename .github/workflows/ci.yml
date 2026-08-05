@@ -11,7 +11,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  TRACKER_ENDPOINT: http://localhost:9999
 
 jobs:
   # ── Backend ──────────────────────────────────────────────────────
@@ -117,9 +116,13 @@ jobs:
 
       - name: Start tinysparql endpoint
         run: |
-          tinysparql endpoint --port=7200 &
+          tinysparql endpoint --ontology=nepomuk --http-port=7200 --loopback &
           sleep 3
-          echo "tinysparql ready on port 7200"
+          if curl -sf http://localhost:7200/sparql/ >/dev/null 2>&1; then
+            echo "tinysparql endpoint is up on port 7200"
+          else
+            echo "::warning::tinysparql endpoint did not start — SPARQL tests will be skipped"
+          fi
 
       - uses: actions/setup-node@v4
         with:
