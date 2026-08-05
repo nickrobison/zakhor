@@ -302,12 +302,12 @@ async def test_prov_was_derived_from(mcp_session: ClientSession) -> None:
                 "session_id": "test-session",
             },
         )
-        pytest.skip(
-            "prov:wasDerivedFrom is supported by the decision model"
+        pytest.xfail(
+            reason="prov:wasDerivedFrom is supported by the decision model"
             " but not exposed via record_decision MCP tool"
         )
     except McpError:
-        pytest.skip("No admin tool available to test arbitrary relations")
+        pytest.xfail(reason="No admin tool available to test arbitrary relations")
 
 
 @pytest.mark.asyncio
@@ -330,12 +330,12 @@ async def test_prov_was_influenced_by(mcp_session: ClientSession) -> None:
                 "session_id": "test-session",
             },
         )
-        pytest.skip(
-            "prov:wasInfluencedBy is a standard PROV property"
+        pytest.xfail(
+            reason="prov:wasInfluencedBy is a standard PROV property"
             " not yet used by any zakhor ingestion path"
         )
     except McpError:
-        pytest.skip("No admin tool available to test arbitrary relations")
+        pytest.xfail(reason="No admin tool available to test arbitrary relations")
 
 
 # ===================================================================
@@ -393,7 +393,7 @@ def _sparql_available() -> bool:
     return bool(os.environ.get("ZAKHOR_SPARQL_ENDPOINT"))
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -435,10 +435,12 @@ async def test_sparql_observation_text_predicate(
             f"Expected '{test_text}' in SPARQL result, got: '{text_val}'"
         )
     except Exception as exc:
-        pytest.skip(f"SPARQL query failed (endpoint may not be available): {exc}")
+        pytest.xfail(
+            reason=f"SPARQL query failed (endpoint may not be available): {exc}"
+        )
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -478,10 +480,12 @@ async def test_sparql_decision_status_predicate(
         status_val = bindings[0].get("status", {}).get("value", "")
         assert "active" in status_val, f"Expected 'active' status, got: '{status_val}'"
     except Exception as exc:
-        pytest.skip(f"SPARQL query failed (endpoint may not be available): {exc}")
+        pytest.xfail(
+            reason=f"SPARQL query failed (endpoint may not be available): {exc}"
+        )
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -516,4 +520,6 @@ async def test_sparql_entity_type_predicate(
             f"SPARQL ASK failed: entity {ENTITY_URI} should be type zakhor:Entity"
         )
     except Exception as exc:
-        pytest.skip(f"SPARQL query failed (endpoint may not be available): {exc}")
+        pytest.xfail(
+            reason=f"SPARQL query failed (endpoint may not be available): {exc}"
+        )

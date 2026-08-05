@@ -346,9 +346,7 @@ async def test_search_hybrid(mcp_session: ClientSession) -> None:
         or "error" in lowered_rebuild_text
         or "disabled" in lowered_rebuild_text
         or "not available" in lowered_rebuild_text
-    ), (
-        f"Expected rebuild status message, got: {rebuild_text}"
-    )
+    ), f"Expected rebuild status message, got: {rebuild_text}"
 
     # Search by keyword
     search_result = await mcp_session.call_tool(
@@ -360,7 +358,7 @@ async def test_search_hybrid(mcp_session: ClientSession) -> None:
     # If indexes are available, we should get results.
     # If not available, we should get a warning.
     if search_data.get("warning"):
-        pytest.skip(f"Search indexes not available: {search_data['warning']}")
+        pytest.xfail(reason=f"Search indexes not available: {search_data['warning']}")
 
     assert "results" in search_data, f"Expected results field, got: {search_data}"
     # At minimum, the response structure is correct

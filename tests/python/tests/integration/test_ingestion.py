@@ -733,7 +733,7 @@ async def test_observation_has_plain_text_content(
 # ===================================================================
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -775,10 +775,12 @@ async def test_sparql_observation_exists(
             f"Expected '{test_text}' in SPARQL result, got: '{text_val}'"
         )
     except Exception as exc:
-        pytest.skip(f"SPARQL query failed (endpoint may not be available): {exc}")
+        pytest.xfail(
+            reason=f"SPARQL query failed (endpoint may not be available): {exc}"
+        )
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -813,10 +815,12 @@ async def test_sparql_entity_type(
             f"SPARQL ASK failed: {ENTITY_URI} should be rdf:type zakhor:Entity"
         )
     except Exception as exc:
-        pytest.skip(f"SPARQL query failed (endpoint may not be available): {exc}")
+        pytest.xfail(
+            reason=f"SPARQL query failed (endpoint may not be available): {exc}"
+        )
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -856,10 +860,12 @@ async def test_sparql_decision_status(
         status_val = bindings[0].get("status", {}).get("value", "")
         assert "active" in status_val, f"Expected 'active' status, got: '{status_val}'"
     except Exception as exc:
-        pytest.skip(f"SPARQL query failed (endpoint may not be available): {exc}")
+        pytest.xfail(
+            reason=f"SPARQL query failed (endpoint may not be available): {exc}"
+        )
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -904,10 +910,12 @@ async def test_sparql_entity_resolution_dedup(
             logger.info("Entity type triple count for %s: %d", entity_uri, count_val)
             assert count_val >= 1, f"Expected at least 1 type triple, got {count_val}"
     except Exception as exc:
-        pytest.skip(f"SPARQL query failed (endpoint may not be available): {exc}")
+        pytest.xfail(
+            reason=f"SPARQL query failed (endpoint may not be available): {exc}"
+        )
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -957,4 +965,6 @@ async def test_sparql_relation_idempotency(
             # At minimum the triple must exist
             assert count_val >= 1, f"Expected at least 1 triple, got {count_val}"
     except Exception as exc:
-        pytest.skip(f"SPARQL query failed (endpoint may not be available): {exc}")
+        pytest.xfail(
+            reason=f"SPARQL query failed (endpoint may not be available): {exc}"
+        )
