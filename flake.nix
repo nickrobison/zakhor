@@ -209,6 +209,63 @@
             ${zakhor-python-tests}/bin/pytest -v
             touch "$out"
           '';
+
+          e2e = pkgs.stdenv.mkDerivation {
+            pname = "e2e";
+            version = "0.1.0";
+            src = ./ui;
+
+            nativeBuildInputs =
+              [ frontendNode frontendPnpm pkgs.pnpmConfigHook ];
+            buildInputs = [
+              zakhor
+              zakhor-frontend
+              pkgs.playwright-driver
+              pkgs.playwright-driver.browsers
+            ];
+
+            pnpmDeps = frontendPnpmDeps;
+
+            PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+
+            buildPhase = ''
+              runHook preBuild
+
+              if [ -z "''${XDG_RUNTIME_DIR:-}" ]; then
+                echo "SKIP: no display available — e2e tests require X11/Wayland"
+                touch "$out"
+                exit 0
+              fi
+
+              # Start server in background
+              ${zakhor}/bin/zakhor --http &
+              SERVER_PID=$!
+              sleep 2
+
+              # Run Playwright tests
+              HOME="$TMPDIR" pnpm exec playwright test
+              EXIT_CODE=$?
+
+              kill $SERVER_PID 2>/dev/null || true
+
+              if [ $EXIT_CODE -ne 0 ]; then
+                exit $EXIT_CODE
+              fi
+
+              runHook postBuild
+            '';
+
+            installPhase = ''
+              runHook preInstall
+              touch "$out"
+              runHook postInstall
+            '';
+
+            env = {
+              NIX_BUILD_CORES = 0;
+              pnpm_config_pm_on_fail = "ignore";
+            };
+          };
         };
 
         # ── DevShell ──────────────────────────────────

@@ -26,13 +26,21 @@ pub(crate) fn tool_router() -> ToolRouter<MemoryHandler> {
         + MemoryHandler::tool_router_admin()
 }
 
+/// RRF k=60 fusion: run lexical + semantic search, fuse by reciprocal rank
+#[allow(dead_code)]
 pub fn hybrid_search(mgr: &IndexSyncManager, query: &str, limit: usize) -> Vec<ScoredDoc> {
     let overfetch = limit.max(20) * 2;
+
+    // Lexical search
     let lexical_results = mgr.lexical.search(query, overfetch).unwrap_or_default();
+    // Semantic search (lazy-init safe)
     let semantic_results = mgr.semantic_search(query, overfetch);
+
+    // RRF fusion with k=60
     let k = 60.0;
     let mut scores: HashMap<String, f64> = HashMap::new();
     let mut texts: HashMap<String, String> = HashMap::new();
+
     for (rank, doc) in lexical_results.iter().enumerate() {
         *scores.entry(doc.id.clone()).or_insert(0.0) += 1.0 / (k + rank as f64);
         texts
@@ -61,6 +69,7 @@ pub fn hybrid_search(mgr: &IndexSyncManager, query: &str, limit: usize) -> Vec<S
     sorted
 }
 
+#[allow(dead_code)]
 pub fn build_entity_query(pattern: &str, limit: u32) -> String {
     let safe_pattern = pattern.replace('\'', "\\'");
     format!(
@@ -71,6 +80,7 @@ pub fn build_entity_query(pattern: &str, limit: u32) -> String {
     )
 }
 
+#[allow(dead_code)]
 pub fn build_traverse_query(start_id: &str, depth: u32, edge_types: &[String]) -> String {
     let safe_start = start_id.replace(['>', '<'], "");
     let filter_clause = if edge_types.is_empty() {
@@ -111,6 +121,7 @@ pub fn build_traverse_query(start_id: &str, depth: u32, edge_types: &[String]) -
     )
 }
 
+#[allow(dead_code)]
 fn hop_chain_forward(start: &str, depth: u32) -> String {
     if depth == 1 {
         return format!("<{start}> ?p ?o .");
@@ -125,6 +136,7 @@ fn hop_chain_forward(start: &str, depth: u32) -> String {
     parts.join(" ")
 }
 
+#[allow(dead_code)]
 fn hop_chain_backward(start: &str, depth: u32) -> String {
     if depth == 1 {
         return format!("?s ?p <{start}> .");
@@ -139,6 +151,7 @@ fn hop_chain_backward(start: &str, depth: u32) -> String {
     parts.join(" ")
 }
 
+#[allow(dead_code)]
 pub fn build_decision_insert(
     decision_uri: &str,
     context: &str,

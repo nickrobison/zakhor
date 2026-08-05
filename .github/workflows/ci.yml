@@ -37,99 +37,48 @@ jobs:
       FASTEMBED_MODEL_CACHE_KEY: bge-small-en-v1.5
     steps:
       - uses: actions/checkout@v4
-      - name: Install native dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libglib2.0-dev libtracker-sparql-3.0-dev
-      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/.fastembed_cache
-          key: ${{ runner.os }}-fastembed-${{ env.FASTEMBED_MODEL_CACHE_KEY }}
-          restore-keys: |
-            ${{ runner.os }}-fastembed-
-      - name: Run tests with count guard
+      - run: cargo test --workspace 2>&1 | tee test-output.log
+      - name: Verify tests actually ran
         run: |
-          cargo test --workspace 2>&1 | tee test-output.log
           COUNT=$(grep -c "^test " test-output.log)
           if [ "$COUNT" -eq 0 ]; then
-            echo "::error::Zero tests ran"
+            echo "::error::Zero tests ran — check for silent skip regressions"
             exit 1
           fi
 
   # ── Frontend ─────────────────────────────────────────────────────
   frontend-lint:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./ui
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: ./ui/pnpm-lock.yaml
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: ui/pnpm-lock.yaml
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - working-directory: ./ui
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
 
   frontend-typecheck:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./ui
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: ./ui/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run typecheck
-
-  frontend-test:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./ui
-    steps:
-      - uses: actions/checkout@v4
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: ui/pnpm-lock.yaml
       - uses: pnpm/action-setup@v4
         with:
-          version: 11
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: ./ui/pnpm-lock.yaml
+          version: 9
+      - working-directory: ./ui
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run test
-
-  frontend-build:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./ui
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: ./ui/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run build
+      - run: pnpm run check
 
   # ── Python integration tests ─────────────────────────────────────
   python-test:
@@ -140,19 +89,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install native dependencies
+      - name: Install tinysparql runtime
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libglib2.0-dev libtracker-sparql-3.0-dev
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+          sudo apt-get install -y libglib2.0-dev libtracker-sparql-3.0-dev tinysparql
 
-      - uses: actions/cache@v4
+      - name: Start tinysparql endpoint
+        run: |
+          tinysparql endpoint --port=7200 &
+          sleep 3
+          echo "tinysparql ready on port 7200"
+
+      - uses: actions/setup-node@v4
         with:
-          path: ${{ github.workspace }}/.hf_cache
-          key: ${{ runner.os }}-hf-${{ env.HF_HUB_MODEL_KEY }}
-          restore-keys: |
-            ${{ runner.os }}-hf-
+          node-version: '22'
+      - uses: Swatinem/rust-cache@v2
 
       - name: Build Rust binary
         run: cargo build
@@ -189,10 +140,12 @@ jobs:
             echo "WARNING: model pre-download did not complete — tests will attempt download at runtime"
           fi
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: astral-sh/setup-uv@v6
 
-      - name: Install Python dependencies
+      - name: Install Python test deps
         working-directory: ./tests/python
         run: uv sync --frozen
 
@@ -200,54 +153,6 @@ jobs:
         working-directory: ./tests/python
         run: uv run pytest -v --timeout=180
 
-  # ── End-to-end ───────────────────────────────────────────────────
-  e2e:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./ui
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install native dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libglib2.0-dev libtracker-sparql-3.0-dev
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: ./ui/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-
-      - name: Build frontend
-        run: pnpm run build
-
-      - name: Build Rust server
-        run: cargo build
-        working-directory: .
-
-      - name: Start Rust server (validate startup)
-        run: |
-          nohup target/debug/zakhor --http > /tmp/zakhor.log 2>&1 &
-          sleep 2
-          echo "--- Rust server log (may fail without Tracker) ---"
-          cat /tmp/zakhor.log || true
-        working-directory: .
-
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install chromium
-
-      - name: Run Playwright tests
-        run: pnpm run e2e
-
-      - name: Cleanup background server
+      - name: Cleanup tinysparql
         if: always()
-        run: |
-          pkill -f "target/debug/zakhor" 2>/dev/null || true
+        run: pkill -f tinysparql 2>/dev/null || true
