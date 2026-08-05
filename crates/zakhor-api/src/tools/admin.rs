@@ -4,7 +4,7 @@ use std::time::Instant;
 use tracing::info_span;
 
 use crate::args::{AdminInjectToolCallArgs, AdminInjectToolCallResponse, RebuildIndexesArgs};
-use crate::handler::{args_hash, MemoryHandler};
+use crate::handler::{MemoryHandler, args_hash};
 
 #[tool_router(router = tool_router_admin, vis = "pub(crate)")]
 impl MemoryHandler {

@@ -1,7 +1,7 @@
 use oxrdf::{NamedNode, Triple};
 
 use super::escape::{escape_literal, format_iri};
-use super::prefix::{prefix_declarations, Prefix};
+use super::prefix::{Prefix, prefix_declarations};
 
 /// Typed SPARQL query builder.
 ///

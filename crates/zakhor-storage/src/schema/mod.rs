@@ -1,13 +1,13 @@
 #![allow(dead_code)]
 
-mod prefixes;
-mod ontology;
 mod migrations;
+mod ontology;
+mod prefixes;
 
 #[cfg(test)]
 mod tests;
 
 pub use crate::sparql::SparqlBuilder;
-pub use prefixes::*;
-pub use ontology::*;
 pub use migrations::*;
+pub use ontology::*;
+pub use prefixes::*;

@@ -1,5 +1,5 @@
-mod types;
 mod defaults;
+mod types;
 
 #[cfg(test)]
 mod tests;

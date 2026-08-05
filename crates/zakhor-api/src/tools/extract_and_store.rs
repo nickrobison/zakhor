@@ -6,7 +6,7 @@ use tracing::info_span;
 use zakhor_model::pipeline::IngestionPipeline;
 
 use crate::args::{ExtractAndStoreArgs, ExtractAndStoreResponse};
-use crate::handler::{args_hash, MemoryHandler};
+use crate::handler::{MemoryHandler, args_hash};
 
 #[tool_router(router = tool_router_extract_and_store, vis = "pub(crate)")]
 impl MemoryHandler {

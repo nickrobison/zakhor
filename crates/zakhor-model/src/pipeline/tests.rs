@@ -149,14 +149,10 @@ fn test_build_observation_with_relations() {
     };
     let sparql = build_observation_sparql(&args, "urn:uuid:rel-test");
     assert!(
-        sparql.contains(
-            "<http://example.com/s1> <http://example.com/p1> <http://example.com/o1>"
-        )
+        sparql.contains("<http://example.com/s1> <http://example.com/p1> <http://example.com/o1>")
     );
     assert!(
-        sparql.contains(
-            "<http://example.com/s2> <http://example.com/p2> <http://example.com/o2>"
-        )
+        sparql.contains("<http://example.com/s2> <http://example.com/p2> <http://example.com/o2>")
     );
 }
 
@@ -447,8 +443,7 @@ fn test_ingestion_error_stage_names_all() {
     {
         stages.push(("Resolution", stage));
     }
-    if let IngestionError::Build(_, stage, _) = IngestionError::Build("".into(), "build", None)
-    {
+    if let IngestionError::Build(_, stage, _) = IngestionError::Build("".into(), "build", None) {
         stages.push(("Build", stage));
     }
     if let IngestionError::Persist(_, stage, _) =

@@ -6,7 +6,7 @@ use tracing::info_span;
 use zakhor_model::pipeline::{IngestionPipeline, StoreObservationArgs};
 
 use crate::args::StoreObservationResponse;
-use crate::handler::{args_hash, MemoryHandler};
+use crate::handler::{MemoryHandler, args_hash};
 
 #[tool_router(router = tool_router_store_observation, vis = "pub(crate)")]
 impl MemoryHandler {

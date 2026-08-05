@@ -5,7 +5,7 @@ use tracing::info_span;
 use zakhor_model::decision::{CreateDecisionArgs, DecisionModel};
 
 use crate::args::{RecordDecisionArgs, RecordDecisionResponse};
-use crate::handler::{args_hash, MemoryHandler};
+use crate::handler::{MemoryHandler, args_hash};
 
 #[tool_router(router = tool_router_record_decision, vis = "pub(crate)")]
 impl MemoryHandler {

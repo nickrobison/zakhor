@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-mod iri;
 mod constants;
+mod iri;
 
 #[cfg(test)]
 mod tests;
 
-pub use iri::*;
 pub use constants::*;
+pub use iri::*;

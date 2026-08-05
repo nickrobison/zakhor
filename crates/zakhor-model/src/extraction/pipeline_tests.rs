@@ -1,5 +1,5 @@
-use super::pipeline::ExtractionPipeline;
 use super::config::ExtractionConfig;
+use super::pipeline::ExtractionPipeline;
 
 #[test]
 fn test_pipeline_new_does_not_load_model() {

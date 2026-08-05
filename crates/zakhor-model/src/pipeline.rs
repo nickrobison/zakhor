@@ -135,7 +135,10 @@ impl IngestionPipeline {
 
     /// Stage 2: Resolve entity labels using the entity resolver.
     #[tracing::instrument(skip_all)]
-    pub(crate) fn resolve_entities(&self, args: &mut StoreObservationArgs) -> Result<(), IngestionError> {
+    pub(crate) fn resolve_entities(
+        &self,
+        args: &mut StoreObservationArgs,
+    ) -> Result<(), IngestionError> {
         let resolver = self.entity_resolver.as_ref().ok_or_else(|| {
             IngestionError::Resolution(
                 "entity resolver not configured".to_string(),
@@ -169,7 +172,11 @@ impl IngestionPipeline {
 
     /// Stage 4: Persist to SPARQL triplestore.
     #[tracing::instrument(skip_all)]
-    pub(crate) fn persist(&self, conn: &SparqlConnection, sparql: &str) -> Result<(), IngestionError> {
+    pub(crate) fn persist(
+        &self,
+        conn: &SparqlConnection,
+        sparql: &str,
+    ) -> Result<(), IngestionError> {
         conn.update(sparql, None::<&Cancellable>).map_err(|e| {
             IngestionError::Persist(
                 format!("SPARQL update failed: {}", e),
@@ -235,7 +242,8 @@ impl IngestionPipeline {
     ) -> usize {
         let triple_count = provenance_triples.len();
         let uuid_part = uuid_urn.strip_prefix("urn:uuid:").unwrap_or(uuid_urn);
-        self.provenance.add_observation(uuid_part, provenance_triples);
+        self.provenance
+            .add_observation(uuid_part, provenance_triples);
         tracing::debug!(
             observation_uri = %uuid_urn,
             triple_count,

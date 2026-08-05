@@ -5,7 +5,7 @@ use tracing::info_span;
 use tracker::prelude::SparqlCursorExtManual;
 
 use crate::args::{EntityResult, QueryEntitiesArgs, QueryEntitiesResponse};
-use crate::handler::{args_hash, MemoryHandler};
+use crate::handler::{MemoryHandler, args_hash};
 
 #[tool_router(router = tool_router_query_entities, vis = "pub(crate)")]
 impl MemoryHandler {

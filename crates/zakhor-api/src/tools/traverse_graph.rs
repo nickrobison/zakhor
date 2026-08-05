@@ -6,7 +6,7 @@ use tracing::info_span;
 use tracker::prelude::SparqlCursorExtManual;
 
 use crate::args::{TraverseGraphArgs, TraverseGraphResponse, TripleResult};
-use crate::handler::{args_hash, is_resource_iri, query_depth1, MemoryHandler};
+use crate::handler::{MemoryHandler, args_hash, is_resource_iri, query_depth1};
 
 #[tool_router(router = tool_router_traverse_graph, vis = "pub(crate)")]
 impl MemoryHandler {
@@ -28,8 +28,11 @@ impl MemoryHandler {
 
         let result = (|| -> Result<Json<TraverseGraphResponse>, String> {
             if args.depth <= 1 {
-                let sparql =
-                    crate::tools::build_traverse_query(&args.start_id, args.depth, &args.edge_types);
+                let sparql = crate::tools::build_traverse_query(
+                    &args.start_id,
+                    args.depth,
+                    &args.edge_types,
+                );
                 match self.conn.query(&sparql, None::<&gio::Cancellable>) {
                     Ok(cursor) => {
                         let mut triples: Vec<TripleResult> = Vec::new();

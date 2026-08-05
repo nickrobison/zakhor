@@ -7,8 +7,8 @@ mod search_hybrid;
 mod store_observation;
 mod traverse_graph;
 
-use rmcp::handler::server::router::tool::ToolRouter;
 use oxrdf::Literal;
+use rmcp::handler::server::router::tool::ToolRouter;
 use std::collections::HashMap;
 use zakhor_search::{IndexSyncManager, ScoredDoc};
 use zakhor_storage::sparql::prefix_declarations;
@@ -35,11 +35,15 @@ pub fn hybrid_search(mgr: &IndexSyncManager, query: &str, limit: usize) -> Vec<S
     let mut texts: HashMap<String, String> = HashMap::new();
     for (rank, doc) in lexical_results.iter().enumerate() {
         *scores.entry(doc.id.clone()).or_insert(0.0) += 1.0 / (k + rank as f64);
-        texts.entry(doc.id.clone()).or_insert_with(|| doc.text.clone());
+        texts
+            .entry(doc.id.clone())
+            .or_insert_with(|| doc.text.clone());
     }
     for (rank, doc) in semantic_results.iter().enumerate() {
         *scores.entry(doc.id.clone()).or_insert(0.0) += 1.0 / (k + rank as f64);
-        texts.entry(doc.id.clone()).or_insert_with(|| doc.text.clone());
+        texts
+            .entry(doc.id.clone())
+            .or_insert_with(|| doc.text.clone());
     }
     let mut sorted: Vec<ScoredDoc> = scores
         .into_iter()
@@ -49,7 +53,9 @@ pub fn hybrid_search(mgr: &IndexSyncManager, query: &str, limit: usize) -> Vec<S
         })
         .collect();
     sorted.sort_by(|a, b| {
-        b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
     sorted.truncate(limit);
     sorted
@@ -81,12 +87,14 @@ pub fn build_traverse_query(start_id: &str, depth: u32, edge_types: &[String]) -
         let fwd = hop_chain_forward(&safe_start, d);
         patterns.push(format!(
             "  {{ SELECT ?s ?p ?o WHERE {{ {fwd} BIND(<{start}> AS ?s) }} }}",
-            fwd = fwd, start = safe_start
+            fwd = fwd,
+            start = safe_start
         ));
         let bwd = hop_chain_backward(&safe_start, d);
         patterns.push(format!(
             "  {{ SELECT ?s ?p ?o WHERE {{ {bwd} BIND(<{start}> AS ?o) }} }}",
-            bwd = bwd, start = safe_start
+            bwd = bwd,
+            start = safe_start
         ));
     }
     let depth_section = if patterns.is_empty() {
@@ -97,7 +105,9 @@ pub fn build_traverse_query(start_id: &str, depth: u32, edge_types: &[String]) -
     format!(
         "{prefixes}SELECT ?s ?p ?o WHERE {{\n  {{ ?s ?p ?o . FILTER(str(?s) = \"{start}\") . {filter} }}\n  UNION\n  {{ ?s ?p ?o . FILTER(str(?o) = \"{start}\") . {filter} }}{depth}\n}}",
         prefixes = prefix_declarations(),
-        start = safe_start, filter = filter_clause, depth = depth_section
+        start = safe_start,
+        filter = filter_clause,
+        depth = depth_section
     )
 }
 
@@ -130,8 +140,11 @@ fn hop_chain_backward(start: &str, depth: u32) -> String {
 }
 
 pub fn build_decision_insert(
-    decision_uri: &str, context: &str, decision: &str,
-    alternatives: &[String], rationale: &str,
+    decision_uri: &str,
+    context: &str,
+    decision: &str,
+    alternatives: &[String],
+    rationale: &str,
 ) -> String {
     let mut alternatives_triples = String::new();
     for alt in alternatives {
@@ -144,7 +157,8 @@ pub fn build_decision_insert(
     format!(
         "{}INSERT DATA {{\n  <{}> rdf:type zakhor:Decision .\n  <{}> zakhor:decisionContext {} .\n  <{}> zakhor:decisionOutcome {} .\n  <{}> zakhor:decisionRationale {} .\n{}}}\n",
         prefix_declarations(),
-        decision_uri, decision_uri,
+        decision_uri,
+        decision_uri,
         Literal::new_language_tagged_literal(context.to_string(), "en").unwrap(),
         decision_uri,
         Literal::new_language_tagged_literal(decision.to_string(), "en").unwrap(),

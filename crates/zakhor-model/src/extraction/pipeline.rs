@@ -2,8 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use tokio::task::spawn_blocking;
 
-use crate::pipeline::{EntityRef, Relation};
 use crate::model_setup;
+use crate::pipeline::{EntityRef, Relation};
 
 use super::config::ExtractionConfig;
 use super::errors::ExtractionError;
@@ -172,7 +172,7 @@ impl ExtractionPipeline {
     /// Returns a tuple of `(entities, relations)` where:
     /// - `entities` are the named entities extracted from `text`
     /// - `relations` are the relations between those entities
-#[tracing::instrument(skip(self), fields(correlation_id = %correlation_id))]
+    #[tracing::instrument(skip(self), fields(correlation_id = %correlation_id))]
     pub async fn extract_entities_and_relations(
         &self,
         text: &str,
@@ -286,7 +286,7 @@ impl ExtractionPipeline {
     /// `http://zakhor/ns/entity/{class}` and labels set to the extracted span text.
     ///
     /// The ONNX model is loaded lazily on the first call and cached thereafter.
-#[tracing::instrument(skip(self), fields(correlation_id = %correlation_id))]
+    #[tracing::instrument(skip(self), fields(correlation_id = %correlation_id))]
     pub async fn extract_entities(
         &self,
         text: &str,
@@ -311,7 +311,7 @@ impl ExtractionPipeline {
     /// that have resolved or modified entities before calling this method.
     ///
     /// The ONNX model is loaded lazily on the first call and cached thereafter.
-#[tracing::instrument(skip(self), fields(correlation_id = %correlation_id))]
+    #[tracing::instrument(skip(self), fields(correlation_id = %correlation_id))]
     pub async fn extract_relations(
         &self,
         text: &str,

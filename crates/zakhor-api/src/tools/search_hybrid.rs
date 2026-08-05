@@ -4,7 +4,7 @@ use std::time::Instant;
 use tracing::info_span;
 
 use crate::args::{SearchHybridArgs, SearchHybridResponse, SearchResult};
-use crate::handler::{args_hash, MemoryHandler};
+use crate::handler::{MemoryHandler, args_hash};
 
 #[tool_router(router = tool_router_search_hybrid, vis = "pub(crate)")]
 impl MemoryHandler {
@@ -26,7 +26,8 @@ impl MemoryHandler {
 
         let result = match self.sync_mgr {
             Some(ref sync_mgr) => {
-                let results = crate::tools::hybrid_search(sync_mgr, &args.query, args.limit as usize);
+                let results =
+                    crate::tools::hybrid_search(sync_mgr, &args.query, args.limit as usize);
                 let docs: Vec<SearchResult> = results
                     .into_iter()
                     .map(|d| SearchResult {
