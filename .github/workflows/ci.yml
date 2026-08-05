@@ -39,13 +39,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace 2>&1 | tee test-output.log
+      - name: Run backend tests
+        env:
+          CARGO_TERM_COLOR: never
+        run: cargo test --workspace 2>&1 | tee test-output.log
       - name: Verify tests actually ran
         run: |
-          COUNT=$(grep -c "^test " test-output.log)
-          if [ "$COUNT" -eq 0 ]; then
-            echo "::error::Zero tests ran — check for silent skip regressions"
+          if [ ! -s test-output.log ]; then
+            echo "::error::test-output.log is empty or missing — no test output captured"
             exit 1
+          fi
+          COUNT=$(grep -ac "test result:" test-output.log || true)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::Zero test result lines — check for silent skip regressions"
+            exit 1
+          fi
           fi
 
   # ── Frontend ─────────────────────────────────────────────────────
