@@ -21,7 +21,7 @@ use tracker::prelude::SparqlCursorExtManual;
 use zakhor_common::config::Config;
 use zakhor_model::decision::{CreateDecisionArgs, DecisionModel};
 use zakhor_model::extraction::{ExtractionConfig, ExtractionPipeline};
-use zakhor_model::ingestion::{IngestionPipeline, StoreObservationArgs};
+use zakhor_model::pipeline::{IngestionPipeline, StoreObservationArgs};
 use zakhor_search::IndexSyncManager;
 
 use crate::tool_capture;

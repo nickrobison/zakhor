@@ -35,7 +35,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use tokio::task::spawn_blocking;
 
-use crate::ingestion::{EntityRef, Relation};
+use crate::pipeline::{EntityRef, Relation};
 use crate::model_setup;
 
 // ---------------------------------------------------------------------------

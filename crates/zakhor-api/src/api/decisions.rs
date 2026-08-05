@@ -1,7 +1,7 @@
 use axum::{Json, extract::Path, extract::Query, extract::State};
 use serde::{Deserialize, Serialize};
 use tracker::prelude::SparqlCursorExtManual;
-use zakhor_model::ingestion::EntityRef;
+use zakhor_model::pipeline::EntityRef;
 
 use super::ApiState;
 use crate::api::error::{ApiError, ApiResult};

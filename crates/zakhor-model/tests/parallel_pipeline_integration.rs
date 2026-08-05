@@ -13,7 +13,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use zakhor_model::extraction::{ExtractionConfig, ExtractionPipeline};
-use zakhor_model::ingestion::IngestionPipeline;
+use zakhor_model::pipeline::IngestionPipeline;
 
 // ---------------------------------------------------------------------------
 // Constants
