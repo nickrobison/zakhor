@@ -33,6 +33,7 @@ jobs:
   backend-test:
     runs-on: ubuntu-latest
     env:
+      CARGO_TERM_COLOR: never
       FASTEMBED_CACHE_DIR: ${{ github.workspace }}/.fastembed_cache
       FASTEMBED_MODEL_CACHE_KEY: bge-small-en-v1.5
     steps:
@@ -41,8 +42,7 @@ jobs:
       - run: cargo test --workspace 2>&1 | tee test-output.log
       - name: Verify tests actually ran
         run: |
-          # Strip ANSI escape codes (CARGO_TERM_COLOR=always forces color)
-          COUNT=$(sed 's/\x1b\[[0-9;]*m//g' test-output.log | grep -c "^test " || true)
+          COUNT=$(grep -c "^test " test-output.log)
           if [ "$COUNT" -eq 0 ]; then
             echo "::error::Zero tests ran — check for silent skip regressions"
             exit 1
@@ -83,7 +83,7 @@ jobs:
           cache: 'pnpm'
           cache-dependency-path: ./ui/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run check
+      - run: pnpm run typecheck
 
   # ── Python integration tests ─────────────────────────────────────
   python-test:
