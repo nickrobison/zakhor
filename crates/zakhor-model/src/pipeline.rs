@@ -47,6 +47,17 @@ pub struct IngestResult {
     pub observation_uri: String,
     pub triple_count: usize,
 }
+
+/// Intermediate state after stages 1–3, shared by sync/async entry points.
+pub(crate) struct IngestPrepared {
+    pub uuid_urn: String,
+    pub sparql: String,
+    pub provenance_triples: Vec<(String, String, String)>,
+    /// Post-resolve text — needed by the async index-sync stage.
+    pub text: String,
+    /// Post-resolve entity URIs — needed by the async index-sync stage.
+    pub entity_uris: Vec<String>,
+}
 // ---------------------------------------------------------------------------
 // 5-Stage IngestionPipeline
 // ---------------------------------------------------------------------------
@@ -166,6 +177,71 @@ impl IngestionPipeline {
                 Some(Box::new(e)),
             )
         })
+    }
+
+    /// Stages 1–3: validate, resolve, build.
+    #[tracing::instrument(skip_all, fields(correlation_id = %correlation_id))]
+    pub(crate) fn prepare_ingest(
+        &mut self,
+        mut args: StoreObservationArgs,
+        correlation_id: &str,
+    ) -> Result<IngestPrepared, IngestionError> {
+        self.validate(&args)?;
+        tracing::debug!("Stage 1 [validate] passed");
+
+        if self.entity_resolver.is_some() {
+            let before = args.entities.len();
+            self.resolve_entities(&mut args)?;
+            tracing::trace!(
+                before = before,
+                after = args.entities.len(),
+                "Stage 2 [resolve] complete"
+            );
+        } else {
+            tracing::trace!("Stage 2 [resolve] skipped — no resolver configured");
+        }
+
+        let uuid_urn: String = tracker::functions::sparql_get_uuid_urn()
+            .ok_or_else(|| {
+                IngestionError::Build("Failed to generate UUID".to_string(), "build", None)
+            })?
+            .to_string();
+        let (sparql, provenance_triples) = self.build_triples(&args, &uuid_urn);
+        tracing::debug!(
+            observation_uri = %uuid_urn,
+            triple_count = provenance_triples.len(),
+            sparql_len = sparql.len(),
+            "Stage 3 [build] complete"
+        );
+
+        // Capture post-resolve data needed by the async index-sync stage.
+        let text = args.text.clone();
+        let entity_uris: Vec<String> = args.entities.iter().map(|e| e.uri.clone()).collect();
+
+        Ok(IngestPrepared {
+            uuid_urn,
+            sparql,
+            provenance_triples,
+            text,
+            entity_uris,
+        })
+    }
+
+    /// Stage 5: Track provenance in-memory. Returns the triple count.
+    pub(crate) fn track_provenance(
+        &mut self,
+        uuid_urn: &str,
+        provenance_triples: Vec<(String, String, String)>,
+    ) -> usize {
+        let triple_count = provenance_triples.len();
+        let uuid_part = uuid_urn.strip_prefix("urn:uuid:").unwrap_or(uuid_urn);
+        self.provenance.add_observation(uuid_part, provenance_triples);
+        tracing::debug!(
+            observation_uri = %uuid_urn,
+            triple_count,
+            "Stage 5 [track] complete"
+        );
+        triple_count
     }
 }
 

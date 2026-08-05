@@ -11,7 +11,6 @@ use tracker::prelude::SparqlConnectionExtManual;
 use crate::errors::IngestionError;
 use crate::extraction::ExtractionPipeline;
 use crate::pipeline::{IngestResult, IngestionPipeline, StoreObservationArgs};
-use zakhor_search::IndexSyncManager;
 
 impl IngestionPipeline {
     pub async fn ingest_async(
@@ -20,50 +19,18 @@ impl IngestionPipeline {
         args: StoreObservationArgs,
         correlation_id: &str,
     ) -> Result<IngestResult, IngestionError> {
-        // Stage 1: Validate
-        self.validate(&args)?;
-        tracing::debug!("Stage 1 [validate] passed");
-
-        // Stage 2: Resolve (mutate args in place if resolver is available)
-        let mut args = args;
-        if self.entity_resolver.is_some() {
-            let before = args.entities.len();
-            self.resolve_entities(&mut args)?;
-            tracing::trace!(
-                before = before,
-                after = args.entities.len(),
-                "Stage 2 [resolve] complete"
-            );
-        } else {
-            tracing::trace!("Stage 2 [resolve] skipped \u{2014} no resolver configured");
-        }
-
-        // Stage 3: Build
-        let uuid_urn: String = tracker::functions::sparql_get_uuid_urn()
-            .ok_or_else(|| {
-                IngestionError::Build("Failed to generate UUID".to_string(), "build", None)
-            })?
-            .to_string();
-        let (sparql, provenance_triples) = self.build_triples(&args, &uuid_urn);
-        tracing::debug!(
-            observation_uri = %uuid_urn,
-            triple_count = provenance_triples.len(),
-            sparql_len = sparql.len(),
-            "Stage 3 [build] complete"
-        );
-
-        // Extract data for index sync (after resolve stage may have mutated entities)
-        let text = args.text.clone();
-        let entity_uris: Vec<String> = args.entities.iter().map(|e| e.uri.clone()).collect();
+        let prepared = self.prepare_ingest(args, correlation_id)?;
 
         // Stage 4: Persist + Index Sync (concurrent via tokio::join!)
         let persist_conn = conn.clone();
         let sync_manager = self.sync_manager.clone();
-        let uuid_urn_for_sync = uuid_urn.clone();
+        let uuid_urn_for_sync = prepared.uuid_urn.clone();
+        let text = prepared.text.clone();
+        let entity_uris = prepared.entity_uris.clone();
 
         let persist_fut = tokio::task::spawn_blocking(move || {
             persist_conn
-                .update(&sparql, None::<&Cancellable>)
+                .update(&prepared.sparql, None::<&Cancellable>)
                 .map_err(|e| {
                     IngestionError::Persist(
                         format!("SPARQL update failed: {}", e),
@@ -118,21 +85,14 @@ impl IngestionPipeline {
         }
 
         // Stage 5: Track
-        let triple_count = provenance_triples.len();
-        let uuid_part = uuid_urn.strip_prefix("urn:uuid:").unwrap_or(&uuid_urn);
-        self.provenance
-            .add_observation(uuid_part, provenance_triples);
-        tracing::debug!(
-            observation_uri = %uuid_urn,
-            triple_count,
-            "Stage 5 [track] complete"
-        );
+        let triple_count = self.track_provenance(&prepared.uuid_urn, prepared.provenance_triples);
 
         Ok(IngestResult {
-            observation_uri: uuid_urn,
+            observation_uri: prepared.uuid_urn,
             triple_count,
         })
     }
+
     pub async fn extract_and_ingest_async(
         &mut self,
         conn: Arc<SparqlConnection>,
