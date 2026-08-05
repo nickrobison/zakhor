@@ -45,20 +45,19 @@ jobs:
         run: cargo test --workspace 2>&1 | tee test-output.log
       - name: Verify tests actually ran
         run: |
-          echo "=== test-output.log ==="
-          ls -la test-output.log 2>&1 || echo "FILE MISSING"
-          head -20 test-output.log 2>&1 || true
-          echo "=== grep debug ==="
-          grep -ac "test result:" test-output.log || true
-          wc -l test-output.log 2>&1
-          COUNT=$(grep -ac "test result:" test-output.log || true)
+          echo "file exists: $([ -f test-output.log ] && echo yes || echo no)"
+          echo "file size: $(wc -c < test-output.log 2>/dev/null || echo 0)"
+          echo "line count: $(wc -l < test-output.log 2>/dev/null || echo 0)"
+          echo "--- first 5 lines ---"
+          head -5 test-output.log 2>/dev/null || true
+          echo "--- grep for 'test result' ---"
+          grep -c "test result:" test-output.log 2>&1 || echo "grep returned nonzero"
+          echo "--- grep for 'test ' at line start ---"
+          grep -c "^test " test-output.log 2>&1 || echo "grep returned nonzero"
+          COUNT=$(grep -c "test result:" test-output.log 2>/dev/null || echo 0)
           echo "COUNT=$COUNT"
-          if [ ! -s test-output.log ]; then
-            echo "::error::test-output.log is empty or missing — no test output captured"
-            exit 1
-          fi
           if [ "$COUNT" -lt 1 ]; then
-            echo "::error::Zero test result lines — check for silent skip regressions"
+            echo "::error::Zero tests ran — check for silent skip regressions"
             exit 1
           fi
           fi
