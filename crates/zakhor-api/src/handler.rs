@@ -22,8 +22,6 @@ use crate::args::TripleResult;
 use crate::args::{QueryEntitiesArgs, SearchHybridArgs};
 #[cfg(test)]
 use tracing::info_span;
-#[cfg(test)]
-use std::time::Instant;
 
 pub(crate) fn args_hash<T: Serialize>(args: &T) -> String {
     let json = serde_json::to_string(args).unwrap_or_default();
