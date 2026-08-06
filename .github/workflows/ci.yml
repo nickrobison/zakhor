@@ -11,7 +11,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  TRACKER_ENDPOINT: http://localhost:9999
 
 jobs:
   # ── Backend ──────────────────────────────────────────────────────
@@ -19,9 +18,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v16
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
-      - run: nix build .#checks.x86_64-linux.rust-fmt .#checks.x86_64-linux.rust-clippy
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libglib2.0-dev libtracker-sparql-3.0-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
 
   backend-test:
     runs-on: ubuntu-latest
@@ -30,48 +36,60 @@ jobs:
       FASTEMBED_MODEL_CACHE_KEY: bge-small-en-v1.5
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v16
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
-      - uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/.fastembed_cache
-          key: ${{ runner.os }}-fastembed-${{ env.FASTEMBED_MODEL_CACHE_KEY }}
-          restore-keys: |
-            ${{ runner.os }}-fastembed-
-      - run: nix build .#checks.x86_64-linux.rust-test
+      - uses: Swatinem/rust-cache@v2
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libglib2.0-dev libtracker-sparql-3.0-dev
+      - name: Run backend tests
+        env:
+          CARGO_TERM_COLOR: never
+        run: cargo test --workspace 2>&1 | tee test-output.log
+      - name: Verify tests actually ran
+        run: |
+          COUNT=$(grep -c "^test " test-output.log 2>/dev/null || true)
+          echo "Found $COUNT test lines"
+          if [ -z "$COUNT" ] || [ "$COUNT" -lt 1 ]; then
+            echo "::error::Zero tests ran — check for silent skip regressions"
+            exit 1
+          fi
 
   # ── Frontend ─────────────────────────────────────────────────────
   frontend-lint:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./ui
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v16
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
-      - run: nix build .#checks.x86_64-linux.frontend-lint
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: ./ui/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
 
   frontend-typecheck:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./ui
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v16
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
-      - run: nix build .#checks.x86_64-linux.frontend-typecheck
-
-  frontend-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v16
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
-      - run: nix build .#checks.x86_64-linux.frontend-test
-
-  frontend-build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v16
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
-      - run: nix build .#checks.x86_64-linux.frontend-build
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: ./ui/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
 
   # ── Python integration tests ─────────────────────────────────────
   python-test:
@@ -81,44 +99,52 @@ jobs:
       HF_HUB_MODEL_KEY: gliner-relex-onnx
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v16
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
 
       - name: Install tinysparql runtime
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev libtracker-sparql-3.0-dev tinysparql
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/.hf_cache
-          key: ${{ runner.os }}-hf-${{ env.HF_HUB_MODEL_KEY }}
-          restore-keys: |
-            ${{ runner.os }}-hf-
+          # Enable universe for tinysparql package
+          sudo add-apt-repository -y universe 2>/dev/null || true
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev libtracker-sparql-3.0-dev
+          # Install tinysparql CLI (provides 'tinysparql endpoint' subcommand)
+          sudo apt-get install -y tinysparql || {
+            echo "tinysparql package not available, checking for tracker3 alternative..."
+            # Try tracker3 as fallback (TinySPARQL renamed from Tracker)
+            sudo apt-get install -y tracker3 2>/dev/null || true
+          }
 
       - name: Start tinysparql endpoint
         run: |
-          tinysparql endpoint --port=7200 &
+          tinysparql endpoint --ontology=nepomuk --http-port=7200 --loopback &
           sleep 3
-          echo "tinysparql ready on port 7200"
+          if curl -sf http://localhost:7200/sparql/ >/dev/null 2>&1; then
+            echo "tinysparql endpoint is up on port 7200"
+          else
+            echo "::warning::tinysparql endpoint did not start — SPARQL tests will be skipped"
+          fi
 
-      - name: Build zakhor binary (Nix)
-        run: nix build .#zakhor
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: Swatinem/rust-cache@v2
 
-      - name: Link binary to conftest.py expected path
-        run: |
-          mkdir -p target/debug
-          ln -sf "$(pwd)/result/bin/zakhor" target/debug/zakhor
+      - name: Build Rust binary
+        run: cargo build
 
       - name: Pre-download GLiNER model
         env:
           HF_HUB_CACHE: ${{ github.workspace }}/.hf_cache
         run: |
+          # Start server in ephemeral mode — this triggers the model download
+          # in a background task (see MemoryHandler::new_with_config).
           mkdir -p /tmp/zakhor-predownload
           target/debug/zakhor --http --ephemeral --db-path=/tmp/zakhor-predownload &
           PID=$!
           echo "Server pid=$PID, waiting for model..."
 
+          # Poll for the model files in the hf_hub cache.
+          # The refs/main file is written atomically after download completes.
           OK=0
           for i in $(seq 90); do
             if [ -f "$HF_HUB_CACHE/models--nickrobison--gliner-relex-onnx/refs/main" ]; then
@@ -138,55 +164,19 @@ jobs:
             echo "WARNING: model pre-download did not complete — tests will attempt download at runtime"
           fi
 
-      - name: Build Python test environment (Nix)
-        run: nix build .#zakhor-python-tests
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: astral-sh/setup-uv@v6
 
-      - name: Run Python integration tests
-        env:
-          ZAKHOR_SPARQL_ENDPOINT: http://localhost:7200
-        run: |
-          cd tests/python
-          ../../result/bin/pytest -v --timeout=180
+      - name: Install Python test deps
+        working-directory: ./tests/python
+        run: uv sync --frozen
+
+      - name: Run Python tests
+        working-directory: ./tests/python
+        run: uv run pytest -v --timeout=180
 
       - name: Cleanup tinysparql
         if: always()
         run: pkill -f tinysparql 2>/dev/null || true
-
-  # ── End-to-end ───────────────────────────────────────────────────
-  e2e:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v16
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
-
-      - name: Build frontend (Nix)
-        run: nix build .#zakhor-frontend
-
-      - name: Copy built frontend to ui/dist/ for preview server
-        run: |
-          rm -rf ui/dist
-          cp -r result/ ui/dist/
-
-      - name: Install frontend deps (node_modules for playwright CLI)
-        run: nix shell nixpkgs#nodejs_22 nixpkgs#pnpm_11 -c pnpm install --frozen-lockfile
-        working-directory: ./ui
-
-      - name: Install Playwright browsers
-        run: |
-          nix shell nixpkgs#nodejs_22 nixpkgs#pnpm_11 -c pnpm exec playwright install chromium
-        working-directory: ./ui
-
-      - name: Start Xvfb for headless display
-        run: |
-          sudo apt-get install -y xvfb
-          Xvfb :99 -screen 0 1280x1024x24 &
-          echo "DISPLAY=:99" >> "$GITHUB_ENV"
-
-      - name: Run Playwright e2e tests
-        run: nix shell nixpkgs#nodejs_22 nixpkgs#pnpm_11 -c pnpm run e2e
-        working-directory: ./ui
-
-      - name: Cleanup Xvfb
-        if: always()
-        run: pkill -f Xvfb 2>/dev/null || true

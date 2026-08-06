@@ -164,7 +164,7 @@ async def test_lexical_search_exact_match(mcp_session: ClientSession) -> None:
     search_data = _parse_json(_get_text(search_result))
 
     if search_data.get("warning"):
-        pytest.skip(f"Search indexes not available: {search_data['warning']}")
+        pytest.xfail(reason=f"Search indexes not available: {search_data['warning']}")
 
     assert "results" in search_data, f"Expected results field, got: {search_data}"
     assert search_data["count"] > 0, (
@@ -229,15 +229,15 @@ async def test_semantic_search_no_vocabulary_overlap(
     search_data = _parse_json(_get_text(search_result))
 
     if search_data.get("warning"):
-        pytest.skip(f"Search indexes not available: {search_data['warning']}")
+        pytest.xfail(reason=f"Search indexes not available: {search_data['warning']}")
 
     assert "results" in search_data, f"Expected results field, got: {search_data}"
 
     if search_data["count"] == 0:
         # Semantic index may not be loaded; this is acceptable.
         # The test documents that with a working vector index this should pass.
-        pytest.skip(
-            "Semantic search returned 0 results (vector index may not be loaded). "
+        pytest.xfail(
+            reason="Semantic search returned 0 results (vector index may not be loaded). "
             "Test expects >0 when fastembed is configured."
         )
 
@@ -291,7 +291,7 @@ async def test_observation_immediately_searchable(mcp_session: ClientSession) ->
 
     if search_data.get("warning"):
         # If indexes are not configured, this test is N/A
-        pytest.skip(f"Search indexes not available: {search_data['warning']}")
+        pytest.xfail(reason=f"Search indexes not available: {search_data['warning']}")
 
     assert "results" in search_data, f"Expected results field, got: {search_data}"
 
@@ -306,8 +306,8 @@ async def test_observation_immediately_searchable(mcp_session: ClientSession) ->
     else:
         # If the index doesn't auto-sync, at least verify the response
         # structure is correct and the observation exists in the graph
-        pytest.skip(
-            "Immediate search returned 0 results (index sync may not be "
+        pytest.xfail(
+            reason="Immediate search returned 0 results (index sync may not be "
             "synchronous; try rebuild_indexes first)"
         )
 
@@ -362,7 +362,7 @@ async def test_search_project_filter(mcp_session: ClientSession) -> None:
     data_a = _parse_json(_get_text(search_a))
 
     if data_a.get("warning"):
-        pytest.skip(f"Search indexes not available: {data_a['warning']}")
+        pytest.xfail(reason=f"Search indexes not available: {data_a['warning']}")
 
     assert data_a["count"] > 0, (
         f"Expected at least 1 result for project A token '{UID_PROJECT_A}', "
@@ -451,7 +451,7 @@ async def test_search_rebuild_consistency(mcp_session: ClientSession) -> None:
     data_1 = _parse_json(_get_text(search_1))
 
     if data_1.get("warning"):
-        pytest.skip(f"Search indexes not available: {data_1['warning']}")
+        pytest.xfail(reason=f"Search indexes not available: {data_1['warning']}")
 
     assert data_1["count"] > 0, (
         f"Expected at least 1 result after first rebuild for '{UID_CONSISTENCY}', "

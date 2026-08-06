@@ -1,8 +1,13 @@
 pub mod background;
 pub mod decision;
 pub mod entity_resolver;
+pub mod errors;
 pub mod extraction;
+pub mod ingest;
+pub mod ingest_async;
 pub mod ingestion;
 pub mod model_setup;
+pub mod pipeline;
 pub mod provenance;
 pub mod ranking;
+pub mod sparql_builder;

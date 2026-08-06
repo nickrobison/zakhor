@@ -124,11 +124,11 @@ async def test_conflicts_with_relation(mcp_session: ClientSession) -> None:
             },
         )
     except McpError as e:
-        pytest.skip(f"admin_create_relation not available: {e}")
+        pytest.xfail(reason=f"admin_create_relation not available: {e}")
 
     data = _parse_json(_get_text(result))
     if "error" in data:
-        pytest.skip(f"admin_create_relation not available: {data['error']}")
+        pytest.xfail(reason=f"admin_create_relation not available: {data['error']}")
 
     assert data.get("success") is True, f"Expected success=True, got: {data}"
 
@@ -151,11 +151,11 @@ async def test_depends_on_relation(mcp_session: ClientSession) -> None:
             },
         )
     except McpError as e:
-        pytest.skip(f"admin_create_relation not available: {e}")
+        pytest.xfail(reason=f"admin_create_relation not available: {e}")
 
     data = _parse_json(_get_text(result))
     if "error" in data:
-        pytest.skip(f"admin_create_relation not available: {data['error']}")
+        pytest.xfail(reason=f"admin_create_relation not available: {data['error']}")
 
     assert data.get("success") is True, f"Expected success=True, got: {data}"
 
@@ -178,11 +178,11 @@ async def test_supersedes_relation(mcp_session: ClientSession) -> None:
             },
         )
     except McpError as e:
-        pytest.skip(f"admin_create_relation not available: {e}")
+        pytest.xfail(reason=f"admin_create_relation not available: {e}")
 
     data = _parse_json(_get_text(result))
     if "error" in data:
-        pytest.skip(f"admin_create_relation not available: {data['error']}")
+        pytest.xfail(reason=f"admin_create_relation not available: {data['error']}")
 
     assert data.get("success") is True, f"Expected success=True, got: {data}"
 
@@ -205,11 +205,11 @@ async def test_relation_verified_via_traverse(mcp_session: ClientSession) -> Non
             },
         )
     except McpError as e:
-        pytest.skip(f"admin_create_relation not available: {e}")
+        pytest.xfail(reason=f"admin_create_relation not available: {e}")
 
     create_data = _parse_json(_get_text(create_result))
     if "error" in create_data:
-        pytest.skip(f"admin_create_relation not available: {create_data['error']}")
+        pytest.xfail(reason=f"admin_create_relation not available: {create_data['error']}")
 
     # Traverse to verify
     traverse_result = await mcp_session.call_tool(
@@ -229,7 +229,7 @@ async def test_relation_verified_via_traverse(mcp_session: ClientSession) -> Non
 # ===================================================================
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -262,7 +262,7 @@ async def test_project_association_via_sparql(
     try:
         sparql_client.query()
     except Exception as exc:
-        pytest.skip(f"Project creation SPARQL failed: {exc}")
+        pytest.xfail(reason=f"Project creation SPARQL failed: {exc}")
 
     # --- Store an observation with an entity ---
     store_result = await mcp_session.call_tool(
@@ -289,7 +289,7 @@ async def test_project_association_via_sparql(
     try:
         sparql_client.query()
     except Exception as exc:
-        pytest.skip(f"Project link SPARQL failed: {exc}")
+        pytest.xfail(reason=f"Project link SPARQL failed: {exc}")
 
     # --- Verify via traverse_graph from entity ---
     traverse_result = await mcp_session.call_tool(
@@ -310,7 +310,7 @@ async def test_project_association_via_sparql(
     )
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -337,7 +337,7 @@ async def test_project_link_survives_reingest(
     try:
         sparql_client.query()
     except Exception as exc:
-        pytest.skip(f"Project creation failed: {exc}")
+        pytest.xfail(reason=f"Project creation failed: {exc}")
 
     # Link entity to project
     link_sparql = f"""
@@ -350,7 +350,7 @@ async def test_project_link_survives_reingest(
     try:
         sparql_client.query()
     except Exception as exc:
-        pytest.skip(f"Project link failed: {exc}")
+        pytest.xfail(reason=f"Project link failed: {exc}")
 
     # Store two observations referencing the same entity
     for i in range(2):
@@ -596,7 +596,7 @@ async def test_many_to_many_traverse_from_entity(mcp_session: ClientSession) -> 
 # ===================================================================
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -654,7 +654,7 @@ async def test_decision_conflicts_with_via_sparql(
     try:
         sparql_client.query()
     except Exception as exc:
-        pytest.skip(f"conflictsWith SPARQL INSERT failed: {exc}")
+        pytest.xfail(reason=f"conflictsWith SPARQL INSERT failed: {exc}")
 
     # Verify via traverse_graph from decision A
     traverse_result = await mcp_session.call_tool(
@@ -679,7 +679,7 @@ async def test_decision_conflicts_with_via_sparql(
 # ===================================================================
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -733,7 +733,7 @@ async def test_decision_depends_on_via_sparql(
     try:
         sparql_client.query()
     except Exception as exc:
-        pytest.skip(f"dependsOn SPARQL INSERT failed: {exc}")
+        pytest.xfail(reason=f"dependsOn SPARQL INSERT failed: {exc}")
 
     # Verify via traverse_graph from decision B
     traverse_result = await mcp_session.call_tool(
@@ -779,7 +779,7 @@ async def test_toolcall_inject_and_verify(mcp_session: ClientSession) -> None:
     )
     data = _parse_json(_get_text(result))
     if "error" in data:
-        pytest.skip(f"admin_inject_tool_call not available: {data['error']}")
+        pytest.xfail(reason=f"admin_inject_tool_call not available: {data['error']}")
 
     assert "uri" in data, f"Expected 'uri' in response, got: {data}"
     tc_uri: str = data["uri"]
@@ -803,7 +803,7 @@ async def test_toolcall_inject_and_verify(mcp_session: ClientSession) -> None:
     )
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -843,7 +843,7 @@ async def test_toolcall_evidence_for_decision(
     )
     tc_data = _parse_json(_get_text(tc_result))
     if "error" in tc_data:
-        pytest.skip(f"admin_inject_tool_call not available: {tc_data['error']}")
+        pytest.xfail(reason=f"admin_inject_tool_call not available: {tc_data['error']}")
 
     tc_uri = tc_data["uri"]
 
@@ -859,7 +859,7 @@ async def test_toolcall_evidence_for_decision(
     try:
         sparql_client.query()
     except Exception as exc:
-        pytest.skip(f"evidenceFor SPARQL INSERT failed: {exc}")
+        pytest.xfail(reason=f"evidenceFor SPARQL INSERT failed: {exc}")
 
     # Verify via traverse_graph from ToolCall
     traverse_result = await mcp_session.call_tool(
@@ -879,7 +879,7 @@ async def test_toolcall_evidence_for_decision(
     )
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -915,7 +915,7 @@ async def test_toolcall_multiple_evidence_links(
         )
         tc_data = _parse_json(_get_text(tc_result))
         if "error" in tc_data:
-            pytest.skip(f"admin_inject_tool_call not available: {tc_data['error']}")
+            pytest.xfail(reason=f"admin_inject_tool_call not available: {tc_data['error']}")
         tc_uris.append(tc_data["uri"])
 
     # Link both ToolCalls to the decision
@@ -931,7 +931,7 @@ async def test_toolcall_multiple_evidence_links(
         try:
             sparql_client.query()
         except Exception as exc:
-            pytest.skip(f"evidenceFor SPARQL INSERT failed: {exc}")
+            pytest.xfail(reason=f"evidenceFor SPARQL INSERT failed: {exc}")
 
     # Verify each ToolCall links to the decision
     for tc_uri in tc_uris:
@@ -951,7 +951,7 @@ async def test_toolcall_multiple_evidence_links(
 # ===================================================================
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -982,7 +982,7 @@ async def test_code_container_created(
     try:
         sparql_client.query()
     except Exception as exc:
-        pytest.skip(f"Code container SPARQL INSERT failed: {exc}")
+        pytest.xfail(reason=f"Code container SPARQL INSERT failed: {exc}")
 
     # Verify via traverse_graph
     traverse_result = await mcp_session.call_tool(
@@ -1011,7 +1011,7 @@ async def test_code_container_created(
     )
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -1046,7 +1046,7 @@ async def test_code_symbol_linked_to_container(
     try:
         sparql_client.query()
     except Exception as exc:
-        pytest.skip(f"Container SPARQL INSERT failed: {exc}")
+        pytest.xfail(reason=f"Container SPARQL INSERT failed: {exc}")
 
     # Create symbol linked to container
     create_symbol = f"""
@@ -1065,7 +1065,7 @@ async def test_code_symbol_linked_to_container(
     try:
         sparql_client.query()
     except Exception as exc:
-        pytest.skip(f"Symbol SPARQL INSERT failed: {exc}")
+        pytest.xfail(reason=f"Symbol SPARQL INSERT failed: {exc}")
 
     # Verify via traverse_graph from symbol
     traverse_result = await mcp_session.call_tool(
@@ -1106,7 +1106,7 @@ async def test_code_symbol_linked_to_container(
     )
 
 
-@pytest.mark.skipif(
+@pytest.mark.xfail(
     "not _sparql_available()",
     reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
 )
@@ -1139,7 +1139,7 @@ async def test_code_container_traverse_to_symbol(
     try:
         sparql_client.query()
     except Exception as exc:
-        pytest.skip(f"Container SPARQL INSERT failed: {exc}")
+        pytest.xfail(reason=f"Container SPARQL INSERT failed: {exc}")
 
     # Create symbol (linked to container via codeLocation)
     create_symbol = f"""
@@ -1157,7 +1157,7 @@ async def test_code_container_traverse_to_symbol(
     try:
         sparql_client.query()
     except Exception as exc:
-        pytest.skip(f"Symbol SPARQL INSERT failed: {exc}")
+        pytest.xfail(reason=f"Symbol SPARQL INSERT failed: {exc}")
 
     # Traverse from container — should see forward links including
     # the incoming edge from the symbol (symbol → codeLocation → container)

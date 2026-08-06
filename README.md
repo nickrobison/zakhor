@@ -88,12 +88,14 @@ MCP-compatible host (Claude Desktop, OpenCode, etc.) to use the tools.
 ## Project Structure
 
 ```
-src/
-├── main.rs         — Entry point, tracing init, CLI arg parsing
-├── server.rs       — MCP tool handler (rmcp router)
-├── tracker_db.rs   — SPARQL CRUD operations
-├── config.rs       — Config struct with TOML + env var support
-└── error.rs        — ZakhorError type + anyhow-based ZakhorResult and retry logic
+crates/
+├── zakhor-common/    — Shared config, error types, vocab/URI constants
+├── zakhor-storage/   — SPARQL CRUD, schema, tracker_db (GNOME Tracker FFI)
+├── zakhor-search/    — Lexical (Tantivy) + semantic (fastembed) search, index sync
+├── zakhor-model/     — Ingestion pipeline, extraction (GLiNER), decision model, ranking
+├── zakhor-code/      — Code indexing (symbol extraction, container tracking)
+└── zakhor-api/       — MCP server, HTTP REST API, tool handlers
+src/main.rs           — Root binary entry point (CLI args, tracing init)
 ```
 
 ## Development

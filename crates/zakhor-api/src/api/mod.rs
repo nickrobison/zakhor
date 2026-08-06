@@ -20,7 +20,7 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-use zakhor_model::ingestion::{EntityRef as IngEntityRef, Relation, StoreObservationArgs};
+use zakhor_model::pipeline::{EntityRef as IngEntityRef, Relation, StoreObservationArgs};
 use zakhor_search::IndexSyncManager;
 
 use crate::api::error::ErrorBody;
