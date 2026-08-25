@@ -60,7 +60,7 @@ enum LogFormat {
     version,
     about,
     long_about = None,
-    after_help = "Environment variables:\n  ZAKHOR_DB_PATH        Database path override\n  ZAKHOR_HTTP_HOST      HTTP bind host (default: 127.0.0.1)\n  ZAKHOR_HTTP_PORT      HTTP bind port (default: 3000)\n\nEphemeral mode:\n  --ephemeral           Creates a fresh Tracker DB in a temp directory (wiped on each startup)\n\nLogging:\n  RUST_LOG              Overrides --log-level for crate-level control (e.g. \"debug,zakhor_api=trace\")"
+    after_help = "Environment variables:\n  ZAKHOR_DB_PATH        Database path override\n  ZAKHOR_HTTP_HOST      HTTP bind host (default: 127.0.0.1)\n  ZAKHOR_HTTP_PORT      HTTP bind port (default: 3000)\n\nConfig file:\n  -c, --config PATH     Path to the TOML configuration file (default: zakhor.toml)\n\nEphemeral mode:\n  --ephemeral           Creates a fresh Tracker DB in a temp directory (wiped on each startup)\n\nLogging:\n  RUST_LOG              Overrides --log-level for crate-level control (e.g. \"debug,zakhor_api=trace\")"
 )]
 struct Cli {
     /// Serve MCP over Streamable HTTP/SSE instead of stdio
@@ -78,6 +78,10 @@ struct Cli {
     /// Use a fresh Tracker DB in a temp directory (wiped on each startup)
     #[arg(long)]
     ephemeral: bool,
+
+    /// Path to the TOML configuration file
+    #[arg(short = 'c', long, value_name = "PATH", default_value = "zakhor.toml")]
+    config: std::path::PathBuf,
 
     /// Log level (overridden by RUST_LOG if set)
     #[arg(long, value_enum, default_value_t = LogLevel::Debug)]
@@ -156,7 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    let mut cfg = Config::load();
+    let mut cfg = Config::load_from(&cli.config);
     if let Some(db_path) = cli.db_path {
         cfg.database.path = db_path;
     }
