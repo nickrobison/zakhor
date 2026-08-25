@@ -1,23 +1,25 @@
 """Test associative relationships between knowledge graph entities.
 
-Tests 5.1-5.11 from the Integration Test Plan:
+Tests 5.1-5.12 from the Integration Test Plan:
 
   5.1   conflicts_with relation — between entities
   5.2   depends_on relation — between entities
   5.3   supersedes relation — between entities
   5.4   Relation verified via traverse_graph
-  5.5   Project association — memory:belongsToProject
+  5.5   Project association — zakhor:belongsToProject (via MCP)
   5.6   Fuzzy match — partial entity label matching
   5.7   Many-to-many — entities and observations
   5.8   conflicts_with — between decisions (SPARQL)
   5.9   depends_on — between decisions (SPARQL)
   5.10  ToolCall evidence linking — zakhor:evidenceFor
   5.11  Code container hierarchy — container → symbol
+  5.12  Repository association — zakhor:belongsToRepository (via MCP)
 
 Where possible, tests use MCP tools (store_observation, query_entities,
-traverse_graph, record_decision, admin_inject_tool_call). For operations
-that require arbitrary SPARQL INSERT (project linking, code containers),
-the ``sparql_client`` fixture is used and the test skips if the SPARQL
+traverse_graph, record_decision, create_project, link_to_project,
+create_repository, link_to_repository, admin_inject_tool_call). For
+operations that require arbitrary SPARQL INSERT (code containers), the
+``sparql_client`` fixture is used and the test skips if the SPARQL
 endpoint is not available.
 """
 
@@ -88,6 +90,8 @@ RELATION_ENTITY_C = "http://example.org/relation-c"
 PROJECT_URI = "http://zakhor/ns/test-project-assoc"
 ENTITY_FOR_PROJECT = "http://example.org/project-entity"
 DECISION_FOR_PROJECT = "urn:uuid:decision-proj-test"
+
+REPO_ENTITY = "http://example.org/repository-entity"
 
 FUZZY_ENTITY_1 = "http://example.org/fuzzy-alpha"
 FUZZY_ENTITY_2 = "http://example.org/fuzzy-beta"
@@ -209,7 +213,9 @@ async def test_relation_verified_via_traverse(mcp_session: ClientSession) -> Non
 
     create_data = _parse_json(_get_text(create_result))
     if "error" in create_data:
-        pytest.xfail(reason=f"admin_create_relation not available: {create_data['error']}")
+        pytest.xfail(
+            reason=f"admin_create_relation not available: {create_data['error']}"
+        )
 
     # Traverse to verify
     traverse_result = await mcp_session.call_tool(
@@ -225,44 +231,34 @@ async def test_relation_verified_via_traverse(mcp_session: ClientSession) -> Non
 
 
 # ===================================================================
-# 5.5  Project association — memory:belongsToProject
+# 5.5  Project association — zakhor:belongsToProject (via MCP)
 # ===================================================================
 
 
-@pytest.mark.xfail(
-    "not _sparql_available()",
-    reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
-)
 @pytest.mark.asyncio
-async def test_project_association_via_sparql(
+async def test_project_association_via_mcp(
     mcp_session: ClientSession,
-    sparql_client: SPARQLWrapper,
 ) -> None:
     """5.5: Create a project and link an entity via zakhor:belongsToProject.
 
-    Uses direct SPARQL INSERT to create the project and link, then
+    Uses the create_project and link_to_project MCP tools, then
     verifies the link via traverse_graph.
     """
-    # --- Create a project ---
-    project_uri = f"{ZAKHOR}project/integration-test-5.5"
-    project_name = "Integration Test Project 5.5"
     entity_uri = ENTITY_FOR_PROJECT
 
-    create_project_sparql = f"""
-    PREFIX rdf: <{RDF}>
-    PREFIX rdfs: <{RDFS}>
-    PREFIX zakhor: <{ZAKHOR}>
-    INSERT DATA {{
-      <{project_uri}> rdf:type zakhor:Project .
-      <{project_uri}> rdfs:label "{project_name}"@en .
-    }}
-    """
-    sparql_client.setQuery(create_project_sparql)
-    sparql_client.setMethod("POST")
-    try:
-        sparql_client.query()
-    except Exception as exc:
-        pytest.xfail(reason=f"Project creation SPARQL failed: {exc}")
+    # --- Create a project via MCP ---
+    create_result = await mcp_session.call_tool(
+        "create_project",
+        {
+            "name": "Integration Test Project 5.5",
+            "description": "Created via the create_project MCP tool",
+        },
+    )
+    create_data = _parse_json(_get_text(create_result))
+    assert "project_uri" in create_data, (
+        f"Expected project_uri from create_project, got: {create_data}"
+    )
+    project_uri = create_data["project_uri"]
 
     # --- Store an observation with an entity ---
     store_result = await mcp_session.call_tool(
@@ -278,18 +274,13 @@ async def test_project_association_via_sparql(
         f"Expected observation_uri, got: {store_data}"
     )
 
-    # --- Link entity to project via SPARQL ---
-    link_sparql = f"""
-    PREFIX zakhor: <{ZAKHOR}>
-    INSERT DATA {{
-      <{entity_uri}> zakhor:belongsToProject <{project_uri}> .
-    }}
-    """
-    sparql_client.setQuery(link_sparql)
-    try:
-        sparql_client.query()
-    except Exception as exc:
-        pytest.xfail(reason=f"Project link SPARQL failed: {exc}")
+    # --- Link entity to project via MCP ---
+    link_result = await mcp_session.call_tool(
+        "link_to_project",
+        {"entity_uri": entity_uri, "project_uri": project_uri},
+    )
+    link_text = _get_text(link_result)
+    assert "Linked" in link_text, f"Unexpected link_to_project result: {link_text}"
 
     # --- Verify via traverse_graph from entity ---
     traverse_result = await mcp_session.call_tool(
@@ -310,58 +301,51 @@ async def test_project_association_via_sparql(
     )
 
 
-@pytest.mark.xfail(
-    "not _sparql_available()",
-    reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
-)
 @pytest.mark.asyncio
 async def test_project_link_survives_reingest(
     mcp_session: ClientSession,
-    sparql_client: SPARQLWrapper,
 ) -> None:
     """5.5b: Project link persists after additional observations with same entity."""
-    project_uri = f"{ZAKHOR}project/integration-test-5.5b"
     entity_uri = "http://example.org/project-entity-reingest"
 
-    # Create project
-    create_sparql = f"""
-    PREFIX rdf: <{RDF}>
-    PREFIX rdfs: <{RDFS}>
-    PREFIX zakhor: <{ZAKHOR}>
-    INSERT DATA {{
-      <{project_uri}> rdf:type zakhor:Project .
-      <{project_uri}> rdfs:label "Reingest Test Project"@en .
-    }}
-    """
-    sparql_client.setQuery(create_sparql)
-    try:
-        sparql_client.query()
-    except Exception as exc:
-        pytest.xfail(reason=f"Project creation failed: {exc}")
+    # Create project via MCP
+    create_result = await mcp_session.call_tool(
+        "create_project",
+        {"name": "Reingest Test Project", "description": None},
+    )
+    create_data = _parse_json(_get_text(create_result))
+    assert "project_uri" in create_data, (
+        f"Expected project_uri from create_project, got: {create_data}"
+    )
+    project_uri = create_data["project_uri"]
 
-    # Link entity to project
-    link_sparql = f"""
-    PREFIX zakhor: <{ZAKHOR}>
-    INSERT DATA {{
-      <{entity_uri}> zakhor:belongsToProject <{project_uri}> .
-    }}
-    """
-    sparql_client.setQuery(link_sparql)
-    try:
-        sparql_client.query()
-    except Exception as exc:
-        pytest.xfail(reason=f"Project link failed: {exc}")
+    # Store first observation so the entity exists as a typed rdfs:Resource
+    await mcp_session.call_tool(
+        "store_observation",
+        {
+            "text": "Reingest project test observation 0",
+            "entities": [{"uri": entity_uri, "label": "ReingestEntity"}],
+            "relations": [],
+        },
+    )
 
-    # Store two observations referencing the same entity
-    for i in range(2):
-        await mcp_session.call_tool(
-            "store_observation",
-            {
-                "text": f"Reingest project test observation {i}",
-                "entities": [{"uri": entity_uri, "label": "ReingestEntity"}],
-                "relations": [],
-            },
-        )
+    # Link entity to project via MCP
+    link_result = await mcp_session.call_tool(
+        "link_to_project",
+        {"entity_uri": entity_uri, "project_uri": project_uri},
+    )
+    link_text = _get_text(link_result)
+    assert "Linked" in link_text, f"Unexpected link_to_project result: {link_text}"
+
+    # Reingest: another observation referencing the same entity
+    await mcp_session.call_tool(
+        "store_observation",
+        {
+            "text": "Reingest project test observation 1",
+            "entities": [{"uri": entity_uri, "label": "ReingestEntity"}],
+            "relations": [],
+        },
+    )
 
     # Verify project link still exists
     traverse_result = await mcp_session.call_tool(
@@ -915,7 +899,9 @@ async def test_toolcall_multiple_evidence_links(
         )
         tc_data = _parse_json(_get_text(tc_result))
         if "error" in tc_data:
-            pytest.xfail(reason=f"admin_inject_tool_call not available: {tc_data['error']}")
+            pytest.xfail(
+                reason=f"admin_inject_tool_call not available: {tc_data['error']}"
+            )
         tc_uris.append(tc_data["uri"])
 
     # Link both ToolCalls to the decision
@@ -1168,4 +1154,72 @@ async def test_code_container_traverse_to_symbol(
     traverse_data = _parse_json(_get_text(traverse_result))
     assert traverse_data["count"] > 0, (
         f"Expected triples for container {container_uri}, got empty"
+    )
+
+
+# ===================================================================
+# 5.12  Repository association — zakhor:belongsToRepository (via MCP)
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_repository_association_via_mcp(
+    mcp_session: ClientSession,
+) -> None:
+    """5.12: Create a repository and link an entity via zakhor:belongsToRepository.
+
+    Uses the create_repository and link_to_repository MCP tools, then
+    verifies the link via traverse_graph.
+    """
+    # --- Create a repository via MCP ---
+    create_result = await mcp_session.call_tool(
+        "create_repository",
+        {
+            "name": "Integration Test Repo 5.12",
+            "description": "Created via the create_repository MCP tool",
+        },
+    )
+    create_data = _parse_json(_get_text(create_result))
+    assert "repository_uri" in create_data, (
+        f"Expected repository_uri from create_repository, got: {create_data}"
+    )
+    repository_uri = create_data["repository_uri"]
+
+    # --- Store an observation with an entity ---
+    store_result = await mcp_session.call_tool(
+        "store_observation",
+        {
+            "text": "Repository association test observation",
+            "entities": [{"uri": REPO_ENTITY, "label": "RepoTestEntity"}],
+            "relations": [],
+        },
+    )
+    store_data = _parse_json(_get_text(store_result))
+    assert "observation_uri" in store_data, (
+        f"Expected observation_uri, got: {store_data}"
+    )
+
+    # --- Link entity to repository via MCP ---
+    link_result = await mcp_session.call_tool(
+        "link_to_repository",
+        {"entity_uri": REPO_ENTITY, "repository_uri": repository_uri},
+    )
+    link_text = _get_text(link_result)
+    assert "Linked" in link_text, f"Unexpected link_to_repository result: {link_text}"
+
+    # --- Verify via traverse_graph from entity ---
+    traverse_result = await mcp_session.call_tool(
+        "traverse_graph",
+        {"start_id": REPO_ENTITY, "depth": 1, "edge_types": []},
+    )
+    traverse_data = _parse_json(_get_text(traverse_result))
+
+    predicates = {t["predicate"] for t in traverse_data["triples"]}
+    assert any("belongsToRepository" in p for p in predicates), (
+        f"Expected belongsToRepository predicate, got: {predicates}"
+    )
+
+    objects = {t["object"] for t in traverse_data["triples"]}
+    assert repository_uri in objects, (
+        f"Expected repository URI {repository_uri} in traverse objects, got: {objects}"
     )
