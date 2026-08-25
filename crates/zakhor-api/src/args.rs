@@ -29,6 +29,8 @@ pub struct RecordDecisionArgs {
     pub decision: String,
     pub alternatives: Vec<String>,
     pub rationale: String,
+    /// Optional project URI to associate this decision with.
+    pub project_uri: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]

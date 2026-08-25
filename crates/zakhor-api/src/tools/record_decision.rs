@@ -1,3 +1,4 @@
+use oxiri::Iri;
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::{tool, tool_router};
 use std::time::Instant;
@@ -6,6 +7,20 @@ use zakhor_model::decision::{CreateDecisionArgs, DecisionModel};
 
 use crate::args::{RecordDecisionArgs, RecordDecisionResponse};
 use crate::handler::{MemoryHandler, args_hash};
+
+/// Parse project_uri from args into an Option<Iri<String>>.
+///
+/// Returns Ok(None) when args.project_uri is None.
+/// Returns Ok(Some(iri)) when args.project_uri is Some and parses successfully.
+/// Returns Err with a descriptive message when parsing fails.
+pub(crate) fn parse_project_uri(raw: &Option<String>) -> Result<Option<Iri<String>>, String> {
+    match raw {
+        None => Ok(None),
+        Some(uri) => Iri::parse(uri.to_string())
+            .map(Some)
+            .map_err(|e| format!("Invalid project_uri '{uri}': {e}")),
+    }
+}
 
 #[tool_router(router = tool_router_record_decision, vis = "pub(crate)")]
 impl MemoryHandler {
@@ -28,6 +43,7 @@ impl MemoryHandler {
         let start = Instant::now();
 
         let result = (|| -> Result<Json<RecordDecisionResponse>, String> {
+            let project_uri = parse_project_uri(&args.project_uri)?;
             let decision_args = CreateDecisionArgs {
                 context: args.context,
                 outcome: args.decision,
@@ -38,7 +54,7 @@ impl MemoryHandler {
                 supersedes: None,
                 conflicts_with: vec![],
                 depends_on: vec![],
-                project_uri: None,
+                project_uri,
             };
             let create_result = DecisionModel::create(&self.conn, decision_args)?;
 
@@ -51,5 +67,37 @@ impl MemoryHandler {
         span.record("result", if result.is_ok() { "success" } else { "error" });
         span.record("duration_ms", duration_ms);
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_project_uri_none_is_ok() {
+        let result = parse_project_uri(&None);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), None);
+    }
+
+    #[test]
+    fn test_parse_project_uri_valid_uri_round_trips() {
+        let uri = Some("https://example.com/project".to_string());
+        let result = parse_project_uri(&uri);
+        assert!(result.is_ok());
+        let parsed = result.unwrap();
+        assert!(parsed.is_some());
+        assert_eq!(parsed.unwrap().as_str(), "https://example.com/project");
+    }
+
+    #[test]
+    fn test_parse_project_uri_invalid_uri_errors_with_message() {
+        let uri = Some("not a valid uri".to_string());
+        let result = parse_project_uri(&uri);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("Invalid project_uri"));
+        assert!(err_msg.contains("not a valid uri"));
     }
 }
