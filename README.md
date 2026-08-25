@@ -58,11 +58,19 @@ MCP-compatible host (Claude Desktop, OpenCode, etc.) to use the tools.
 | Tool | Args | Description |
 |------|------|-------------|
 | `store_observation` | `content`, `created_at`, `metadata` | Store an observation with optional structured metadata |
+| `extract_and_store` | `uri`, `text` | Auto-extract entities and relations from text (GLiNER) and store them |
 | `query_entities` | `pattern`, `limit` | Query entities by label pattern in the knowledge graph |
 | `traverse_graph` | `uri`, `limit` | Traverse outgoing RDF edges from an entity |
 | `search_hybrid` | `query`, `limit` | Hybrid lexical/semantic search using RRF fusion |
-| `record_decision` | `context`, `decision`, `alternatives`, `rationale` | Record a decision with context and rationale |
+| `record_decision` | `context`, `decision`, `alternatives`, `rationale`, `project_uri?` | Record a decision with context and rationale, optionally linked to a project |
 | `rebuild_indexes` | none | Rebuild all search indexes from Tracker |
+| `create_project` | `name`, `description?` | Create a project node and return its URI |
+| `link_to_project` | `entity_uri`, `project_uri` | Link an entity or decision to a project (`zakhor:belongsToProject`) |
+| `create_repository` | `name`, `description?` | Create a repository node and return its URI |
+| `link_to_repository` | `entity_uri`, `repository_uri` | Link an entity to a repository (`zakhor:belongsToRepository`) |
+
+Admin tools (`admin_rebuild_indexes`, `admin_inject_tool_call`) are registered
+only when the server runs with `--ephemeral`.
 
 ## Architecture
 
