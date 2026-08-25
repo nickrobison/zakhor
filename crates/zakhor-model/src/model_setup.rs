@@ -21,24 +21,15 @@ pub struct ModelFiles {
 }
 
 /// Errors that can occur during model setup.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ModelSetupError {
     /// The model directory could not be created or scanned.
+    #[error("model setup I/O: {0}")]
     Io(String),
     /// Downloading or resolving a file from HuggingFace failed.
+    #[error("model download: {0}")]
     Download(String),
 }
-
-impl std::fmt::Display for ModelSetupError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ModelSetupError::Io(msg) => write!(f, "model setup I/O: {msg}"),
-            ModelSetupError::Download(msg) => write!(f, "model download: {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for ModelSetupError {}
 
 impl From<std::io::Error> for ModelSetupError {
     fn from(e: std::io::Error) -> Self {
