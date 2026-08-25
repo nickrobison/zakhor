@@ -15,6 +15,10 @@ pub fn project_iri() -> &'static Iri {
     iri!("http://zakhor/ns/Project")
 }
 
+pub fn repository_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/Repository")
+}
+
 pub fn issue_iri() -> &'static Iri {
     iri!("http://zakhor/ns/Issue")
 }
@@ -83,6 +87,10 @@ pub fn evidence_for_iri() -> &'static Iri {
 
 pub fn belongs_to_project_iri() -> &'static Iri {
     iri!("http://zakhor/ns/belongsToProject")
+}
+
+pub fn belongs_to_repository_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/belongsToRepository")
 }
 
 pub fn code_location_iri() -> &'static Iri {

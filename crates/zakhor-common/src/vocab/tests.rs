@@ -151,6 +151,18 @@ fn test_belongs_to_project_iri() {
 }
 
 #[test]
+fn test_repository_iri() {
+    let iri = repository_iri();
+    assert!(iri.as_str().ends_with("Repository"));
+}
+
+#[test]
+fn test_belongs_to_repository_iri() {
+    let iri = belongs_to_repository_iri();
+    assert!(iri.as_str().ends_with("belongsToRepository"));
+}
+
+#[test]
 fn test_code_location_iri() {
     let iri = code_location_iri();
     assert!(iri.as_str().ends_with("codeLocation"));
@@ -186,6 +198,7 @@ fn test_all_class_iris_use_zakhor_ns() {
         entity_iri(),
         decision_iri(),
         project_iri(),
+        repository_iri(),
         issue_iri(),
         constraint_iri(),
         observation_iri(),
@@ -208,6 +221,7 @@ fn test_all_predicate_iris_use_zakhor_ns() {
         supersedes_iri(),
         evidence_for_iri(),
         belongs_to_project_iri(),
+        belongs_to_repository_iri(),
         code_location_iri(),
         observation_content_iri(),
         observation_created_at_iri(),
