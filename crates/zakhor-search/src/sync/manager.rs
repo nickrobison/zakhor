@@ -26,6 +26,7 @@ use zakhor_common::error::{ZakhorError, ZakhorResult};
 pub struct IndexSyncManager {
     pub lexical: LexicalIndex,
     db_path: std::path::PathBuf,
+    models_cache_dir: std::path::PathBuf,
     semantic: OnceLock<Mutex<SemanticIndex>>,
     rebuild_in_progress: Mutex<bool>,
     last_rebuild_finished_at_ms: Mutex<Option<u64>>,
@@ -45,11 +46,16 @@ impl IndexSyncManager {
     /// lives at `<db-path>/semantic/`. An existing index is opened (not
     /// overwritten) — call [`rebuild_all`](Self::rebuild_all) to re-index
     /// from Tracker.
-    pub fn new(db_path: &Path, embedding_enabled: bool) -> ZakhorResult<Self> {
+    pub fn new(
+        db_path: &Path,
+        embedding_enabled: bool,
+        models_cache_dir: std::path::PathBuf,
+    ) -> ZakhorResult<Self> {
         let lexical = LexicalIndex::new(db_path)?;
         Ok(Self {
             lexical,
             db_path: db_path.to_path_buf(),
+            models_cache_dir,
             semantic: OnceLock::new(),
             rebuild_in_progress: Mutex::new(false),
             last_rebuild_finished_at_ms: Mutex::new(None),
@@ -74,10 +80,10 @@ impl IndexSyncManager {
             let span = tracing::info_span!(
                 "semantic_lazy_init",
                 model = "BGESmallENV15",
-                cache = %self.db_path.join("semantic").join("fastembed-cache").display(),
+                cache = %self.models_cache_dir.display(),
             );
             let _enter = span.enter();
-            let sem = SemanticIndex::new(&self.db_path)
+            let sem = SemanticIndex::new(&self.db_path, &self.models_cache_dir)
                 .expect("SemanticIndex init failed — critical model missing");
             Mutex::new(sem)
         });

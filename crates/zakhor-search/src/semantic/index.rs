@@ -1,4 +1,3 @@
-use super::cache::migrate_cache_from_legacy_location;
 use super::simd::cosine_similarity;
 use crate::semantic::ScoredDoc;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
@@ -19,21 +18,20 @@ pub struct SemanticIndex {
 impl SemanticIndex {
     /// Create a new index at `db_path`, loading the model and any existing snapshot.
     ///
-    /// The snapshot directory `<db-path>/semantic/` is created if missing.
-    /// The embedding model binary is cached under `<db-path>/semantic/fastembed-cache/`
-    /// so that re-initialisation does not re-download the ~70 MB model file.
-    pub fn new(db_path: &Path) -> Result<Self, String> {
+    /// `models_cache_dir` is the shared, XDG-conventional model cache directory
+    /// used by both FastEmbed and GLiNER (`$XDG_CACHE_HOME/zakhor/models` by
+    /// default). The snapshot directory `<db-path>/semantic/` is created if
+    /// missing.
+    pub fn new(db_path: &Path, models_cache_dir: &Path) -> Result<Self, String> {
         let snapshot_path = db_path.join("semantic").join("vectors.bin");
-        let cache_dir = db_path.join("semantic").join("fastembed-cache");
+        let cache_dir = models_cache_dir.to_path_buf();
         let semantic_dir = snapshot_path
             .parent()
             .expect("snapshot path must have parent directory");
         std::fs::create_dir_all(semantic_dir)
             .map_err(|e| format!("Failed to create semantic dir: {}", e))?;
-
-        // If the new cache is empty but the old default fastembed cache has the
-        // model, migrate it so we don't re-download the ~133 MB ONNX model.
-        migrate_cache_from_legacy_location(&cache_dir);
+        std::fs::create_dir_all(&cache_dir)
+            .map_err(|e| format!("Failed to create model cache dir: {}", e))?;
 
         tracing::info!("Initialising ONNX inference session (this may take ~30 s on first run)");
         let model = TextEmbedding::try_new(
