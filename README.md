@@ -77,19 +77,6 @@ neither re-downloads its ONNX model when the other's cache moves:
   `[extraction] model_dir` beats `[models].cache_dir`, and the `HF_HUB_CACHE`
   environment variable is still honored as a further fallback.
 
-### One-Time Automatic Migration
-
-On startup, Zakhor best-effort migrates legacy model cache locations into the shared
-cache directory above:
-
-- `<database.path>/semantic/fastembed-cache/*` (pre-unification FastEmbed cache)
-- `./.fastembed_cache/*` (fastembed-rs default)
-- stray `./models--*` directories in the working directory (hf-hub content-addressed
-  dirs leaked by GLiNER's working-directory fallback)
-
-Migration is never fatal. Items already present at the destination are skipped and
-logged. A failure during one entry does not abort migration of the others.
-
 ### Environment Variables
 
 | Variable | Effect |

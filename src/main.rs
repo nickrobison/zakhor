@@ -193,16 +193,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let models_cache_dir =
         zakhor_common::paths::resolve_models_cache_dir(cfg.models.cache_dir.as_deref());
     tracing::info!(cache = %models_cache_dir.display(), "Model cache directory");
-    let report = zakhor_common::paths::migrate_legacy_model_caches(
-        &models_cache_dir,
-        &zakhor_common::paths::legacy_model_cache_sources(
-            &cfg.database.path,
-            std::path::Path::new("."),
-        ),
-    );
-    if !report.moved.is_empty() || !report.failed.is_empty() {
-        tracing::info!(report = %report, "Legacy model cache migration");
-    }
 
     let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
     let conn = tracker_db::init_db(db_path);
