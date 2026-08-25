@@ -97,6 +97,7 @@ impl Default for Config {
             background: BackgroundConfig::default(),
             extraction: ExtractionConfig::default(),
             embedding: EmbeddingConfig::default(),
+            models: ModelsConfig::default(),
         }
     }
 }
@@ -110,9 +111,14 @@ impl Config {
     pub fn load_from(path: &std::path::Path) -> Self {
         use figment::providers::{Env, Format, Serialized, Toml};
 
-        let result: Result<Self, _> = Figment::new()
-            .merge(Serialized::defaults(Config::default()))
-            .merge(Toml::file(path))
+        let mut figment = Figment::new().merge(Serialized::defaults(Config::default()));
+
+        // Only merge TOML layer if path is not empty
+        if !path.as_os_str().is_empty() {
+            figment = figment.merge(Toml::file(path));
+        }
+
+        let result: Result<Self, _> = figment
             .merge(Env::prefixed("ZAKHOR_").map(map_env_key))
             .extract();
 
@@ -148,6 +154,11 @@ impl Config {
         }
         self
     }
+
+    /// Load configuration from environment variables only (no TOML file).
+    pub fn load_env_only() -> Self {
+        Self::load_from(std::path::Path::new(""))
+    }
 }
 
 /// Translate a figment `Env` key into the matching dotted config path.
@@ -161,6 +172,7 @@ pub(crate) fn map_env_key(key: &UncasedStr) -> Uncased<'_> {
         "DB_PATH" => Uncased::new("database.path"),
         "HTTP_HOST" => Uncased::new("http.host"),
         "HTTP_PORT" => Uncased::new("http.port"),
+        "MODELS_CACHE_DIR" => Uncased::new("models.cache_dir"),
         other => Uncased::new(other.to_ascii_lowercase()),
     };
     mapped

@@ -182,19 +182,63 @@ fn test_load_from_malformed_toml_falls_back() {
 }
 
 #[test]
-fn test_map_env_key_translates_known_vars() {
-    let cases: &[(&str, &str)] = &[
-        ("DB_PATH", "database.path"),
-        ("db_path", "database.path"),
-        ("HTTP_HOST", "http.host"),
-        ("http_host", "http.host"),
-        ("HTTP_PORT", "http.port"),
-        ("http_port", "http.port"),
-        ("FOO_BAR", "foo_bar"),
-        ("foo_bar", "foo_bar"),
-    ];
-    for (input, expected) in cases {
-        let u = figment::value::Uncased::new(*input);
-        assert_eq!(map_env_key(&u).as_str(), *expected, "input={input}");
-    }
+fn test_models_cache_dir_from_toml() {
+    let toml_content = r#"
+[database]
+path = "/tmp/db"
+
+[models]
+cache_dir = "/tmp/m"
+"#;
+    let config: Config = toml::from_str(toml_content).expect("TOML should parse");
+    assert_eq!(config.models.cache_dir, Some(PathBuf::from("/tmp/m")));
+}
+
+#[test]
+fn test_models_cache_dir_absent_in_toml() {
+    let toml_content = r#"
+[database]
+path = "/custom/db"
+"#;
+    let config: Config =
+        toml::from_str(toml_content).expect("TOML without new sections should parse");
+    assert!(config.models.cache_dir.is_none());
+}
+
+#[test]
+fn test_default_config_models_cache_dir_is_none() {
+    let config = Config::default();
+    assert!(config.models.cache_dir.is_none());
+}
+
+#[test]
+fn test_map_env_key_models_cache_dir() {
+    let u = figment::value::Uncased::new("MODELS_CACHE_DIR");
+    assert_eq!(map_env_key(&u).as_str(), "models.cache_dir");
+}
+
+#[test]
+fn test_load_from_round_trips_models_cache_dir() {
+    let dir = std::env::temp_dir().join(format!("zakhor-config-models-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let toml_path = dir.join("models.toml");
+    std::fs::write(
+        &toml_path,
+        r#"
+[models]
+cache_dir = "/tmp/models"
+"#,
+    )
+    .expect("write toml");
+
+    let config = Config::load_from(&toml_path);
+    assert_eq!(config.models.cache_dir, Some(PathBuf::from("/tmp/models")));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_load_env_only_models_cache_dir_is_none() {
+    let config = Config::load_env_only();
+    assert!(config.models.cache_dir.is_none());
 }

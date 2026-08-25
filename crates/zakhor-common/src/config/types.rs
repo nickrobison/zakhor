@@ -22,6 +22,8 @@ pub struct Config {
     pub extraction: ExtractionConfig,
     #[serde(default)]
     pub embedding: EmbeddingConfig,
+    #[serde(default)]
+    pub models: ModelsConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -101,4 +103,13 @@ pub struct EmbeddingConfig {
     /// is desired.
     #[serde(default)]
     pub enabled: bool,
+}
+
+/// Configuration for downloaded ML model caches (FastEmbed + GLiNER share one directory).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ModelsConfig {
+    /// Shared on-disk cache directory for downloaded ML models.
+    /// When unset/empty: `$XDG_CACHE_HOME/zakhor/models` (platform cache fallback via `dirs`).
+    #[serde(default)]
+    pub cache_dir: Option<PathBuf>,
 }
