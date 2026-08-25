@@ -9,6 +9,7 @@ edition = "2024"
 anyhow = "1.0.102"
 figment = { version = "0.10", features = ["toml", "env"] }
 serde = { workspace = true, features = ["derive"] }
+thiserror = "2"
 tokio = { workspace = true, features = ["full"] }
 toml = "0.8.22"
 tracing = { workspace = true }
