@@ -100,6 +100,40 @@ pub struct RecordDecisionResponse {
 }
 
 #[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
+pub struct CreateProjectArgs {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
+pub struct LinkToProjectArgs {
+    pub entity_uri: String,
+    pub project_uri: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+pub struct CreateProjectResponse {
+    pub project_uri: String,
+}
+
+#[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
+pub struct CreateRepositoryArgs {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
+pub struct LinkToRepositoryArgs {
+    pub entity_uri: String,
+    pub repository_uri: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+pub struct CreateRepositoryResponse {
+    pub repository_uri: String,
+}
+
+#[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
 pub struct AdminInjectToolCallArgs {
     pub tool_name: String,
     pub arguments: serde_json::Value,

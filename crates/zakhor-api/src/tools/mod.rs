@@ -1,8 +1,10 @@
 mod admin;
 mod extract_and_store;
+mod project_tools;
 mod query_entities;
 mod rebuild_indexes;
 mod record_decision;
+mod repository_tools;
 mod search_hybrid;
 mod store_observation;
 mod traverse_graph;
@@ -23,6 +25,8 @@ pub(crate) fn tool_router() -> ToolRouter<MemoryHandler> {
         + MemoryHandler::tool_router_search_hybrid()
         + MemoryHandler::tool_router_record_decision()
         + MemoryHandler::tool_router_rebuild_indexes()
+        + MemoryHandler::tool_router_project_tools()
+        + MemoryHandler::tool_router_repository_tools()
         + MemoryHandler::tool_router_admin()
 }
 
@@ -230,5 +234,18 @@ mod tests {
         let _k = 60.0;
         let score_a = 1.0 / (60.0 + 0.0) + 1.0 / (60.0 + 2.0);
         assert!(score_a > 0.0);
+    }
+
+    #[test]
+    fn test_router_registers_project_and_repository_tools() {
+        let router = tool_router();
+        for name in [
+            "create_project",
+            "link_to_project",
+            "create_repository",
+            "link_to_repository",
+        ] {
+            assert!(router.has_route(name), "tool router should register {name}");
+        }
     }
 }
