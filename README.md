@@ -25,6 +25,9 @@ cargo run
 # Start with a specific DB path:
 cargo run -- --db-path /path/to/db
 
+# Start with a custom config file:
+cargo run -- --config /path/to/zakhor.toml
+
 # Or set via env var:
 ZAKHOR_DB_PATH=/path/to/db cargo run
 

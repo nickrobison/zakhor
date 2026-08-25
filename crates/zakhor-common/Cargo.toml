@@ -7,9 +7,11 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.102"
+figment = { version = "0.10", features = ["toml", "env"] }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["full"] }
 toml = "0.8.22"
+tracing = { workspace = true }
 iref = "3"
 oxiri = { workspace = true }
 static-iref = { workspace = true }

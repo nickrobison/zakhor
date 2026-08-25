@@ -1,4 +1,6 @@
 use super::types::*;
+use figment::Figment;
+use figment::value::{Uncased, UncasedStr};
 use std::path::PathBuf;
 
 impl Default for HttpConfig {
@@ -100,37 +102,66 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn load() -> Self {
-        let mut config = Config::default();
+    /// Load configuration layered from: built-in defaults < TOML file at `path` < `ZAKHOR_*` env vars.
+    ///
+    /// If the TOML file is missing or malformed, defaults plus env vars are used
+    /// (a warning is logged). Existing callers that don't care about the path can
+    /// continue to use [`Config::load`].
+    pub fn load_from(path: &std::path::Path) -> Self {
+        use figment::providers::{Env, Format, Serialized, Toml};
 
-        if let Ok(content) = std::fs::read_to_string("./zakhor.toml")
-            && let Ok(file_config) = toml::from_str::<Config>(&content)
-        {
-            config.database.path = file_config.database.path;
-            config.http.host.clone_from(&file_config.http.host);
-            config.http.port = file_config.http.port;
-            config.llm = file_config.llm;
-            config.entity_resolution = file_config.entity_resolution;
-            config.ranking = file_config.ranking;
-            config.code_indexing = file_config.code_indexing;
-            config.tool_capture = file_config.tool_capture;
-            config.background = file_config.background;
-            config.extraction = file_config.extraction;
-            config.embedding = file_config.embedding;
+        let result: Result<Self, _> = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::file(path))
+            .merge(Env::prefixed("ZAKHOR_").map(map_env_key))
+            .extract();
+
+        match result {
+            Ok(config) => config,
+            Err(e) => {
+                tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "Failed to load config file; using defaults + env vars"
+                );
+                Self::default().apply_env()
+            }
         }
+    }
 
+    /// Load configuration from `./zakhor.toml` (preserved for backward compatibility).
+    pub fn load() -> Self {
+        Self::load_from(std::path::Path::new("./zakhor.toml"))
+    }
+
+    fn apply_env(mut self) -> Self {
         if let Ok(path) = std::env::var("ZAKHOR_DB_PATH") {
-            config.database.path = PathBuf::from(path);
+            self.database.path = PathBuf::from(path);
         }
         if let Ok(host) = std::env::var("ZAKHOR_HTTP_HOST") {
-            config.http.host = host;
+            self.http.host = host;
         }
         if let Ok(port) = std::env::var("ZAKHOR_HTTP_PORT")
             && let Ok(p) = port.parse::<u16>()
         {
-            config.http.port = p;
+            self.http.port = p;
         }
-
-        config
+        self
     }
+}
+
+/// Translate a figment `Env` key into the matching dotted config path.
+///
+/// Required because the previous hand-rolled loader mapped `ZAKHOR_DB_PATH`
+/// to `database.path`, `ZAKHOR_HTTP_HOST` to `http.host`, and
+/// `ZAKHOR_HTTP_PORT` to `http.port`. Figment lowercases keys by default,
+/// but we keep the mapping robust against any case variant.
+pub(crate) fn map_env_key(key: &UncasedStr) -> Uncased<'_> {
+    let mapped: Uncased<'_> = match key.as_str().to_ascii_uppercase().as_str() {
+        "DB_PATH" => Uncased::new("database.path"),
+        "HTTP_HOST" => Uncased::new("http.host"),
+        "HTTP_PORT" => Uncased::new("http.port"),
+        other => Uncased::new(other.to_ascii_lowercase()),
+    };
+    mapped
 }
