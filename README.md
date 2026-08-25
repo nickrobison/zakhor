@@ -56,6 +56,52 @@ Once running in HTTP mode, the server exposes:
 Once running, the MCP server listens on stdin/stdout or HTTP/SSE — connect any
 MCP-compatible host (Claude Desktop, OpenCode, etc.) to use the tools.
 
+## Configuration
+
+Zakhor discovers its TOML config file with the following precedence (first match wins):
+
+1. `-c/--config PATH` — explicit path. Required to exist; a missing explicit path is an error.
+2. `./zakhor.toml` — working-directory config (legacy). Existing local setups keep working because the working directory is checked before XDG.
+3. `$XDG_CONFIG_HOME/zakhor/zakhor.toml` (default `~/.config/zakhor/zakhor.toml`) — user config.
+4. No file found — built-in defaults plus `ZAKHOR_*` environment variables are used.
+
+### Model Cache
+
+FastEmbed (embeddings) and GLiNER (extraction) share a single model cache directory so
+neither re-downloads its ONNX model when the other's cache moves:
+
+- Default: `$XDG_CACHE_HOME/zakhor/models` (i.e. `~/.cache/zakhor/models`).
+- Override via `[models] cache_dir = "..."` in the config file, or the
+  `ZAKHOR_MODELS_CACHE_DIR` environment variable.
+- GLiNER-specific legacy knobs still work at lower precedence:
+  `[extraction] model_dir` beats `[models].cache_dir`, and the `HF_HUB_CACHE`
+  environment variable is still honored as a further fallback.
+
+### One-Time Automatic Migration
+
+On startup, Zakhor best-effort migrates legacy model cache locations into the shared
+cache directory above:
+
+- `<database.path>/semantic/fastembed-cache/*` (pre-unification FastEmbed cache)
+- `./.fastembed_cache/*` (fastembed-rs default)
+- stray `./models--*` directories in the working directory (hf-hub content-addressed
+  dirs leaked by GLiNER's working-directory fallback)
+
+Migration is never fatal. Items already present at the destination are skipped and
+logged. A failure during one entry does not abort migration of the others.
+
+### Environment Variables
+
+| Variable | Effect |
+|----------|--------|
+| `ZAKHOR_DB_PATH` | Override the Tracker DB path |
+| `ZAKHOR_HTTP_HOST` | HTTP bind host (default `127.0.0.1`) |
+| `ZAKHOR_HTTP_PORT` | HTTP bind port (default `3000`) |
+| `ZAKHOR_MODELS_CACHE_DIR` | Override the shared model cache directory (same as `[models].cache_dir`) |
+
+The SQLite/graph database path (`[database] path`, default `./zakhor-db`) intentionally
+stays where it is and is not moved under XDG.
+
 ### MCP Tools
 
 | Tool | Args | Description |
