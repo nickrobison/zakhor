@@ -26,6 +26,7 @@ pub fn ontology_file_content() -> String {
         ("Entity", "Entity"),
         ("Decision", "Decision"),
         ("Project", "Project"),
+        ("Repository", "Repository"),
         ("Issue", "Issue"),
         ("Constraint", "Constraint"),
         ("Observation", "Observation"),
@@ -104,7 +105,13 @@ pub fn ontology_file_content() -> String {
             "belongsToProject",
             "belongsToProject",
             "rdfs:Resource",
+            "zakhor:Project",
+        ),
+        (
+            "belongsToRepository",
+            "belongsToRepository",
             "rdfs:Resource",
+            "zakhor:Repository",
         ),
         (
             "evidenceFor",

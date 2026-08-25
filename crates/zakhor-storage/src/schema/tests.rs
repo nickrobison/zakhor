@@ -41,6 +41,18 @@ fn test_construct_query_well_formed() {
         "braces should be balanced: {} opens vs {} closes",
         opens, closes
     );
+    assert!(
+        q.contains("Repository"),
+        "construct query should register Repository class"
+    );
+    assert!(
+        q.contains("belongsToRepository"),
+        "construct query should register belongsToRepository property"
+    );
+    assert!(
+        q.contains("belongsToProject"),
+        "construct query should register belongsToProject property"
+    );
 }
 
 #[test]
@@ -100,6 +112,18 @@ fn test_insert_query_well_formed() {
         "braces should be balanced: {} opens vs {} closes",
         opens, closes
     );
+    assert!(
+        q.contains("<http://zakhor/ns/Repository>"),
+        "should reference Repository IRI"
+    );
+    assert!(
+        q.contains("<http://zakhor/ns/belongsToRepository>"),
+        "should reference belongsToRepository IRI"
+    );
+    assert!(
+        q.contains("<http://zakhor/ns/belongsToProject>"),
+        "should reference belongsToProject IRI"
+    );
 }
 
 #[test]
@@ -108,6 +132,7 @@ fn test_all_six_classes_defined() {
         entity_iri(),
         decision_iri(),
         project_iri(),
+        repository_iri(),
         issue_iri(),
         constraint_iri(),
         observation_iri(),
@@ -131,6 +156,8 @@ fn test_all_five_properties_defined() {
         decision_outcome_iri(),
         decision_alternative_iri(),
         decision_rationale_iri(),
+        belongs_to_project_iri(),
+        belongs_to_repository_iri(),
     ];
     for iri in &iris {
         assert!(

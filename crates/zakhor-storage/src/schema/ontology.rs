@@ -12,7 +12,8 @@ pub fn ontology_construct_query() -> String {
         "VALUES (?s ?o ?l ?sc) {{\n\
          ({entity} rdf:type rdfs:Class \"Entity\"@en rdfs:Resource)\n\
          ({decision} rdf:type rdfs:Class \"Decision\"@en rdfs:Resource)\n\
-         ({project} rdf:type rdfs:Class \"Project\"@en rdfs:Resource)\n\
+          ({project} rdf:type rdfs:Class \"Project\"@en rdfs:Resource)\n\
+          ({repository} rdf:type rdfs:Class \"Repository\"@en rdfs:Resource)\n\
          ({issue} rdf:type rdfs:Class \"Issue\"@en rdfs:Resource)\n\
          ({constraint} rdf:type rdfs:Class \"Constraint\"@en rdfs:Resource)\n\
           ({observation} rdf:type rdfs:Class \"Observation\"@en rdfs:Resource)\n\
@@ -29,11 +30,14 @@ pub fn ontology_construct_query() -> String {
           ({toolName} zakhor:ToolCall xsd:string)\n\
           ({toolArgs} zakhor:ToolCall xsd:string)\n\
           ({sessionId} zakhor:ToolCall xsd:string)\n\
-          ({timestamp} zakhor:ToolCall xsd:integer)\n\
-          }}",
+           ({timestamp} zakhor:ToolCall xsd:integer)\n\
+           ({btp} rdfs:Resource zakhor:Project)\n\
+           ({btr} rdfs:Resource zakhor:Repository)\n\
+           }}",
         entity = super::entity_iri().as_str(),
         decision = super::decision_iri().as_str(),
         project = super::project_iri().as_str(),
+        repository = super::repository_iri().as_str(),
         issue = super::issue_iri().as_str(),
         constraint = super::constraint_iri().as_str(),
         observation = super::observation_iri().as_str(),
@@ -49,6 +53,8 @@ pub fn ontology_construct_query() -> String {
         toolArgs = super::tool_arguments_iri().as_str(),
         sessionId = super::session_id_iri().as_str(),
         timestamp = super::timestamp_iri().as_str(),
+        btp = super::belongs_to_project_iri().as_str(),
+        btr = super::belongs_to_repository_iri().as_str(),
     );
     crate::sparql::ontology_construct(&construct, &where_clause)
 }
@@ -61,6 +67,7 @@ pub fn ontology_insert_query() -> String {
     let e = super::entity_iri();
     let d = super::decision_iri();
     let p = super::project_iri();
+    let repo = super::repository_iri();
     let i = super::issue_iri();
     let c = super::constraint_iri();
     let o = super::observation_iri();
@@ -76,6 +83,8 @@ pub fn ontology_insert_query() -> String {
     let ta = super::tool_arguments_iri();
     let si = super::session_id_iri();
     let ts_iri = super::timestamp_iri();
+    let btp = super::belongs_to_project_iri();
+    let btr = super::belongs_to_repository_iri();
 
     let triples = format!(
         "<{e}> rdf:type rdfs:Class ;\n\
@@ -86,6 +95,9 @@ pub fn ontology_insert_query() -> String {
                rdfs:subClassOf rdfs:Resource .\n\
           <{p}> rdf:type rdfs:Class ;\n\
                rdfs:label \"Project\"@en ;\n\
+               rdfs:subClassOf rdfs:Resource .\n\
+          <{repo}> rdf:type rdfs:Class ;\n\
+               rdfs:label \"Repository\"@en ;\n\
                rdfs:subClassOf rdfs:Resource .\n\
           <{i}> rdf:type rdfs:Class ;\n\
                rdfs:label \"Issue\"@en ;\n\
@@ -131,7 +143,13 @@ pub fn ontology_insert_query() -> String {
                   rdfs:range xsd:string .\n\
           <{ts_iri}> rdf:type rdf:Property ;\n\
                   rdfs:domain zakhor:ToolCall ;\n\
-                  rdfs:range xsd:integer .",
+                  rdfs:range xsd:integer .\n\
+          <{btp}> rdf:type rdf:Property ;\n\
+                  rdfs:domain rdfs:Resource ;\n\
+                  rdfs:range zakhor:Project .\n\
+          <{btr}> rdf:type rdf:Property ;\n\
+                  rdfs:domain rdfs:Resource ;\n\
+                  rdfs:range zakhor:Repository .",
         e = e.as_str(),
         d = d.as_str(),
         p = p.as_str(),
@@ -150,6 +168,9 @@ pub fn ontology_insert_query() -> String {
         ta = ta.as_str(),
         si = si.as_str(),
         ts_iri = ts_iri.as_str(),
+        repo = repo.as_str(),
+        btp = btp.as_str(),
+        btr = btr.as_str(),
     );
 
     crate::sparql::SparqlBuilder::insert_data_raw(&triples)
