@@ -12,7 +12,7 @@ use tracker::SparqlConnection;
 use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 use zakhor_common::vocab;
 use zakhor_storage::sparql::Prefix;
-use zakhor_storage::sparql::prefix_declarations;
+use zakhor_storage::sparql::{format_iri, prefix_declarations};
 
 /// A named project in the knowledge graph.
 #[derive(Clone, Debug)]
@@ -37,42 +37,53 @@ pub(crate) fn build_create_node_sparql(
     node_uri: &str,
     label: &str,
     description: Option<&str>,
-) -> String {
-    let uri = sanitize_uri(node_uri);
-    let class = sanitize_uri(class_iri);
-    let name = Literal::new_language_tagged_literal(label.to_string(), "en").unwrap();
-    let desc_clause = description
-        .map(|desc| {
-            format!(
-                "  <{uri}> rdfs:comment {} .\n",
-                Literal::new_language_tagged_literal(desc.to_string(), "en").unwrap()
-            )
-        })
-        .unwrap_or_default();
-    format!(
+) -> Result<String, String> {
+    let uri = format_iri(node_uri).map_err(|e| e.to_string())?;
+    let class = format_iri(class_iri).map_err(|e| e.to_string())?;
+    let name = Literal::new_language_tagged_literal(label.to_string(), "en")
+        .map_err(|e| format!("Invalid name: {e}"))?;
+    let desc_clause = match description {
+        Some(desc) => format!(
+            "  {uri} rdfs:comment {} .\n",
+            Literal::new_language_tagged_literal(desc.to_string(), "en")
+                .map_err(|e| format!("Invalid description: {e}"))?
+        ),
+        None => String::new(),
+    };
+    Ok(format!(
         r#"{prefixes}INSERT DATA {{
-  <{uri}> rdf:type <{class}> .
-  <{uri}> rdfs:label {name} .
+  {uri} rdf:type {class} .
+  {uri} rdfs:label {name} .
 {desc_clause}}}"#,
         prefixes = prefix_declarations(),
-    )
+    ))
 }
 
 /// Build an `INSERT DATA` query linking two resources via a predicate IRI.
-pub(crate) fn build_link_sparql(predicate_iri: &str, from_uri: &str, to_uri: &str) -> String {
-    format!(
+pub(crate) fn build_link_sparql(
+    predicate_iri: &str,
+    from_uri: &str,
+    to_uri: &str,
+) -> Result<String, String> {
+    Ok(format!(
         r#"{prefixes}INSERT DATA {{
-  <{from}> <{predicate}> <{to}> .
+  {from} {predicate} {to} .
 }}"#,
         prefixes = prefix_declarations(),
-        predicate = sanitize_uri(predicate_iri),
-        from = sanitize_uri(from_uri),
-        to = sanitize_uri(to_uri),
-    )
+        predicate = format_iri(predicate_iri).map_err(|e| e.to_string())?,
+        from = checked_iri(from_uri, "link source")?,
+        to = checked_iri(to_uri, "link target")?,
+    ))
 }
 
-fn sanitize_uri(uri: &str) -> String {
-    uri.chars().filter(|c| *c != '<' && *c != '>').collect()
+/// Format a caller-supplied IRI for interpolation, or explain why it cannot be.
+///
+/// The previous behaviour stripped `<` and `>`, which kept the query framing
+/// intact but still forwarded whitespace, quotes and NUL bytes into the
+/// statement. Those reached Tracker as a parse error naming a byte offset, or —
+/// for a NUL — panicked inside the GString conversion.
+fn checked_iri(uri: &str, what: &str) -> Result<String, String> {
+    format_iri(uri).map_err(|_| format!("{what} {uri:?} is not a valid URI"))
 }
 
 struct ExistingNode {
@@ -95,12 +106,12 @@ fn find_named_node(
 
     let sparql = format!(
         r#"{}SELECT ?uri ?comment WHERE {{
-  ?uri rdf:type <{class}> ;
+  ?uri rdf:type {class} ;
        rdfs:label {label} .
   OPTIONAL {{ ?uri rdfs:comment ?comment . }}
 }}"#,
         prefix_declarations(),
-        class = sanitize_uri(class_iri),
+        class = format_iri(class_iri).map_err(|e| e.to_string())?,
     );
 
     let cursor = conn
@@ -142,10 +153,12 @@ fn find_named_node(
 /// `ASK` is not usable here: it reports true even for a subject with no triples
 /// at all, which would make every candidate URI look taken.
 fn uri_exists(conn: &SparqlConnection, uri: &str) -> bool {
+    let Ok(subject) = format_iri(uri) else {
+        return false;
+    };
     let sparql = format!(
-        "{}SELECT ?o WHERE {{ <{}> rdf:type ?o }} LIMIT 1",
+        "{}SELECT ?o WHERE {{ {subject} rdf:type ?o }} LIMIT 1",
         prefix_declarations(),
-        sanitize_uri(uri),
     );
 
     let probe = || -> Result<bool, String> {
@@ -255,7 +268,7 @@ pub fn create_project(
         &project_uri,
         name,
         description,
-    );
+    )?;
 
     conn.update(&sparql, None::<&Cancellable>)
         .map_err(|e| format!("Create project failed: {e}"))?;
@@ -278,7 +291,7 @@ pub fn link_to_project(
         vocab::belongs_to_project_iri().as_str(),
         entity_uri,
         project_uri,
-    );
+    )?;
     conn.update(&sparql, None::<&Cancellable>)
         .map_err(|e| format!("Link to project failed: {e}"))?;
     Ok(())
@@ -308,7 +321,7 @@ pub fn create_repository(
         &repository_uri,
         name,
         description,
-    );
+    )?;
 
     conn.update(&sparql, None::<&Cancellable>)
         .map_err(|e| format!("Create repository failed: {e}"))?;
@@ -331,7 +344,7 @@ pub fn link_to_repository(
         vocab::belongs_to_repository_iri().as_str(),
         entity_uri,
         repository_uri,
-    );
+    )?;
     conn.update(&sparql, None::<&Cancellable>)
         .map_err(|e| format!("Link to repository failed: {e}"))?;
     Ok(())
@@ -439,7 +452,8 @@ mod tests {
             "http://zakhor/ns/project/test",
             "Test Project",
             Some("A test project"),
-        );
+        )
+        .expect("valid IRIs");
         assert!(query.contains("rdf:type <http://zakhor/ns/Project>"));
         assert!(query.contains("\"Test Project\"@en"));
         assert!(query.contains("rdfs:comment"));
@@ -450,7 +464,8 @@ mod tests {
             "http://zakhor/ns/project/test",
             "Test Project",
             None,
-        );
+        )
+        .expect("valid IRIs");
         assert!(no_desc.contains("rdf:type <http://zakhor/ns/Project>"));
         assert!(!no_desc.contains("rdfs:comment"));
     }
@@ -589,9 +604,10 @@ mod tests {
     fn test_build_link_sparql_strips_angle_brackets() {
         let query = build_link_sparql(
             "http://zakhor/ns/belongsToProject",
-            "<http://zakhor/ns/entity/e1>",
-            "<http://zakhor/ns/project/p1>",
-        );
+            "http://zakhor/ns/entity/e1",
+            "http://zakhor/ns/project/p1",
+        )
+        .expect("valid IRIs");
         assert_eq!(query.matches("<http://zakhor/ns/entity/e1>").count(), 1);
         assert_eq!(query.matches("<http://zakhor/ns/project/p1>").count(), 1);
         assert!(query.contains("<http://zakhor/ns/belongsToProject>"));

@@ -19,6 +19,7 @@ Test coverage (2.1–2.7):
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -968,3 +969,99 @@ async def test_sparql_relation_idempotency(
         pytest.xfail(
             reason=f"SPARQL query failed (endpoint may not be available): {exc}"
         )
+
+
+# ===================================================================
+# Issue #77 - entity URIs are validated, not stripped
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_store_observation_rejects_malformed_entity_uri(
+    mcp_session: ClientSession,
+) -> None:
+    """A malformed entity URI must be a clean error, not a wedged request.
+
+    A non-addressable entity URI used to panic inside the IRI formatter, and
+    the tool call then never returned, so one bad argument hung the caller
+    indefinitely. The 15s bound is the regression guard: without it a
+    reintroduction shows up as an opaque test timeout.
+    """
+    for bad_uri in [
+        "not-a-uri",
+        "http://example.com/a b",
+        "http://example.com/a} INSERT DATA { <x> <y> <z}",
+        'http://example.com/a" . "b',
+        "",
+    ]:
+        try:
+            result = await asyncio.wait_for(
+                mcp_session.call_tool(
+                    "store_observation",
+                    {
+                        "text": "uri validation probe",
+                        "entities": [{"uri": bad_uri, "label": "P"}],
+                        "relations": [],
+                    },
+                ),
+                timeout=15,
+            )
+        except asyncio.TimeoutError as exc:
+            raise AssertionError(
+                f"store_observation hung on entity URI {bad_uri!r}"
+            ) from exc
+
+        assert result.isError, (
+            f"entity URI {bad_uri!r} should be rejected, got: {_get_text(result)}"
+        )
+        text = _get_text(result)
+        assert "Parser error" not in text, f"raw parser error leaked: {text}"
+        # Emptiness or IRI validity may fire first; both are clean validations.
+        assert "validation:" in text, f"error should be a validation error: {text}"
+
+
+@pytest.mark.asyncio
+async def test_nul_byte_in_entity_uri_does_not_panic(
+    mcp_session: ClientSession,
+) -> None:
+    """A NUL byte previously panicked the blocking task (GStrInteriorNulError)."""
+    try:
+        result = await asyncio.wait_for(
+            mcp_session.call_tool(
+                "store_observation",
+                {
+                    "text": "nul probe",
+                    "entities": [
+                        {"uri": "http://zakhor/ns/entity/a\u0000b", "label": "P"}
+                    ],
+                    "relations": [],
+                },
+            ),
+            timeout=15,
+        )
+    except asyncio.TimeoutError as exc:
+        raise AssertionError("store_observation hung on a NUL byte") from exc
+
+    assert result.isError, "a NUL byte must be rejected"
+    text = _get_text(result)
+    assert "panicked" not in text, f"a task panicked: {text}"
+    assert "validation:" in text, f"error should be a validation error: {text}"
+
+
+@pytest.mark.asyncio
+async def test_valid_entity_uris_still_accepted(
+    mcp_session: ClientSession,
+) -> None:
+    """Validation must not reject legitimate addresses, including the urn: form."""
+    result = await mcp_session.call_tool(
+        "store_observation",
+        {
+            "text": "valid uri probe observation",
+            "entities": [
+                {"uri": "http://zakhor/ns/entity/valid-uri-probe", "label": "ValidUri"},
+                {"uri": "urn:uuid:11111111-2222-3333-4444-555555555555", "label": "ValidUrn"},
+            ],
+            "relations": [],
+        },
+    )
+    assert not result.isError, f"valid IRIs must be accepted: {_get_text(result)}"

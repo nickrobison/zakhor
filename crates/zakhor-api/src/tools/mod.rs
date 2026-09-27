@@ -13,7 +13,7 @@ use oxrdf::Literal;
 use rmcp::handler::server::router::tool::ToolRouter;
 use std::collections::HashMap;
 use zakhor_search::{IndexSyncManager, ScoredDoc};
-use zakhor_storage::sparql::prefix_declarations;
+use zakhor_storage::sparql::{escape_literal, format_iri, prefix_declarations};
 
 use crate::handler::MemoryHandler;
 
@@ -85,29 +85,36 @@ pub fn build_entity_query(pattern: &str, limit: u32) -> String {
 }
 
 #[allow(dead_code)]
-pub fn build_traverse_query(start_id: &str, depth: u32, edge_types: &[String]) -> String {
-    let safe_start = start_id.replace(['>', '<'], "");
+pub fn build_traverse_query(
+    start_id: &str,
+    depth: u32,
+    edge_types: &[String],
+) -> Result<String, String> {
+    // `start` lands inside a quoted SPARQL string literal, so it must be
+    // escaped; stripping angle brackets does nothing for a double quote.
+    let safe_start = escape_literal(start_id);
+    let start_iri = format_iri(start_id).map_err(|e| format!("start_id {e}"))?;
     let filter_clause = if edge_types.is_empty() {
         String::new()
     } else {
         let types: Vec<String> = edge_types
             .iter()
-            .map(|t| format!("<{}>", t.replace(['>', '<'], "")))
-            .collect();
+            .map(|t| format_iri(t).map_err(|e| format!("edge_type {e}")))
+            .collect::<Result<_, _>>()?;
         format!("FILTER(?p IN ({})) ", types.join(" "))
     };
     let mut patterns = Vec::new();
     for d in 1..=depth {
-        let fwd = hop_chain_forward(&safe_start, d);
+        let fwd = hop_chain_forward(&start_iri, d);
         patterns.push(format!(
-            "  {{ SELECT ?s ?p ?o WHERE {{ {fwd} BIND(<{start}> AS ?s) {filter} }} }}",
+            "  {{ SELECT ?s ?p ?o WHERE {{ {fwd} BIND({start} AS ?s) {filter} }} }}",
             fwd = fwd,
-            start = safe_start,
+            start = start_iri,
             filter = filter_clause
         ));
-        let bwd = hop_chain_backward(&safe_start, d);
+        let bwd = hop_chain_backward(&start_iri, d);
         patterns.push(format!(
-            "  {{ SELECT ?s ?p ?o WHERE {{ {bwd} BIND(<{start}> AS ?o) {filter} }} }}",
+            "  {{ SELECT ?s ?p ?o WHERE {{ {bwd} BIND({start} AS ?o) {filter} }} }}",
             bwd = bwd,
             start = safe_start,
             filter = filter_clause
@@ -118,23 +125,23 @@ pub fn build_traverse_query(start_id: &str, depth: u32, edge_types: &[String]) -
     } else {
         format!("\n  UNION\n{}", patterns.join("\n  UNION\n"))
     };
-    format!(
-        "{prefixes}SELECT ?s ?p ?o WHERE {{\n  {{ ?s ?p ?o . FILTER(str(?s) = \"{start}\") . {filter} }}\n  UNION\n  {{ ?s ?p ?o . FILTER(str(?o) = \"{start}\") . {filter} }}{depth}\n}}",
+    Ok(format!(
+        "{prefixes}SELECT ?s ?p ?o WHERE {{\n  {{ ?s ?p ?o . FILTER(str(?s) = {start}) . {filter} }}\n  UNION\n  {{ ?s ?p ?o . FILTER(str(?o) = {start}) . {filter} }}{depth}\n}}",
         prefixes = prefix_declarations(),
         start = safe_start,
         filter = filter_clause,
         depth = depth_section
-    )
+    ))
 }
 
 #[allow(dead_code)]
 fn hop_chain_forward(start: &str, depth: u32) -> String {
     if depth == 1 {
-        return format!("<{start}> ?p ?o .");
+        return format!("{start} ?p ?o .");
     }
     let d = depth as usize;
     let mut parts = Vec::with_capacity(d);
-    parts.push(format!("<{start}> ?_p0 ?_mid0 ."));
+    parts.push(format!("{start} ?_p0 ?_mid0 ."));
     for i in 1..(d - 1) {
         parts.push(format!("?_mid{} ?_p{} ?_mid{} .", i - 1, i, i));
     }
@@ -145,7 +152,7 @@ fn hop_chain_forward(start: &str, depth: u32) -> String {
 #[allow(dead_code)]
 fn hop_chain_backward(start: &str, depth: u32) -> String {
     if depth == 1 {
-        return format!("?s ?p <{start}> .");
+        return format!("?s ?p {start} .");
     }
     let d = depth as usize;
     let mut parts = Vec::with_capacity(d);
@@ -153,7 +160,7 @@ fn hop_chain_backward(start: &str, depth: u32) -> String {
     for i in 1..(d - 1) {
         parts.push(format!("?_mid{} ?_p{} ?_mid{} .", i - 1, i, i));
     }
-    parts.push(format!("?_mid{} ?_p{} <{start}> .", d - 2, d - 1));
+    parts.push(format!("?_mid{} ?_p{} {start} .", d - 2, d - 1));
     parts.join(" ")
 }
 
@@ -214,13 +221,13 @@ mod tests {
     }
     #[test]
     fn test_build_traverse_query_depth_1() {
-        let q = build_traverse_query("http://example.org/start", 1, &[]);
+        let q = build_traverse_query("http://example.org/start", 1, &[]).expect("valid IRI");
         assert!(q.contains("SELECT"));
         assert!(!q.contains("!?p"));
     }
     #[test]
     fn test_build_traverse_query_reverse_path() {
-        let q = build_traverse_query("http://example.org/start", 2, &[]);
+        let q = build_traverse_query("http://example.org/start", 2, &[]).expect("valid IRI");
         assert!(q.contains("?_mid0"));
         assert!(q.contains("<http://example.org/start>"));
         assert!(!q.contains("?p/?p"));
@@ -268,7 +275,8 @@ mod tests {
 fn test_traverse_query_applies_edge_filter_to_every_branch() {
     let label = "http://www.w3.org/2000/01/rdf-schema#label";
     for depth in 1..=3u32 {
-        let q = build_traverse_query("http://example.org/start", depth, &[label.to_string()]);
+        let q = build_traverse_query("http://example.org/start", depth, &[label.to_string()])
+            .expect("valid IRIs");
         let branches = q.matches("{ SELECT ?s ?p ?o WHERE {").count() + 2;
         let filters = q.matches("FILTER(?p IN").count();
         assert_eq!(
@@ -281,7 +289,7 @@ fn test_traverse_query_applies_edge_filter_to_every_branch() {
 /// With no edge_types the query must not invent a filter.
 #[test]
 fn test_traverse_query_without_edge_types_has_no_filter() {
-    let q = build_traverse_query("http://example.org/start", 2, &[]);
+    let q = build_traverse_query("http://example.org/start", 2, &[]).expect("valid IRI");
     assert!(!q.contains("FILTER(?p IN"));
 }
 
@@ -339,4 +347,97 @@ fn test_traverse_response_reports_truncation() {
     let json = |r: &crate::args::TraverseGraphResponse| serde_json::to_string(r).unwrap();
     assert!(json(&complete).contains("\"truncated\":false"));
     assert!(json(&truncated).contains("\"truncated\":true"));
+}
+
+#[cfg(test)]
+mod uri_safety_tests {
+    use super::*;
+
+    /// `start_id` is compared inside a quoted SPARQL string literal, so a double
+    /// quote in the input would terminate that literal early. It was not
+    /// exploitable before only because the same value was *also* interpolated
+    /// into a `BIND(<...>)`, where stripping angle brackets made the payload an
+    /// invalid IRI — a property of a different clause, not of this one.
+    ///
+    /// The literal is now escaped, and separately the value is validated before
+    /// it is used at all. Validation is what actually removes the hazard: an
+    /// IRI cannot contain a quote, a newline or a space, so there is nothing
+    /// left to break out with.
+    #[test]
+    fn test_traverse_start_id_literal_is_escaped_and_validated() {
+        // Anything that could terminate the literal is refused outright.
+        for hostile in [
+            r#"a" || true || str(?s) = "b"#,
+            r#"a" . "b"#,
+            r#"a"} UNION {?s ?p ?o} . \"#,
+            "a\"b",
+            "a\nb",
+        ] {
+            assert!(
+                build_traverse_query(hostile, 1, &[]).is_err(),
+                "{hostile:?} must be refused before it reaches the query"
+            );
+        }
+
+        // And a legitimate IRI is emitted as exactly one well-formed literal.
+        let q = build_traverse_query("http://example.org/s", 1, &[]).expect("valid IRI");
+        assert_eq!(
+            q.matches(r#"FILTER(str(?s) = "http://example.org/s")"#)
+                .count(),
+            1,
+            "start must appear as a single quoted literal: {q}"
+        );
+        assert_eq!(
+            q.matches(r#"FILTER(str(?o) = "http://example.org/s")"#)
+                .count(),
+            1,
+            "start must appear as a single quoted literal: {q}"
+        );
+    }
+
+    /// A hostile start_id is now refused outright rather than producing a query
+    /// that fails to parse deep inside Tracker.
+    #[test]
+    fn test_traverse_rejects_invalid_start_id() {
+        for hostile in ["not-a-uri", "http://example.com/a b", "", "a\0b"] {
+            let err = build_traverse_query(hostile, 1, &[])
+                .expect_err("a non-addressable start_id must be refused");
+            assert!(
+                err.contains("not a valid URI"),
+                "error should name the problem, got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_traverse_rejects_invalid_edge_type() {
+        let err = build_traverse_query("http://example.org/s", 1, &["not-a-iri".to_string()])
+            .expect_err("a non-addressable predicate must be refused");
+        assert!(err.contains("not a valid URI"), "got: {err}");
+    }
+
+    /// The generated query must survive a real SPARQL parser. Asserting that a
+    /// URI "appears" is not enough — `<<iri>>` also contains `<iri>`, and that
+    /// malformed form was produced here once already.
+    #[test]
+    fn test_traverse_query_braces_stay_balanced() {
+        for depth in 1..=3u32 {
+            let q = build_traverse_query("http://example.org/s", depth, &[]).expect("valid IRI");
+            assert_eq!(q.matches('{').count(), q.matches('}').count(), "{q}");
+            assert!(
+                !q.contains("<<"),
+                "double angle brackets at depth {depth}: {q}"
+            );
+            assert!(
+                !q.contains(">>"),
+                "double angle brackets at depth {depth}: {q}"
+            );
+            // Every IRI reference must be opened and closed exactly once.
+            assert_eq!(
+                q.matches('<').count(),
+                q.matches('>').count(),
+                "unbalanced IRI framing at depth {depth}: {q}"
+            );
+        }
+    }
 }

@@ -9,8 +9,10 @@ mod queries;
 mod tests;
 
 pub use builder::SparqlBuilder;
+pub use escape::InvalidIri;
 pub use escape::escape_literal;
 pub use escape::format_iri;
+pub use escape::validate_iri;
 #[cfg(test)]
 pub(crate) use prefix::PREFIX_LIST;
 pub use prefix::Prefix;

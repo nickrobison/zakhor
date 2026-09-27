@@ -25,6 +25,7 @@ endpoint is not available.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from typing import Any
@@ -1340,3 +1341,60 @@ async def test_link_to_missing_subject_reports_clean_error(
     assert "rdfs:Resource" not in message, f"storage vocabulary leaked: {message}"
     assert message.count("failed:") <= 1, f"error prefix doubled: {message}"
     assert "no such node" in message, f"error should name the real problem: {message}"
+
+
+@pytest.mark.asyncio
+async def test_link_tools_reject_malformed_uris(
+    mcp_session: ClientSession,
+) -> None:
+    """Both ends of a link are validated before any statement is built.
+
+    Previously a URI containing a space or a newline reached Tracker and came
+    back as a raw parser error naming a byte offset, which tells the caller
+    nothing about which argument was wrong.
+    """
+    project = _parse_json(
+        _get_text(
+            await mcp_session.call_tool("create_project", {"name": "Link Uri Probe"})
+        )
+    )
+    await mcp_session.call_tool(
+        "store_observation",
+        {
+            "text": "link uri probe observation",
+            "entities": [
+                {
+                    "uri": "http://zakhor/ns/entity/link-uri-probe",
+                    "label": "LinkUriProbe",
+                }
+            ],
+            "relations": [],
+        },
+    )
+    subject = "http://zakhor/ns/entity/link-uri-probe"
+
+    for tool, field, value in [
+        ("link_to_project", "entity_uri", "not-a-uri"),
+        ("link_to_project", "entity_uri", "http://example.com/a b"),
+        ("link_to_project", "entity_uri", "http://example.com/a\x00b"),
+        ("link_to_project", "project_uri", "not-a-uri"),
+        ("link_to_project", "project_uri", "http://example.com/a\n} INSERT DATA { <x> <y> <z>"),
+        ("link_to_repository", "repository_uri", "not-a-uri"),
+        ("link_to_repository", "repository_uri", "http://example.com/a b"),
+    ]:
+        if tool == "link_to_project":
+            args = {"entity_uri": subject, "project_uri": project["project_uri"]}
+        else:
+            args = {
+                "entity_uri": subject,
+                "repository_uri": "http://zakhor/ns/repository/link-uri-probe",
+            }
+        args[field] = value
+        result = await asyncio.wait_for(
+            mcp_session.call_tool(tool, args), timeout=15
+        )
+        assert result.isError, f"{tool} {field}={value!r} should be rejected"
+        text = _get_text(result)
+        assert "Parser error" not in text, f"raw parser error leaked: {text}"
+        assert "not a valid URI" in text, f"error should name the problem: {text}"
+        assert "panicked" not in text, f"a task panicked: {text}"
