@@ -50,21 +50,62 @@ ZAKHOR_HTTP_HOST=0.0.0.0 ZAKHOR_HTTP_PORT=4000 cargo run -- --http
 ```
 
 Once running in HTTP mode, the server exposes:
-- MCP tools at the root (`/`) via Streamable HTTP/SSE
+- MCP tools at `/mcp` via Streamable HTTP/SSE
 - REST API at `/api/v1/` (with OpenAPI docs at `/api/v1/docs`)
 
 Once running, the MCP server listens on stdin/stdout or HTTP/SSE — connect any
 MCP-compatible host (Claude Desktop, OpenCode, etc.) to use the tools.
 
+## Configuration
+
+Zakhor supports flexible configuration through command line arguments, configuration files, and environment variables.
+
+### Config File Discovery
+
+Zakhor searches for a configuration file on startup. It uses the first match it finds:
+
+1. Explicit path passed via `-c` or `--config PATH`. This option is optional. If you provide a path that doesn't exist, the server exits with an error.
+2. `./zakhor.toml` in the current working directory. This legacy option is still honored so that existing local setups keep working.
+3. `$XDG_CONFIG_HOME/zakhor/zakhor.toml` (which defaults to `~/.config/zakhor/zakhor.toml`).
+4. Built-in defaults combined with `ZAKHOR_*` environment variables if no file is found.
+
+### Semantic Search
+
+Semantic (embedding) search is **disabled by default**, so `search_hybrid` ranks
+lexically only until you opt in. It reports a `warning` when it is running in
+that degraded mode.
+
+To enable it, set the following in `zakhor.toml` and restart the server:
+
+```toml
+[embedding]
+enabled = true
+```
+
+The first search after startup loads the `Xenova/bge-small-en-v1.5` model
+(~70 MB, cached under `<database.path>/semantic/fastembed-cache`) and can take
+several seconds. Populate the index from existing memories with
+`rebuild_indexes`.
+
+### Environment Variables
+
+You can configure Zakhor using the following environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `ZAKHOR_DB_PATH` | Path to the SQLite/graph database. |
+| `ZAKHOR_HTTP_HOST` | Bind host for the HTTP server. |
+| `ZAKHOR_HTTP_PORT` | Bind port for the HTTP server. |
+
 ### MCP Tools
 
 | Tool | Args | Description |
 |------|------|-------------|
-| `store_observation` | `content`, `created_at`, `metadata` | Store an observation with optional structured metadata |
+| `store_observation` | `text`, `entities`, `relations` | Store an observation plus its entities and relations. All three are required. `entities` is an array of `{uri, label}`; `relations` is an array of `{subject_uri, predicate_uri, object_uri, label}` |
 | `extract_and_store` | `uri`, `text` | Auto-extract entities and relations from text (GLiNER) and store them |
 | `query_entities` | `pattern`, `limit` | Query entities by label pattern in the knowledge graph |
-| `traverse_graph` | `uri`, `limit` | Traverse outgoing RDF edges from an entity |
-| `search_hybrid` | `query`, `limit` | Hybrid lexical/semantic search using RRF fusion |
+| `traverse_graph` | `start_id`, `depth`, `edge_types` | Traverse outgoing RDF edges from a node. All three are required; `edge_types` is an array of predicate IRIs (pass `[]` for no filter) |
+| `search_hybrid` | `query`, `limit` | Lexical (BM25) plus optional semantic (embedding) search fused with RRF. Returns a `warning` when semantic search is disabled and ranking is lexical-only |
 | `record_decision` | `context`, `decision`, `alternatives`, `rationale`, `project_uri?` | Record a decision with context and rationale, optionally linked to a project |
 | `rebuild_indexes` | none | Rebuild all search indexes from Tracker |
 | `create_project` | `name`, `description?` | Create a project node and return its URI |

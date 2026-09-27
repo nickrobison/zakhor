@@ -5,6 +5,38 @@ use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use std::path::{Path, PathBuf};
 use tracker::prelude::SparqlCursorExtManual;
 
+/// A stored document: its id, its embedding, and the text it was derived from.
+///
+/// The text is retained so that [`ScoredDoc`] results can carry their content.
+/// Without it a semantic hit can only report an opaque id.
+pub(crate) type SemanticEntry = (String, Vec<f32>, String);
+
+/// Rank `entries` against `query_vec` by cosine similarity, best first.
+///
+/// Pure function: no model required, so it is directly unit-testable.
+pub(crate) fn rank_by_similarity(
+    entries: &[SemanticEntry],
+    query_vec: &[f32],
+    limit: usize,
+) -> Vec<ScoredDoc> {
+    let mut scored: Vec<ScoredDoc> = entries
+        .iter()
+        .map(|(id, vec, text)| ScoredDoc {
+            id: id.clone(),
+            score: cosine_similarity(query_vec, vec),
+            text: text.clone(),
+        })
+        .collect();
+
+    scored.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    scored.truncate(limit);
+    scored
+}
+
 /// In-memory semantic vector index using `fastembed` for local CPU embeddings.
 ///
 /// Uses `BAAI/bge-small-en-v1.5` (384-dim) by default. Snapshots are persisted
@@ -12,7 +44,7 @@ use tracker::prelude::SparqlCursorExtManual;
 /// projection* — the Tracker SPARQL store remains the source of truth.
 pub struct SemanticIndex {
     model: TextEmbedding,
-    vectors: Vec<(String, Vec<f32>)>,
+    vectors: Vec<SemanticEntry>,
     snapshot_path: PathBuf,
 }
 
@@ -53,7 +85,17 @@ impl SemanticIndex {
         };
 
         if index.snapshot_path.exists() {
-            index.load()?;
+            // A snapshot written by an older build may use an incompatible
+            // layout. This index is a derived projection — Tracker remains the
+            // source of truth — so start empty and let `rebuild_indexes`
+            // repopulate rather than refusing to start.
+            if let Err(e) = index.load() {
+                tracing::warn!(
+                    path = %index.snapshot_path.display(),
+                    error = %e,
+                    "Could not load semantic snapshot; starting empty. Run rebuild_indexes to repopulate."
+                );
+            }
         }
 
         Ok(index)
@@ -72,7 +114,8 @@ impl SemanticIndex {
             .into_iter()
             .next()
             .expect("embedding should produce exactly one vector");
-        self.vectors.push((id.to_string(), embedding));
+        self.vectors
+            .push((id.to_string(), embedding, text.to_string()));
         Ok(())
     }
 
@@ -90,23 +133,7 @@ impl SemanticIndex {
             Err(_) => return Vec::new(),
         };
 
-        let mut scored: Vec<ScoredDoc> = self
-            .vectors
-            .iter()
-            .map(|(id, vec)| ScoredDoc {
-                id: id.clone(),
-                score: cosine_similarity(&query_vec, vec),
-                text: String::new(),
-            })
-            .collect();
-
-        scored.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        scored.truncate(limit);
-        scored
+        rank_by_similarity(&self.vectors, &query_vec, limit)
     }
 
     /// Number of vectors currently in the index.

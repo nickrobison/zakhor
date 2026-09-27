@@ -8,7 +8,11 @@ use crate::handler::{MemoryHandler, args_hash};
 
 #[tool_router(router = tool_router_search_hybrid, vis = "pub(crate)")]
 impl MemoryHandler {
-    #[tool(description = "Hybrid search across lexical and semantic indexes using RRF fusion")]
+    #[tool(
+        description = "Search stored memories by relevance, combining lexical (BM25) and \
+                       optional semantic (embedding) indexes with RRF fusion. Reports a warning \
+                       when semantic search is disabled and results are lexical-only."
+    )]
     async fn search_hybrid(
         &self,
         Parameters(args): Parameters<SearchHybridArgs>,
@@ -37,10 +41,16 @@ impl MemoryHandler {
                     })
                     .collect();
                 let count = docs.len() as u64;
+                let warning = (!sync_mgr.semantic_enabled()).then(|| {
+                    "Semantic search is disabled, so this ranked lexically only and will miss \
+                     paraphrases. Enable it with `enabled = true` under `[embedding]` in \
+                     zakhor.toml."
+                        .to_string()
+                });
                 Ok(Json(SearchHybridResponse {
                     results: docs,
                     count,
-                    warning: None,
+                    warning,
                 }))
             }
             None => Ok(Json(SearchHybridResponse {
