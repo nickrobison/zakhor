@@ -130,26 +130,48 @@ fn find_named_node(
     Ok(found)
 }
 
-fn uri_exists(conn: &SparqlConnection, uri: &str) -> Result<bool, String> {
-    // ASK with an unbound predicate/object reports true even when the subject
-    // has no triples, so probe with a bounded SELECT and look for a row.
+/// Whether `uri` already names a node in the graph.
+///
+/// The predicate is deliberately bound. A pattern with a bound subject and an
+/// unbound predicate *and* object (`{ <uri> ?p ?o }`) is rejected by Tracker with
+/// a bare "SQL logic error" while a store's ontology is still being applied —
+/// which is exactly the state a freshly created database is in. Every node this
+/// guards is created through a typed insert, so `rdf:type` is a sound witness of
+/// existence.
+///
+/// `ASK` is not usable here: it reports true even for a subject with no triples
+/// at all, which would make every candidate URI look taken.
+fn uri_exists(conn: &SparqlConnection, uri: &str) -> bool {
     let sparql = format!(
-        "{}SELECT ?p ?o WHERE {{ <{}> ?p ?o }} LIMIT 1",
+        "{}SELECT ?o WHERE {{ <{}> rdf:type ?o }} LIMIT 1",
         prefix_declarations(),
         sanitize_uri(uri),
     );
-    let cursor = conn
-        .query(&sparql, None::<&Cancellable>)
-        .map_err(|e| format!("URI probe failed: {e}"))?;
 
-    let mut any = false;
-    while cursor
-        .next(None::<&Cancellable>)
-        .map_err(|e| format!("Cursor error: {e}"))?
-    {
-        any = true;
+    let probe = || -> Result<bool, String> {
+        let cursor = conn
+            .query(&sparql, None::<&Cancellable>)
+            .map_err(|e| e.to_string())?;
+        let mut any = false;
+        while cursor
+            .next(None::<&Cancellable>)
+            .map_err(|e| e.to_string())?
+        {
+            any = true;
+        }
+        Ok(any)
+    };
+
+    match probe() {
+        Ok(found) => found,
+        Err(e) => {
+            // This check only avoids a needless collision; the insert that
+            // follows is the authority and reports collisions precisely. A
+            // probe that cannot answer must not fail the operation.
+            tracing::warn!("URI existence probe failed for {uri} ({e}); assuming the URI is free");
+            false
+        }
     }
-    Ok(any)
 }
 
 /// Pick an unused URI under `prefix` for a node called `name`.
@@ -160,14 +182,14 @@ fn uri_exists(conn: &SparqlConnection, uri: &str) -> Result<bool, String> {
 /// first.
 fn reserve_node_uri(conn: &SparqlConnection, prefix: &str, name: &str) -> Result<String, String> {
     let base = format!("{prefix}{}", slugify(name));
-    if !uri_exists(conn, &base)? {
+    if !uri_exists(conn, &base) {
         return Ok(base);
     }
 
     let mut suffix = 2;
     loop {
         let candidate = format!("{base}-{suffix}");
-        if !uri_exists(conn, &candidate)? {
+        if !uri_exists(conn, &candidate) {
             return Ok(candidate);
         }
         suffix += 1;
@@ -194,7 +216,7 @@ fn require_existing_subject(
     subject_uri: &str,
     target_description: &str,
 ) -> Result<(), String> {
-    if uri_exists(conn, subject_uri)? {
+    if uri_exists(conn, subject_uri) {
         return Ok(());
     }
     Err(format!(
@@ -431,6 +453,39 @@ mod tests {
         );
         assert!(no_desc.contains("rdf:type <http://zakhor/ns/Project>"));
         assert!(!no_desc.contains("rdfs:comment"));
+    }
+
+    /// The existence probe must bind its predicate.
+    ///
+    /// `{ <uri> ?p ?o }` — bound subject, unbound predicate *and* object — is
+    /// rejected by Tracker with a bare "SQL logic error" while a store's
+    /// ontology is still loading, which broke every `create_project` call on a
+    /// freshly created database in CI while passing locally. The probe is
+    /// pinned to `rdf:type`, which every node this guards carries.
+    #[test]
+    fn test_uri_probe_binds_its_predicate() {
+        let conn = test_store("uri-probe-shape");
+        let free = "http://zakhor/ns/project/never-created";
+        let taken = "http://zakhor/ns/project/taken";
+
+        conn.update(
+            format!("INSERT DATA {{ <{taken}> rdf:type <http://zakhor/ns/Project> . }}").as_str(),
+            None::<&Cancellable>,
+        )
+        .expect("insert");
+
+        assert!(!uri_exists(&conn, free), "an unused URI must read as free");
+        assert!(uri_exists(&conn, taken), "a typed node must read as taken");
+    }
+
+    /// A probe that cannot answer must not take the caller down with it.
+    ///
+    /// The check is an optimisation that avoids a needless collision; the
+    /// insert that follows is the authority. This asserts the signature returns
+    /// a plain `bool`, so there is no error path left to propagate.
+    #[test]
+    fn test_uri_probe_cannot_fail_the_caller() {
+        let _: fn(&SparqlConnection, &str) -> bool = uri_exists;
     }
 
     /// Creating the same project twice must not fail, and must hand back the
