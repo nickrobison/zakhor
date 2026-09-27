@@ -1065,3 +1065,77 @@ async def test_valid_entity_uris_still_accepted(
         },
     )
     assert not result.isError, f"valid IRIs must be accepted: {_get_text(result)}"
+
+
+# ===================================================================
+# Issue #73 - extraction failure must be diagnosable
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_extract_and_store_failure_is_actionable(
+    mcp_session: ClientSession,
+) -> None:
+    """The GLiNER binding's bare `unexpected logits shape` must never surface.
+
+    That string names neither the model nor the expectation, so a caller cannot
+    tell whether the model, the configuration or the storage layer is at fault.
+    The published model cannot be decoded by the pinned binding (issue #73), so
+    the call is expected to fail; what is asserted is the quality of the
+    failure, which is what this change delivers. If the model is ever swapped,
+    this test still passes as long as a success stays free of parse errors.
+    """
+    try:
+        result = await asyncio.wait_for(
+            mcp_session.call_tool(
+                "extract_and_store",
+                {
+                    "uri": "http://example.com/doc-extract",
+                    "text": "Alice works at Acme Corp in Berlin and uses Rust.",
+                },
+            ),
+            timeout=120,
+        )
+    except asyncio.TimeoutError as exc:
+        raise AssertionError("extract_and_store hung") from exc
+
+    text = _get_text(result)
+
+    if not result.isError:
+        # A working extractor: the only hard requirement is no leaked internals.
+        assert "unexpected logits shape" not in text
+        assert "Reshape" not in text, f"raw runtime error leaked: {text}"
+        return
+
+    assert "unexpected logits shape" not in text, (
+        f"the binding's opaque error reached the caller: {text}"
+    )
+    assert "Reshape" not in text, f"raw runtime error leaked: {text}"
+    assert "not a valid URI" not in text
+    # Actionable: it must name the model situation and point at the issue.
+    assert (
+        "unavailable" in text or "#73" in text
+    ), f"failure should be actionable, got: {text}"
+    assert "model" in text, f"failure should name the model, got: {text}"
+
+
+@pytest.mark.asyncio
+async def test_extract_and_store_rejects_empty_text_cleanly(
+    mcp_session: ClientSession,
+) -> None:
+    """Empty text must be a validation error, not an ONNX reshape failure.
+
+    Extraction runs before the ingest stages, so without an up-front check an
+    empty document reached the ONNX graph and surfaced as a tensor reshape
+    error from inside the runtime.
+    """
+    result = await asyncio.wait_for(
+        mcp_session.call_tool(
+            "extract_and_store", {"uri": "http://example.com/empty", "text": "   "}
+        ),
+        timeout=60,
+    )
+    assert result.isError, "empty text must be rejected"
+    text = _get_text(result)
+    assert "Reshape" not in text, f"raw runtime error leaked: {text}"
+    assert "must not be empty" in text, f"expected a validation error, got: {text}"

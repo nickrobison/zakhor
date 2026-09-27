@@ -71,10 +71,46 @@ fn resolve_cache_dir(model_dir: &Path) -> PathBuf {
 /// This function performs blocking I/O (directory creation, hf-hub cache
 /// lookup, and possibly an HTTP download).  Call it from a blocking context
 /// or wrap with [`tokio::task::spawn_blocking`].
+/// The `models--<org>--<name>` directory `hf-hub` uses inside its cache.
+fn cache_repo_dir() -> String {
+    format!("models--{}", HF_REPO.replace('/', "--"))
+}
+
+/// Locate an already-downloaded model without touching the network.
+///
+/// `ensure_model_files` unconditionally builds an `hf-hub` client and calls
+/// `get()`, which does remote work even on a warm cache. Callers that only want
+/// to know whether the model is present — startup diagnostics, tests — need
+/// this instead. Returns `None` when the required files are missing.
+pub fn find_cached_model(model_dir: &Path) -> Option<ModelFiles> {
+    let snapshots = resolve_cache_dir(model_dir)
+        .join(cache_repo_dir())
+        .join("snapshots");
+    let entries = std::fs::read_dir(&snapshots).ok()?;
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        if REQUIRED_FILES.iter().all(|f| dir.join(f).exists()) {
+            return Some(ModelFiles {
+                model_path: dir.join("model.onnx"),
+                tokenizer_path: dir.join("tokenizer.json"),
+            });
+        }
+    }
+    None
+}
+
 #[tracing::instrument(skip(model_dir))]
 pub fn ensure_model_files(model_dir: &Path) -> Result<ModelFiles, ModelSetupError> {
     let effective_dir = resolve_cache_dir(model_dir);
     std::fs::create_dir_all(&effective_dir)?;
+
+    if let Some(cached) = find_cached_model(model_dir) {
+        tracing::debug!(
+            "GLiNER-RELEX model already cached: model={}",
+            cached.model_path.display()
+        );
+        return Ok(cached);
+    }
 
     let api = hf_hub::api::sync::ApiBuilder::new()
         .with_cache_dir(effective_dir)

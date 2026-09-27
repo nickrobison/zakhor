@@ -30,6 +30,7 @@
 //! All ONNX model interaction happens inside `tokio::task::spawn_blocking`
 //! so the async executor is never blocked by inference.
 
+pub mod compat;
 mod config;
 mod errors;
 mod pipeline;

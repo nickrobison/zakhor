@@ -74,8 +74,8 @@ impl Default for ExtractionConfig {
             model_path: PathBuf::default(),
             tokenizer_path: PathBuf::default(),
             model_dir: PathBuf::default(),
-            entity_labels: Vec::new(),
-            relation_labels: Vec::new(),
+            entity_labels: super::extraction_defaults::default_entity_labels(),
+            relation_labels: super::extraction_defaults::default_relation_labels(),
             entity_threshold: 0.5,
             relation_threshold: 0.5,
         }

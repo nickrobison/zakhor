@@ -100,6 +100,18 @@ impl IngestionPipeline {
         extraction: &ExtractionPipeline,
         correlation_id: &str,
     ) -> Result<IngestResult, IngestionError> {
+        // Extraction runs before the ingest stages, so without this check an
+        // empty document reaches the ONNX graph and surfaces as a tensor
+        // reshape failure from deep inside the runtime rather than as the
+        // validation error it is.
+        if text.trim().is_empty() {
+            return Err(IngestionError::Validation(
+                "observation text must not be empty".to_string(),
+                "validate",
+                None,
+            ));
+        }
+
         let text_len = text.len();
 
         let (entities, relations) = extraction
