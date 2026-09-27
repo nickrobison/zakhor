@@ -40,6 +40,21 @@ pub struct CreateDecisionResult {
     pub status: String,
 }
 
+/// Compose a decision's narrative fields into one indexable blob.
+///
+/// A decision stores its prose across several `zakhor:` predicates and carries
+/// no `nie:plainTextContent`, so the search indexes need an explicit
+/// projection. Delegates to [`zakhor_common::decision_text`] so the write path
+/// and the index rebuild cannot drift apart.
+pub fn decision_index_text(args: &CreateDecisionArgs) -> String {
+    zakhor_common::decision_text::decision_index_text(
+        &args.context,
+        &args.outcome,
+        &args.rationale,
+        &args.alternatives,
+    )
+}
+
 /// The direct Decision model.
 ///
 /// Decisions are created directly with `active` status (no Candidate/Proposed

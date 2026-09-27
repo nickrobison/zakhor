@@ -3,7 +3,6 @@ use super::simd::cosine_similarity;
 use crate::semantic::ScoredDoc;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use std::path::{Path, PathBuf};
-use tracker::prelude::SparqlCursorExtManual;
 
 /// A stored document: its id, its embedding, and the text it was derived from.
 ///
@@ -166,37 +165,16 @@ impl SemanticIndex {
 
     /// Rebuild the entire index from the Tracker SPARQL store.
     ///
-    /// Clears all existing vectors, queries every stored memory
-    /// (identifier + text content), and re-embeds each one.
+    /// Clears all existing vectors, re-reads every indexable record
+    /// (observations and decisions), and re-embeds each one.
     pub fn rebuild_from_tracker(&mut self, conn: &tracker::SparqlConnection) -> Result<(), String> {
         self.vectors.clear();
 
-        let sparql = "\
-            PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>\n\
-            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n\
-            SELECT ?identifier ?text WHERE {\n\
-                ?id rdf:type nie:InformationElement ;\n\
-                    nie:identifier ?identifier ;\n\
-                    nie:plainTextContent ?text .\n\
-            }";
+        let docs = crate::rebuild::fetch_all(conn)
+            .map_err(|e| format!("Failed to read indexable documents: {e}"))?;
 
-        let cursor = conn
-            .query(sparql, None::<&gio::Cancellable>)
-            .map_err(|e| format!("SPARQL query failed: {}", e))?;
-
-        while cursor
-            .next(None::<&gio::Cancellable>)
-            .map_err(|e| format!("Cursor iteration failed: {}", e))?
-        {
-            let id = cursor
-                .string(0)
-                .ok_or_else(|| "Missing identifier".to_string())?
-                .to_string();
-            let text = cursor
-                .string(1)
-                .ok_or_else(|| "Missing text content".to_string())?
-                .to_string();
-            self.add(&id, &text)?;
+        for doc in docs {
+            self.add(&doc.id, &doc.text)?;
         }
 
         Ok(())

@@ -11,7 +11,6 @@ use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{Index, IndexWriter, TantivyDocument, doc};
-use tracker::prelude::SparqlCursorExtManual;
 
 use crate::semantic::ScoredDoc;
 use zakhor_common::error::{ZakhorError, ZakhorResult};
@@ -180,10 +179,11 @@ impl LexicalIndex {
 
     /// Rebuild the entire index from Tracker SPARQL data.
     ///
-    /// This deletes all existing documents and re-indexes every
-    /// `nie:InformationElement` from the connected Tracker store.
-    /// `entity_refs` is left as an empty string — that field is reserved
-    /// for future entity-linking enrichment.
+    /// This deletes all existing documents and re-indexes every indexable
+    /// record: observations (`nie:InformationElement`) and decisions
+    /// (`zakhor:Decision`), whose text is projected from its `zakhor:`
+    /// predicates. `entity_refs` is left empty — that field is reserved for
+    /// future entity-linking enrichment.
     pub fn rebuild_from_tracker(&self, conn: &tracker::SparqlConnection) -> ZakhorResult<()> {
         let mut writer: IndexWriter = self
             .index
@@ -194,35 +194,10 @@ impl LexicalIndex {
             .delete_all_documents()
             .map_err(|e| ZakhorError::Internal(format!("Failed to clear index: {e}")))?;
 
-        let sparql = "\
-            PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>\n\
-            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n\
-            SELECT ?identifier ?text WHERE {\n\
-                ?id rdf:type nie:InformationElement ;\n\
-                    nie:identifier ?identifier ;\n\
-                    nie:plainTextContent ?text .\n\
-            }";
-
-        let cursor = conn
-            .query(sparql, None::<&gio::Cancellable>)
-            .map_err(|e| ZakhorError::Database(format!("SPARQL query failed: {e}")))?;
-
-        while cursor
-            .next(None::<&gio::Cancellable>)
-            .map_err(|e| ZakhorError::Database(format!("Cursor iteration failed: {e}")))?
-        {
-            let id = cursor
-                .string(0)
-                .ok_or_else(|| ZakhorError::Internal("Missing identifier in SPARQL result".into()))?
-                .to_string();
-            let text = cursor
-                .string(1)
-                .ok_or_else(|| ZakhorError::Internal("Missing text in SPARQL result".into()))?
-                .to_string();
-
+        for doc in crate::rebuild::fetch_all(conn)? {
             let _ = writer.add_document(doc!(
-                self.id_field => id,
-                self.text_field => text,
+                self.id_field => doc.id,
+                self.text_field => doc.text,
                 self.entity_refs_field => "",
             ));
         }

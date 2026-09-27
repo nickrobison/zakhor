@@ -1,4 +1,5 @@
 pub mod lexical;
+pub mod rebuild;
 pub mod semantic;
 pub mod sync;
 
