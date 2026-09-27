@@ -16,5 +16,6 @@ tracing = "0.1.41"
 ort = "2.0.0-rc.12"
 
 [dev-dependencies]
+zakhor-storage = { workspace = true }
 quickcheck = "1.1.0"
 quickcheck_macros = "1.2.0"

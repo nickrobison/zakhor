@@ -357,7 +357,10 @@ async def test_search_hybrid(mcp_session: ClientSession) -> None:
 
     # If indexes are available, we should get results.
     # If not available, we should get a warning.
-    if search_data.get("warning"):
+    # A warning about semantic search being disabled is the documented default
+    # and does not invalidate the lexical results, so only skip when the sync
+    # manager itself is missing.
+    if "Indexes not available" in (search_data.get("warning") or ""):
         pytest.xfail(reason=f"Search indexes not available: {search_data['warning']}")
 
     assert "results" in search_data, f"Expected results field, got: {search_data}"

@@ -170,4 +170,70 @@ mod tests {
         assert!(OBSERVATIONS_QUERY.contains("nie:InformationElement"));
         assert!(decisions_query().contains("zakhor/ns/Decision"));
     }
+
+    /// The query-string assertions above cannot tell a working projection from
+    /// one that matches the right IRIs but returns nothing. This runs
+    /// `fetch_all` against a real store holding a real decision, which is the
+    /// only way to catch a shape mismatch between the projection and the
+    /// triples `record_decision` actually writes.
+    #[test]
+    fn fetch_all_returns_a_decision_written_the_way_record_decision_writes_it() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use tracker::prelude::SparqlConnectionExtManual;
+
+        static N: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "zakhor-rebuild-test-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).expect("create temp store dir");
+
+        let conn = zakhor_storage::tracker_db::init_db(path.to_str().expect("utf-8 temp path"));
+
+        let decision_uri = "urn:uuid:11111111-2222-3333-4444-555555555555";
+        let context = "ZakhorRebuildToken_Q7W2 must choose a bus";
+        let outcome = "Adopt NATS";
+        let rationale = "Lower operational complexity";
+
+        let insert = format!(
+            "INSERT DATA {{
+                <{decision_uri}> a <{dec}> ;
+                    <{ctx}> \"{context}\" ;
+                    <{out}> \"{outcome}\" ;
+                    <{rat}> \"{rationale}\" .
+            }}",
+            dec = vocab::decision_iri(),
+            ctx = vocab::decision_context_iri(),
+            out = vocab::decision_outcome_iri(),
+            rat = vocab::decision_rationale_iri(),
+        );
+
+        conn.update(insert.as_str(), None::<&gio::Cancellable>)
+            .expect("insert decision triples");
+
+        let docs = fetch_all(&conn).expect("fetch_all over a store holding a decision");
+
+        let doc = docs
+            .iter()
+            .find(|d| d.id == decision_uri)
+            .unwrap_or_else(|| {
+                panic!(
+                    "rebuild projection dropped the decision; \
+                     fetch_all returned {:?}",
+                    docs
+                )
+            });
+
+        for expected in [context, outcome, rationale] {
+            assert!(
+                doc.text.contains(expected),
+                "indexed text missing {expected:?}, got {:?}",
+                doc.text
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&path);
+    }
 }
