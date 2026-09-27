@@ -12,7 +12,7 @@ use tracker::SparqlConnection;
 use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 use zakhor_common::vocab;
 use zakhor_storage::sparql::Prefix;
-use zakhor_storage::sparql::{format_iri, prefix_declarations};
+use zakhor_storage::sparql::{format_iri, prefix_declarations, validate_iri};
 
 /// A named project in the knowledge graph.
 #[derive(Clone, Debug)]
@@ -229,6 +229,13 @@ fn require_existing_subject(
     subject_uri: &str,
     target_description: &str,
 ) -> Result<(), String> {
+    // An unparseable IRI is a bad argument, not a missing node, and the caller
+    // needs to be told which. Checked before the probe because the probe cannot
+    // distinguish the two: it answers "no" for both.
+    validate_iri(subject_uri).map_err(|e| {
+        format!("{e}. Pass a valid absolute IRI, for example http://zakhor/ns/entity/<name>.")
+    })?;
+
     if uri_exists(conn, subject_uri) {
         return Ok(());
     }
