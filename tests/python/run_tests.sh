@@ -2,7 +2,12 @@
 # ---------------------------------------------------------------------------
 # Zakhor Python Integration Test Runner
 #
-# Runs the Python integration test suite against a running Zakhor MCP server.
+# Runs the Python test suite against a running Zakhor MCP server.
+#
+# Collects the whole tests/python tree, not just tests/integration: passing a
+# directory to pytest overrides `testpaths` in pyproject.toml, which silently
+# excluded every top-level test_*.py while the suite still reported success
+# (issue #84).
 # Tests use pytest-asyncio and communicate with the server over HTTP/SSE.
 #
 # Prerequisites:
@@ -20,7 +25,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-INTEGRATION_DIR="$SCRIPT_DIR/tests/integration"
 
 # ---------------------------------------------------------------------------
 # Colors for output
@@ -41,8 +45,10 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 # ---------------------------------------------------------------------------
 FAIL=0
 
-# Check zakhor binary exists (debug build)
-ZAKHOR_BIN="$PROJECT_ROOT/target/debug/zakhor"
+# Check zakhor binary exists (debug build). CARGO_TARGET_DIR is honoured so a
+# customised target directory does not look like a missing build.
+CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PROJECT_ROOT/target}"
+ZAKHOR_BIN="$CARGO_TARGET_DIR/debug/zakhor"
 if [[ ! -x "$ZAKHOR_BIN" ]]; then
     log_error "zakhor binary not found at $ZAKHOR_BIN"
     log_info "Run 'cargo build' first to compile the debug binary."
@@ -75,11 +81,29 @@ if ! command -v uv &>/dev/null; then
     FAIL=1
 fi
 
-# Check integration test directory
-if [[ ! -d "$INTEGRATION_DIR" ]]; then
-    log_error "Integration test directory not found: $INTEGRATION_DIR"
-    FAIL=1
-fi
+  # Check there is at least something to collect, and that everything present is
+  # actually collected. pytest is invoked from SCRIPT_DIR with no path argument
+  # so `testpaths` in pyproject.toml governs collection; passing a directory
+  # here previously overrode it and silently excluded every top-level test_*.py
+  # (issue #84).
+  mapfile -t TEST_FILES < <(find "$SCRIPT_DIR" -name 'test_*.py' -not -path '*/.venv/*' | sort)
+  if [[ ${#TEST_FILES[@]} -eq 0 ]]; then
+      log_error "No test_*.py files found under $SCRIPT_DIR"
+      FAIL=1
+  elif ! (cd "$SCRIPT_DIR" && uv run pytest --collect-only -q >/dev/null 2>&1); then
+      log_error "pytest could not collect the test suite"
+      FAIL=1
+  else
+      COLLECTED="$(cd "$SCRIPT_DIR" && uv run pytest --collect-only -q 2>/dev/null \
+          | grep -oE '[A-Za-z0-9_/.-]*test_[A-Za-z0-9_]*\.py' | sort -u || true)"
+      for f in "${TEST_FILES[@]}"; do
+          base="$(basename "$f")"
+          if ! grep -qE "(^|/)${base}(::|$)" <<<"$COLLECTED"; then
+              log_error "Test file exists but pytest does not collect it: $f"
+              FAIL=1
+          fi
+      done
+  fi
 
 if [[ $FAIL -ne 0 ]]; then
     echo ""
@@ -114,19 +138,19 @@ fi
 # ---------------------------------------------------------------------------
 # Run tests
 # ---------------------------------------------------------------------------
-log_info "Running integration tests..."
+log_info "Running test suite (${#TEST_FILES[@]} files)..."
 echo ""
 
-set +e
-uv run pytest "$INTEGRATION_DIR" -v "${PYTEST_ARGS[@]}"
+  set +e
+  (cd "$SCRIPT_DIR" && uv run pytest -v "${PYTEST_ARGS[@]}")
 EXIT_CODE=$?
 set -e
 
 echo ""
 if [[ $EXIT_CODE -eq 0 ]]; then
-    log_ok "All integration tests passed"
+    log_ok "All tests passed"
 else
-    log_error "Some integration tests failed (exit code: $EXIT_CODE)"
+    log_error "Some tests failed (exit code: $EXIT_CODE)"
 fi
 
 # ---------------------------------------------------------------------------

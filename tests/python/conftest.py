@@ -32,7 +32,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-ZAKHOR_BINARY = PROJECT_ROOT / "target" / "debug" / "zakhor"
+# Honour CARGO_TARGET_DIR so a customised target directory does not look like a
+# missing build; cargo may put the debug binary somewhere other than
+# <workspace>/target.
+_TARGET_DIR = Path(os.environ.get("CARGO_TARGET_DIR") or (PROJECT_ROOT / "target"))
+ZAKHOR_BINARY = _TARGET_DIR / "debug" / "zakhor"
 SERVER_START_TIMEOUT = 10.0  # seconds to wait for server readiness
 POLL_INTERVAL = 0.1  # seconds between readiness checks
 
