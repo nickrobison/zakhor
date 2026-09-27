@@ -75,6 +75,8 @@ pub struct TripleResult {
 pub struct TraverseGraphResponse {
     pub triples: Vec<TripleResult>,
     pub count: u64,
+    /// True when the traversal hit [`MAX_TRAVERSE_TRIPLES`] and stopped early.
+    pub truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
 }

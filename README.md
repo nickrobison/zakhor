@@ -114,7 +114,7 @@ stays where it is and is not moved under XDG.
 | `store_observation` | `text`, `entities`, `relations` | Store an observation plus its entities and relations. All three are required. `entities` is an array of `{uri, label}`; `relations` is an array of `{subject_uri, predicate_uri, object_uri, label}` |
 | `extract_and_store` | `uri`, `text` | Auto-extract entities and relations from text (GLiNER) and store them |
 | `query_entities` | `pattern`, `limit` | Query entities by label pattern in the knowledge graph |
-| `traverse_graph` | `start_id`, `depth`, `edge_types` | Traverse outgoing RDF edges from a node. All three are required; `edge_types` is an array of predicate IRIs (pass `[]` for no filter) |
+| `traverse_graph` | `start_id`, `depth`, `edge_types` | Traverse memory-graph edges from a node. All three are required; `edge_types` is an array of predicate IRIs (pass `[]` for no filter). Expansion follows only the Zakhor memory vocabulary, so schema and ontology axioms are not walked. Results are capped, and the response's `truncated` flag is `true` when the cap was hit — meaning the result set is incomplete |
 | `search_hybrid` | `query`, `limit` | Lexical (BM25) plus optional semantic (embedding) search fused with RRF. Returns a `warning` when semantic search is disabled and ranking is lexical-only |
 | `record_decision` | `context`, `decision`, `alternatives`, `rationale`, `project_uri?` | Record a decision with context and rationale, optionally linked to a project |
 | `rebuild_indexes` | none | Rebuild all search indexes from Tracker |

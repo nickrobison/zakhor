@@ -100,15 +100,17 @@ pub fn build_traverse_query(start_id: &str, depth: u32, edge_types: &[String]) -
     for d in 1..=depth {
         let fwd = hop_chain_forward(&safe_start, d);
         patterns.push(format!(
-            "  {{ SELECT ?s ?p ?o WHERE {{ {fwd} BIND(<{start}> AS ?s) }} }}",
+            "  {{ SELECT ?s ?p ?o WHERE {{ {fwd} BIND(<{start}> AS ?s) {filter} }} }}",
             fwd = fwd,
-            start = safe_start
+            start = safe_start,
+            filter = filter_clause
         ));
         let bwd = hop_chain_backward(&safe_start, d);
         patterns.push(format!(
-            "  {{ SELECT ?s ?p ?o WHERE {{ {bwd} BIND(<{start}> AS ?o) }} }}",
+            "  {{ SELECT ?s ?p ?o WHERE {{ {bwd} BIND(<{start}> AS ?o) {filter} }} }}",
             bwd = bwd,
-            start = safe_start
+            start = safe_start,
+            filter = filter_clause
         ));
     }
     let depth_section = if patterns.is_empty() {
@@ -153,6 +155,15 @@ fn hop_chain_backward(start: &str, depth: u32) -> String {
     }
     parts.push(format!("?_mid{} ?_p{} <{start}> .", d - 2, d - 1));
     parts.join(" ")
+}
+
+/// Whether an IRI is a memory node worth expanding a traversal into.
+///
+/// Only the Zakhor memory vocabulary qualifies. Schema and ontology IRIs are
+/// reachable from every memory node via `rdf:type`, so expanding into them
+/// walks the entire ontology and never terminates in useful results.
+pub fn is_memory_node(iri: &str) -> bool {
+    iri.starts_with("http://zakhor/ns/")
 }
 
 #[allow(dead_code)]
@@ -248,4 +259,84 @@ mod tests {
             assert!(router.has_route(name), "tool router should register {name}");
         }
     }
+}
+
+/// The predicate filter must appear in EVERY branch of the union, not just the
+/// two direct (depth-0) branches. Dropping it from the hop branches means a
+/// caller that filters to one predicate still receives every other predicate.
+#[test]
+fn test_traverse_query_applies_edge_filter_to_every_branch() {
+    let label = "http://www.w3.org/2000/01/rdf-schema#label";
+    for depth in 1..=3u32 {
+        let q = build_traverse_query("http://example.org/start", depth, &[label.to_string()]);
+        let branches = q.matches("{ SELECT ?s ?p ?o WHERE {").count() + 2;
+        let filters = q.matches("FILTER(?p IN").count();
+        assert_eq!(
+            filters, branches,
+            "depth {depth}: expected a predicate filter in all {branches} branches, found {filters}"
+        );
+    }
+}
+
+/// With no edge_types the query must not invent a filter.
+#[test]
+fn test_traverse_query_without_edge_types_has_no_filter() {
+    let q = build_traverse_query("http://example.org/start", 2, &[]);
+    assert!(!q.contains("FILTER(?p IN"));
+}
+
+/// Schema IRIs must not be treated as graph nodes worth expanding, or a
+/// traversal walks from an entity into the ontology and never stops.
+#[test]
+fn test_is_memory_node_excludes_schema_iris() {
+    // Memory vocabulary — the graph an agent actually wants to walk.
+    assert!(is_memory_node("http://zakhor/ns/entity/Kubernetes"));
+    assert!(is_memory_node("http://zakhor/ns/decision/abc"));
+    assert!(is_memory_node("http://zakhor/ns/project/p1"));
+    assert!(is_memory_node("http://zakhor/ns/repository/r1"));
+    // Schema / ontology IRIs — reachable from any memory node via rdf:type.
+    assert!(!is_memory_node(
+        "http://www.w3.org/2000/01/rdf-schema#Resource"
+    ));
+    assert!(!is_memory_node(
+        "http://www.w3.org/2000/01/rdf-schema#Class"
+    ));
+    assert!(!is_memory_node(
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"
+    ));
+    assert!(!is_memory_node(
+        "http://tracker.api.gnome.org/ontology/v3/nrl#added"
+    ));
+    assert!(!is_memory_node("http://www.w3.org/2002/07/owl#Thing"));
+    // Literals and blanks are not nodes.
+    assert!(!is_memory_node("Alice"));
+    assert!(!is_memory_node(""));
+}
+
+/// The cap must stay small enough to keep a traversal inside an agent's
+/// tool-result budget, and non-zero to be meaningful. Checked at compile time.
+const _: () = assert!(
+    crate::handler::MAX_TRAVERSE_TRIPLES > 0 && crate::handler::MAX_TRAVERSE_TRIPLES <= 1000,
+    "traversal cap must be in 1..=1000 to stay within a tool-result budget"
+);
+
+/// A traversal that hits the cap must say so, otherwise a caller cannot tell a
+/// complete neighbourhood from a truncated one.
+#[test]
+fn test_traverse_response_reports_truncation() {
+    let complete = crate::args::TraverseGraphResponse {
+        triples: vec![],
+        count: 0,
+        truncated: false,
+        warning: None,
+    };
+    let truncated = crate::args::TraverseGraphResponse {
+        triples: vec![],
+        count: 0,
+        truncated: true,
+        warning: None,
+    };
+    let json = |r: &crate::args::TraverseGraphResponse| serde_json::to_string(r).unwrap();
+    assert!(json(&complete).contains("\"truncated\":false"));
+    assert!(json(&truncated).contains("\"truncated\":true"));
 }

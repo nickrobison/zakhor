@@ -1,11 +1,10 @@
 use axum::{Json, extract::Query, extract::State};
 use serde::Deserialize;
-use std::collections::HashSet;
 use tracker::prelude::SparqlCursorExtManual;
 
 use super::ApiState;
 use crate::api::error::{ApiError, ApiResult};
-use crate::server::{TraverseGraphResponse, TripleResult, is_resource_iri, query_depth1};
+use crate::server::{MAX_TRAVERSE_TRIPLES, TraverseGraphResponse, TripleResult, traverse_bfs};
 use crate::tools;
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -63,16 +62,22 @@ pub async fn traverse_graph(
                 return Ok(Json(TraverseGraphResponse {
                     triples: vec![],
                     count: 0,
+                    truncated: false,
                     warning: Some(format!("Query issue: {error}")),
                 }));
             }
         };
 
         let mut triples = Vec::new();
+        let mut truncated = false;
         while cursor
             .next(None::<&gio::Cancellable>)
             .map_err(|e| ApiError::internal(format!("Cursor error: {e}")))?
         {
+            if triples.len() >= MAX_TRAVERSE_TRIPLES {
+                truncated = true;
+                break;
+            }
             let subject = cursor
                 .string(0)
                 .map(|value| value.to_string())
@@ -96,51 +101,17 @@ pub async fn traverse_graph(
         Ok(Json(TraverseGraphResponse {
             triples,
             count,
+            truncated,
             warning: None,
         }))
     } else {
-        let mut all_triples: Vec<TripleResult> = Vec::new();
-        let mut seen_sop: HashSet<(String, String, String)> = HashSet::new();
-        let mut visited_iris: HashSet<String> = HashSet::new();
-        let mut frontier: Vec<String> = vec![start_id.to_string()];
-        visited_iris.insert(start_id.to_string());
-
-        for _ in 0..depth {
-            let mut next_frontier: Vec<String> = Vec::new();
-            for node in &frontier {
-                let triples = query_depth1(state.connection(), node, &edge_types);
-                let triples = triples.map_err(ApiError::internal)?;
-                for triple in &triples {
-                    let key = (
-                        triple.subject.clone(),
-                        triple.predicate.clone(),
-                        triple.object.clone(),
-                    );
-                    if seen_sop.insert(key) {
-                        all_triples.push(triple.clone());
-                    }
-                    let obj_iri = is_resource_iri(&triple.object)
-                        && visited_iris.insert(triple.object.clone());
-                    if obj_iri {
-                        next_frontier.push(triple.object.clone());
-                    }
-                    let subj_iri = is_resource_iri(&triple.subject)
-                        && visited_iris.insert(triple.subject.clone());
-                    if subj_iri {
-                        next_frontier.push(triple.subject.clone());
-                    }
-                }
-            }
-            frontier = next_frontier;
-            if frontier.is_empty() {
-                break;
-            }
-        }
-
-        let count = all_triples.len() as u64;
+        let outcome = traverse_bfs(state.connection(), start_id, depth, &edge_types)
+            .map_err(ApiError::internal)?;
+        let count = outcome.triples.len() as u64;
         Ok(Json(TraverseGraphResponse {
-            triples: all_triples,
+            triples: outcome.triples,
             count,
+            truncated: outcome.truncated,
             warning: None,
         }))
     }

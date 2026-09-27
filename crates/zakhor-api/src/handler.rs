@@ -7,6 +7,7 @@ use rmcp::model::{
 };
 use rmcp::service::RequestContext;
 use serde::Serialize;
+use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -122,6 +123,77 @@ impl MemoryHandler {
 
 pub fn is_resource_iri(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://") || s.starts_with("urn:")
+}
+
+/// Upper bound on triples returned by one traversal.
+///
+/// The graph is an RDF store, so a traversal can otherwise reach schema axioms
+/// and return hundreds of triples that say nothing about the memory graph.
+pub const MAX_TRAVERSE_TRIPLES: usize = 500;
+
+/// Result of a bounded traversal.
+pub struct TraversalOutcome {
+    pub triples: Vec<TripleResult>,
+    /// True when [`MAX_TRAVERSE_TRIPLES`] was reached and the walk stopped.
+    pub truncated: bool,
+}
+
+/// Breadth-first traversal from `start_id`, bounded by `depth` and by
+/// [`MAX_TRAVERSE_TRIPLES`].
+///
+/// Only memory vocabulary is expanded: a memory node is reachable from the
+/// ontology via `rdf:type`, so following schema IRIs walks the whole ontology
+/// and yields thousands of irrelevant triples. Expansion is restricted while the
+/// returned triples are not, so the caller still sees the direct edge that led
+/// to a schema node.
+pub fn traverse_bfs(
+    conn: &tracker::SparqlConnection,
+    start_id: &str,
+    depth: u32,
+    edge_types: &[String],
+) -> Result<TraversalOutcome, String> {
+    let mut all_triples: Vec<TripleResult> = Vec::new();
+    let mut seen_sop: HashSet<(String, String, String)> = HashSet::new();
+    let mut visited_iris: HashSet<String> = HashSet::new();
+    let mut frontier: Vec<String> = vec![start_id.to_string()];
+    visited_iris.insert(start_id.to_string());
+    let mut truncated = false;
+
+    for _ in 0..depth {
+        let mut next_frontier: Vec<String> = Vec::new();
+        for node in &frontier {
+            for triple in query_depth1(conn, node, edge_types)? {
+                let subject = triple.subject.clone();
+                let object = triple.object.clone();
+                let key = (subject.clone(), triple.predicate.clone(), object.clone());
+                if seen_sop.insert(key) {
+                    if all_triples.len() >= MAX_TRAVERSE_TRIPLES {
+                        truncated = true;
+                        return Ok(TraversalOutcome {
+                            triples: all_triples,
+                            truncated,
+                        });
+                    }
+                    all_triples.push(triple);
+                }
+                if crate::tools::is_memory_node(&object) && visited_iris.insert(object.clone()) {
+                    next_frontier.push(object);
+                }
+                if crate::tools::is_memory_node(&subject) && visited_iris.insert(subject.clone()) {
+                    next_frontier.push(subject);
+                }
+            }
+        }
+        frontier = next_frontier;
+        if frontier.is_empty() {
+            break;
+        }
+    }
+
+    Ok(TraversalOutcome {
+        triples: all_triples,
+        truncated,
+    })
 }
 
 pub fn query_depth1(
