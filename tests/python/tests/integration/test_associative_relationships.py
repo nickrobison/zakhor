@@ -1223,3 +1223,120 @@ async def test_repository_association_via_mcp(
     assert repository_uri in objects, (
         f"Expected repository URI {repository_uri} in traverse objects, got: {objects}"
     )
+
+
+# ===================================================================
+# Issue #75 — project/repository URI uniqueness and error decoration
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_duplicate_project_name_is_idempotent(mcp_session: ClientSession) -> None:
+    """Re-creating a project must return the same URI, not fail.
+
+    The URI is derived from the name, so a second insert targets the same
+    subject and Tracker rejects the second value written to the single-valued
+    rdfs:comment. Descriptions differ here on purpose: re-writing an identical
+    value is accepted, so equal descriptions would pass against the bug.
+    """
+    first = _parse_json(
+        _get_text(
+            await mcp_session.call_tool(
+                "create_project",
+                {"name": "Idempotency Probe", "description": "first"},
+            )
+        )
+    )
+    second = _parse_json(
+        _get_text(
+            await mcp_session.call_tool(
+                "create_project",
+                {"name": "Idempotency Probe", "description": "second"},
+            )
+        )
+    )
+
+    assert first["project_uri"] == second["project_uri"], (
+        "a repeated create_project must return the existing URI, "
+        f"got {first['project_uri']} then {second['project_uri']}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_names_sharing_a_slug_get_distinct_projects(
+    mcp_session: ClientSession,
+) -> None:
+    """ "My Project" and "my/project" are different projects, not one."""
+    a = _parse_json(
+        _get_text(
+            await mcp_session.call_tool("create_project", {"name": "Slug Probe One"})
+        )
+    )
+    b = _parse_json(
+        _get_text(
+            await mcp_session.call_tool("create_project", {"name": "slug/probe/one"})
+        )
+    )
+
+    assert a["project_uri"] != b["project_uri"], (
+        "distinct names that slugify alike must not collapse onto one node, "
+        f"both returned {a['project_uri']}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_repository_name_is_idempotent(
+    mcp_session: ClientSession,
+) -> None:
+    """The same collision existed for repositories; fix both."""
+    first = _parse_json(
+        _get_text(
+            await mcp_session.call_tool(
+                "create_repository",
+                {"name": "Idempotency Probe Repo", "description": "first"},
+            )
+        )
+    )
+    second = _parse_json(
+        _get_text(
+            await mcp_session.call_tool(
+                "create_repository",
+                {"name": "Idempotency Probe Repo", "description": "second"},
+            )
+        )
+    )
+
+    assert first["repository_uri"] == second["repository_uri"]
+
+
+@pytest.mark.asyncio
+async def test_link_to_missing_subject_reports_clean_error(
+    mcp_session: ClientSession,
+) -> None:
+    """The error must be actionable, not Tracker's garbled ontology diagnostic.
+
+    Regression guard for the double-wrapped prefixes and the duplicated
+    "is not is not" wording, both of which reached the caller verbatim.
+    """
+    project = _parse_json(
+        _get_text(
+            await mcp_session.call_tool("create_project", {"name": "Link Error Probe"})
+        )
+    )
+
+    result = await mcp_session.call_tool(
+        "link_to_project",
+        {
+            "entity_uri": "http://example.com/definitely-not-stored",
+            "project_uri": project["project_uri"],
+        },
+    )
+
+    assert result.isError, (
+        f"linking a subject that was never stored must fail, got: {_get_text(result)}"
+    )
+    message = _get_text(result)
+    assert "is not is not" not in message, f"duplicated wording leaked: {message}"
+    assert "rdfs:Resource" not in message, f"storage vocabulary leaked: {message}"
+    assert message.count("failed:") <= 1, f"error prefix doubled: {message}"
+    assert "no such node" in message, f"error should name the real problem: {message}"
