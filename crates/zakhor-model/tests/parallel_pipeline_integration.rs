@@ -208,7 +208,7 @@ async fn test_async_ingestion_pipeline_functional() {
     // 1. Load ONNX model
     // 2. Create an in-process Tracker DB
     // 3. Create IngestionPipeline with with_sync_manager(None)
-    // 4. Call extract_and_ingest_async
+    // 4. Call extract_and_ingest
     // 5. Verify it returns IngestResult
     let config = match load_config() {
         Some(c) => c,
@@ -230,7 +230,7 @@ async fn test_async_ingestion_pipeline_functional() {
     let correlation_id = "test-functional-001";
 
     let result = pipeline
-        .extract_and_ingest_async(conn, text, &extraction, correlation_id)
+        .extract_and_ingest(conn, text, &extraction, correlation_id)
         .await;
 
     match result {
@@ -282,7 +282,7 @@ async fn test_async_ingestion_pipeline_functional() {
 
 #[tokio::test]
 async fn test_ingest_async_with_empty_text() {
-    // Verify that extract_and_ingest_async returns a validation error when the
+    // Verify that extract_and_ingest returns a validation error when the
     // text is empty — validation is Stage 1, before any SPARQL operation.
     let config = match load_config() {
         Some(c) => c,
@@ -301,7 +301,7 @@ async fn test_ingest_async_with_empty_text() {
     let mut pipeline = IngestionPipeline::with_sync_manager(None);
 
     let result = pipeline
-        .extract_and_ingest_async(conn, "", &extraction, "test-empty-001")
+        .extract_and_ingest(conn, "", &extraction, "test-empty-001")
         .await;
 
     match result {

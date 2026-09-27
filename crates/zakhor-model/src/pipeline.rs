@@ -1,15 +1,12 @@
 //! 5-stage ingestion pipeline.
 //!
 //! Stages: validate, resolve, build, persist, track. The struct lives here with
-//! its constructors and stage implementations; entry points are in
-//! [`crate::ingest`] and [`crate::ingest_async`].
+//! its constructors and stage implementations; the entry points are in
+//! [`crate::ingest`].
 
-use gio::Cancellable;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracker::SparqlConnection;
-use tracker::prelude::SparqlConnectionExtManual;
 use zakhor_search::IndexSyncManager;
 
 use crate::entity_resolver::EntityResolver;
@@ -195,22 +192,6 @@ impl IngestionPipeline {
         let sparql = build_observation_sparql(args, uuid_urn)?;
         let triples = collect_provenance_triples(args, uuid_urn);
         Ok((sparql, triples))
-    }
-
-    /// Stage 4: Persist to SPARQL triplestore.
-    #[tracing::instrument(skip_all)]
-    pub(crate) fn persist(
-        &self,
-        conn: &SparqlConnection,
-        sparql: &str,
-    ) -> Result<(), IngestionError> {
-        conn.update(sparql, None::<&Cancellable>).map_err(|e| {
-            IngestionError::Persist(
-                format!("SPARQL update failed: {}", e),
-                "persist",
-                Some(Box::new(e)),
-            )
-        })
     }
 
     /// Stages 1–3: validate, resolve, build.
