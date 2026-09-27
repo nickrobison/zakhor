@@ -1,26 +1,16 @@
-use std::fmt;
 use tokio::time::{Duration, sleep};
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ZakhorError {
+    #[error("Database error: {0}")]
     Database(String),
+    #[error("Not found: {0}")]
     NotFound(String),
+    #[error("Validation error: {0}")]
     Validation(String),
+    #[error("Internal error: {0}")]
     Internal(String),
 }
-
-impl fmt::Display for ZakhorError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ZakhorError::Database(msg) => write!(f, "Database error: {}", msg),
-            ZakhorError::NotFound(msg) => write!(f, "Not found: {}", msg),
-            ZakhorError::Validation(msg) => write!(f, "Validation error: {}", msg),
-            ZakhorError::Internal(msg) => write!(f, "Internal error: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for ZakhorError {}
 
 impl From<ZakhorError> for String {
     fn from(err: ZakhorError) -> Self {

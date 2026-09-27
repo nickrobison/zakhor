@@ -5308,11 +5308,13 @@ name = "zakhor-common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dirs",
  "figment",
  "iref",
  "oxiri",
  "serde",
  "static-iref",
+ "thiserror 2.0.18",
  "tokio",
  "toml 0.8.23",
  "tracing",

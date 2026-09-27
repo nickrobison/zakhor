@@ -11,10 +11,18 @@ fn test_db_path() -> PathBuf {
     path
 }
 
+fn test_models_cache_dir() -> PathBuf {
+    let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let path = std::env::temp_dir().join(format!("zakhor-sync-test-cache-{n}"));
+    let _ = std::fs::remove_dir_all(&path);
+    path
+}
+
 #[test]
 fn test_new_creates_index_dirs() {
     let path = test_db_path();
-    let mgr = IndexSyncManager::new(&path, false).expect("Failed to create sync manager");
+    let mgr = IndexSyncManager::new(&path, false, test_models_cache_dir())
+        .expect("Failed to create sync manager");
 
     assert!(
         path.join("lexical").exists(),
@@ -35,7 +43,8 @@ fn test_new_creates_index_dirs() {
 #[test]
 fn test_semantic_dir_not_created_when_disabled() {
     let path = test_db_path();
-    let mgr = IndexSyncManager::new(&path, false).expect("Failed to create sync manager");
+    let mgr = IndexSyncManager::new(&path, false, test_models_cache_dir())
+        .expect("Failed to create sync manager");
 
     // Semantic dir should not exist before first use
     assert!(!path.join("semantic").exists());
@@ -56,7 +65,8 @@ fn test_semantic_dir_not_created_when_disabled() {
 #[test]
 fn test_sync_observation_adds_to_lexical() {
     let path = test_db_path();
-    let mgr = IndexSyncManager::new(&path, false).expect("Failed to create sync manager");
+    let mgr = IndexSyncManager::new(&path, false, test_models_cache_dir())
+        .expect("Failed to create sync manager");
 
     mgr.sync_observation("test-id", "hello world", &[])
         .expect("Failed to sync observation");
@@ -71,7 +81,8 @@ fn test_sync_observation_adds_to_lexical() {
 #[test]
 fn test_sync_observation_with_entity_refs() {
     let path = test_db_path();
-    let mgr = IndexSyncManager::new(&path, false).expect("Failed to create sync manager");
+    let mgr = IndexSyncManager::new(&path, false, test_models_cache_dir())
+        .expect("Failed to create sync manager");
 
     let refs = vec!["http://example.org/ent1".to_string()];
     mgr.sync_observation("id-1", "entity test", &refs)
@@ -87,7 +98,8 @@ fn test_sync_observation_with_entity_refs() {
 #[test]
 fn test_sync_observation_multiple_docs() {
     let path = test_db_path();
-    let mgr = IndexSyncManager::new(&path, false).expect("Failed to create sync manager");
+    let mgr = IndexSyncManager::new(&path, false, test_models_cache_dir())
+        .expect("Failed to create sync manager");
 
     mgr.sync_observation("a", "rust programming", &[]).unwrap();
     mgr.sync_observation("b", "python programming", &[])
@@ -110,7 +122,8 @@ fn test_rebuild_all_structure() {
     // rebuild_all requires a real SparqlConnection, so this test
     // verifies that construction and incremental sync work correctly.
     let path = test_db_path();
-    let mgr = IndexSyncManager::new(&path, false).expect("Failed to create sync manager");
+    let mgr = IndexSyncManager::new(&path, false, test_models_cache_dir())
+        .expect("Failed to create sync manager");
 
     mgr.sync_observation("doc-1", "structure test", &[])
         .expect("Failed to sync");
@@ -130,14 +143,15 @@ fn test_open_existing_indexes() {
 
     // Create and add a document
     {
-        let mgr = IndexSyncManager::new(&path, false).expect("First init");
+        let mgr = IndexSyncManager::new(&path, false, test_models_cache_dir()).expect("First init");
         mgr.sync_observation("persist-id", "persistent data", &refs)
             .expect("First sync");
     }
 
     // Reopen and search
     {
-        let mgr = IndexSyncManager::new(&path, false).expect("Second init");
+        let mgr =
+            IndexSyncManager::new(&path, false, test_models_cache_dir()).expect("Second init");
         let results = mgr.lexical.search("persistent", 10).expect("Search failed");
         assert!(!results.is_empty(), "Expected results from reopened index");
         assert_eq!(results[0].id, "persist-id");
@@ -149,7 +163,8 @@ fn test_open_existing_indexes() {
 #[test]
 fn test_debug_impl() {
     let path = test_db_path();
-    let mgr = IndexSyncManager::new(&path, false).expect("Failed to create");
+    let mgr =
+        IndexSyncManager::new(&path, false, test_models_cache_dir()).expect("Failed to create");
     let debug = format!("{mgr:?}");
     assert!(
         debug.contains("IndexSyncManager"),

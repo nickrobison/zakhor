@@ -70,7 +70,10 @@ impl MemoryHandler {
             entity_threshold: cfg.extraction.entity_threshold,
             relation_threshold: cfg.extraction.relation_threshold,
         };
-        let model_dir = cfg.extraction.model_dir.clone();
+        let model_dir = zakhor_common::paths::resolve_gliner_cache_dir(
+            &cfg.extraction.model_dir,
+            cfg.models.cache_dir.as_deref(),
+        );
         let extraction_init: Arc<OnceCell<Result<Arc<ExtractionPipeline>, String>>> =
             Arc::new(OnceCell::new());
         let extraction_bg = extraction_init.clone();

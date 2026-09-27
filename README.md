@@ -58,16 +58,24 @@ MCP-compatible host (Claude Desktop, OpenCode, etc.) to use the tools.
 
 ## Configuration
 
-Zakhor supports flexible configuration through command line arguments, configuration files, and environment variables.
+Zakhor discovers its TOML config file with the following precedence (first match wins):
 
-### Config File Discovery
+1. `-c/--config PATH` — explicit path. Required to exist; a missing explicit path is an error.
+2. `./zakhor.toml` — working-directory config (legacy). Existing local setups keep working because the working directory is checked before XDG.
+3. `$XDG_CONFIG_HOME/zakhor/zakhor.toml` (default `~/.config/zakhor/zakhor.toml`) — user config.
+4. No file found — built-in defaults plus `ZAKHOR_*` environment variables are used.
 
-Zakhor searches for a configuration file on startup. It uses the first match it finds:
+### Model Cache
 
-1. Explicit path passed via `-c` or `--config PATH`. This option is optional. If you provide a path that doesn't exist, the server exits with an error.
-2. `./zakhor.toml` in the current working directory. This legacy option is still honored so that existing local setups keep working.
-3. `$XDG_CONFIG_HOME/zakhor/zakhor.toml` (which defaults to `~/.config/zakhor/zakhor.toml`).
-4. Built-in defaults combined with `ZAKHOR_*` environment variables if no file is found.
+FastEmbed (embeddings) and GLiNER (extraction) share a single model cache directory so
+neither re-downloads its ONNX model when the other's cache moves:
+
+- Default: `$XDG_CACHE_HOME/zakhor/models` (i.e. `~/.cache/zakhor/models`).
+- Override via `[models] cache_dir = "..."` in the config file, or the
+  `ZAKHOR_MODELS_CACHE_DIR` environment variable.
+- GLiNER-specific legacy knobs still work at lower precedence:
+  `[extraction] model_dir` beats `[models].cache_dir`, and the `HF_HUB_CACHE`
+  environment variable is still honored as a further fallback.
 
 ### Semantic Search
 
@@ -83,19 +91,21 @@ enabled = true
 ```
 
 The first search after startup loads the `Xenova/bge-small-en-v1.5` model
-(~70 MB, cached under `<database.path>/semantic/fastembed-cache`) and can take
-several seconds. Populate the index from existing memories with
-`rebuild_indexes`.
+(~70 MB, cached in the shared model cache directory above) and can take several
+seconds. Populate the index from existing memories with `rebuild_indexes`.
 
 ### Environment Variables
 
-You can configure Zakhor using the following environment variables:
+| Variable | Effect |
+|----------|--------|
+| `ZAKHOR_DB_PATH` | Override the Tracker DB path |
+| `ZAKHOR_HTTP_HOST` | HTTP bind host (default `127.0.0.1`) |
+| `ZAKHOR_HTTP_PORT` | HTTP bind port (default `3000`) |
+| `ZAKHOR_MODELS_CACHE_DIR` | Override the shared model cache directory (same as `[models].cache_dir`) |
 
-| Variable | Description |
-|----------|-------------|
-| `ZAKHOR_DB_PATH` | Path to the SQLite/graph database. |
-| `ZAKHOR_HTTP_HOST` | Bind host for the HTTP server. |
-| `ZAKHOR_HTTP_PORT` | Bind port for the HTTP server. |
+The SQLite/graph database path (`[database] path`, default `./zakhor-db`) intentionally
+stays where it is and is not moved under XDG.
+
 
 ### MCP Tools
 

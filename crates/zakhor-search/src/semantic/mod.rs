@@ -1,4 +1,3 @@
-mod cache;
 mod index;
 mod scored_doc;
 mod simd;

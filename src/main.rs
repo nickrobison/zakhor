@@ -60,7 +60,7 @@ enum LogFormat {
     version,
     about,
     long_about = None,
-    after_help = "Environment variables:\n  ZAKHOR_DB_PATH        Database path override\n  ZAKHOR_HTTP_HOST      HTTP bind host (default: 127.0.0.1)\n  ZAKHOR_HTTP_PORT      HTTP bind port (default: 3000)\n\nConfig file:\n  -c, --config PATH     Path to the TOML configuration file (default: zakhor.toml)\n\nEphemeral mode:\n  --ephemeral           Creates a fresh Tracker DB in a temp directory (wiped on each startup)\n\nLogging:\n  RUST_LOG              Overrides --log-level for crate-level control (e.g. \"debug,zakhor_api=trace\")"
+    after_help = "Environment variables:\n  ZAKHOR_DB_PATH          Database path override\n  ZAKHOR_HTTP_HOST        HTTP bind host (default: 127.0.0.1)\n  ZAKHOR_HTTP_PORT        HTTP bind port (default: 3000)\n  ZAKHOR_MODELS_CACHE_DIR Model cache override (same as [models].cache_dir in config)\n\nConfig file (first match wins):\n  -c, --config PATH                    Explicit path (error if missing)\n  ./zakhor.toml                        Working-directory config (legacy)\n  $XDG_CONFIG_HOME/zakhor/zakhor.toml  User config (default ~/.config/zakhor/zakhor.toml)\n\nModel cache (FastEmbed + GLiNER share one directory):\n  [models].cache_dir in config, else $XDG_CACHE_HOME/zakhor/models (~/.cache/zakhor/models)\n\nEphemeral mode:\n  --ephemeral           Creates a fresh Tracker DB in a temp directory (wiped on each startup)\n\nLogging:\n  RUST_LOG              Overrides --log-level for crate-level control (e.g. \"debug,zakhor_api=trace\")"
 )]
 struct Cli {
     /// Serve MCP over Streamable HTTP/SSE instead of stdio
@@ -79,9 +79,13 @@ struct Cli {
     #[arg(long)]
     ephemeral: bool,
 
-    /// Path to the TOML configuration file
-    #[arg(short = 'c', long, value_name = "PATH", default_value = "zakhor.toml")]
-    config: std::path::PathBuf,
+    /// Path to the TOML configuration file.
+    ///
+    /// When omitted, discovered in order: `./zakhor.toml` (legacy), then
+    /// `$XDG_CONFIG_HOME/zakhor/zakhor.toml` (`~/.config/zakhor/zakhor.toml`).
+    /// An explicit path that does not exist is an error.
+    #[arg(short = 'c', long, value_name = "PATH")]
+    config: Option<std::path::PathBuf>,
 
     /// Log level (overridden by RUST_LOG if set)
     #[arg(long, value_enum, default_value_t = LogLevel::Debug)]
@@ -160,7 +164,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    let mut cfg = Config::load_from(&cli.config);
+    let config_source = zakhor_common::paths::discover_config(cli.config.as_deref())?;
+    let mut cfg = match &config_source {
+        zakhor_common::paths::ConfigSource::DefaultsOnly => {
+            tracing::info!("No config file found; using built-in defaults + ZAKHOR_* env vars");
+            Config::load_env_only()
+        }
+        source => {
+            let path = source
+                .path()
+                .expect("non-defaults config source carries a path");
+            tracing::info!(path = %path.display(), ?source, "Using config file");
+            Config::load_from(path)
+        }
+    };
     if let Some(db_path) = cli.db_path {
         cfg.database.path = db_path;
     }
@@ -173,17 +190,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(path = %cfg.database.path.display(), "Ephemeral mode — fresh Tracker DB created in temp dir");
     }
 
+    let models_cache_dir =
+        zakhor_common::paths::resolve_models_cache_dir(cfg.models.cache_dir.as_deref());
+    tracing::info!(cache = %models_cache_dir.display(), "Model cache directory");
+
     let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
     let conn = tracker_db::init_db(db_path);
 
     let embedding_enabled = cfg.embedding.enabled;
     let sync_mgr = if cli.rebuild_indexes {
-        let mgr = IndexSyncManager::new(&cfg.database.path, embedding_enabled)?;
+        let mgr = IndexSyncManager::new(
+            &cfg.database.path,
+            embedding_enabled,
+            models_cache_dir.clone(),
+        )?;
         mgr.rebuild_all(&conn)?;
         tracing::info!("Indexes rebuilt successfully");
         Some(Arc::new(mgr))
     } else {
-        match IndexSyncManager::new(&cfg.database.path, embedding_enabled) {
+        match IndexSyncManager::new(
+            &cfg.database.path,
+            embedding_enabled,
+            models_cache_dir.clone(),
+        ) {
             Ok(mgr) => Some(Arc::new(mgr)),
             Err(e) => {
                 tracing::warn!("Failed to init sync manager (indexes unavailable): {e}");
