@@ -184,8 +184,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if cli.ephemeral {
         let tmp = std::env::temp_dir().join(format!("zakhor-ephemeral-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp)?;
+        // On an async path, so filesystem work goes through tokio rather than
+        // blocking the runtime thread (see #60).
+        let _ = tokio::fs::remove_dir_all(&tmp).await;
+        tokio::fs::create_dir_all(&tmp).await?;
         cfg.database.path = tmp;
         tracing::info!(path = %cfg.database.path.display(), "Ephemeral mode — fresh Tracker DB created in temp dir");
     }
