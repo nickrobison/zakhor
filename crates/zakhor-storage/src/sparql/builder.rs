@@ -1,6 +1,6 @@
 use oxrdf::{NamedNode, Triple};
 
-use super::escape::{escape_literal, format_iri};
+use super::escape::{InvalidIri, escape_literal, format_iri};
 use super::prefix::{Prefix, prefix_declarations};
 
 /// Typed SPARQL query builder.
@@ -28,11 +28,11 @@ impl SparqlBuilder {
 
     /// Build an `INSERT DATA { … }` query that stores a new
     /// `nie:InformationElement` with a given `uuid` IRI and `text` content.
-    pub fn insert_data(uuid: &str, text: &str) -> String {
-        let uuid_iri = format_iri(uuid);
+    pub fn insert_data(uuid: &str, text: &str) -> Result<String, InvalidIri> {
+        let uuid_iri = format_iri(uuid)?;
         let uuid_lit = escape_literal(uuid);
         let text_lit = escape_literal(text);
-        format!(
+        Ok(format!(
             "{}INSERT DATA {{\n\
              {} rdf:type nie:InformationElement ;\n\
                  nie:identifier {} ;\n\
@@ -42,7 +42,7 @@ impl SparqlBuilder {
             uuid_iri,
             uuid_lit,
             text_lit,
-        )
+        ))
     }
 
     /// Build a `DELETE { … } WHERE { … }` query that removes an

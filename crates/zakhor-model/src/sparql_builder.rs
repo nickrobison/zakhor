@@ -1,6 +1,5 @@
 //! SPARQL query builders for the ingestion pipeline.
 
-use oxrdf::{Literal, NamedNode};
 use zakhor_storage::sparql::{self as storage_sparql, Prefix};
 
 use crate::pipeline::StoreObservationArgs;
@@ -9,25 +8,30 @@ use crate::pipeline::StoreObservationArgs;
 // SPARQL query builder
 // ---------------------------------------------------------------------------
 
-pub fn format_iri(iri_str: &str) -> String {
-    let node = NamedNode::new(iri_str).expect("invalid IRI passed to format_iri — this is a bug");
-    node.to_string()
+fn invalid_iri(what: &str, value: &str) -> crate::errors::IngestionError {
+    crate::errors::IngestionError::Validation(
+        format!("{what} URI {value:?} is not a valid URI"),
+        "build_observation_sparql",
+        None,
+    )
 }
 
-pub fn escape_literal(text: &str) -> String {
-    let lit = Literal::new_simple_literal(text);
-    lit.to_string()
-}
+pub use zakhor_storage::sparql::format_iri;
+
+pub use zakhor_storage::sparql::escape_literal;
 
 /// Build the full `INSERT DATA { … }` SPARQL query for an observation.
 ///
 /// `uuid_urn` must be a `urn:uuid:…` string such as `urn:uuid:abc-123`.
-pub fn build_observation_sparql(args: &StoreObservationArgs, uuid_urn: &str) -> String {
+pub fn build_observation_sparql(
+    args: &StoreObservationArgs,
+    uuid_urn: &str,
+) -> Result<String, crate::errors::IngestionError> {
     let mut sparql = String::with_capacity(2048);
     sparql.push_str(&storage_sparql::prefix_declarations());
     sparql.push_str("INSERT DATA {\n");
 
-    let uuid_iri = format_iri(uuid_urn);
+    let uuid_iri = format_iri(uuid_urn).map_err(|e| invalid_iri("observation", &e.0))?;
     let uuid_lit = escape_literal(uuid_urn);
     let text_lit = escape_literal(&args.text);
 
@@ -39,7 +43,7 @@ pub fn build_observation_sparql(args: &StoreObservationArgs, uuid_urn: &str) -> 
     sparql.push_str(&format!("    nie:plainTextContent {} .\n", text_lit));
 
     for entity in &args.entities {
-        let entity_iri = format_iri(&entity.uri);
+        let entity_iri = format_iri(&entity.uri).map_err(|e| invalid_iri("entity", &e.0))?;
         let label_lit = escape_literal(&entity.label);
         sparql.push_str(&format!(
             "  {} zakhor:hasEntity {} .\n",
@@ -52,14 +56,17 @@ pub fn build_observation_sparql(args: &StoreObservationArgs, uuid_urn: &str) -> 
     }
 
     for relation in &args.relations {
-        let subj_iri = format_iri(&relation.subject_uri);
-        let pred_iri = format_iri(&relation.predicate_uri);
-        let obj_iri = format_iri(&relation.object_uri);
+        let subj_iri =
+            format_iri(&relation.subject_uri).map_err(|e| invalid_iri("relation subject", &e.0))?;
+        let pred_iri = format_iri(&relation.predicate_uri)
+            .map_err(|e| invalid_iri("relation predicate", &e.0))?;
+        let obj_iri =
+            format_iri(&relation.object_uri).map_err(|e| invalid_iri("relation object", &e.0))?;
         sparql.push_str(&format!("  {} {} {} .\n", subj_iri, pred_iri, obj_iri,));
     }
 
     sparql.push_str("}\n");
-    sparql
+    Ok(sparql)
 }
 
 // ---------------------------------------------------------------------------

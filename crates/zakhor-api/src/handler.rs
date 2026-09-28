@@ -201,7 +201,7 @@ pub fn query_depth1(
     start_id: &str,
     edge_types: &[String],
 ) -> Result<Vec<TripleResult>, String> {
-    let sparql = crate::tools::build_traverse_query(start_id, 1, edge_types);
+    let sparql = crate::tools::build_traverse_query(start_id, 1, edge_types)?;
     let cursor = conn
         .query(&sparql, None::<&gio::Cancellable>)
         .map_err(|e| format!("Query failed: {e}"))?;

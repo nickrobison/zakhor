@@ -55,7 +55,8 @@ pub async fn traverse_graph(
     let edge_types = split_edge_types(query.edge_types);
 
     if depth <= 1 {
-        let sparql = tools::build_traverse_query(start_id, depth, &edge_types);
+        let sparql = tools::build_traverse_query(start_id, depth, &edge_types)
+            .map_err(crate::api::error::ApiError::bad_request)?;
         let cursor = match state.connection().query(&sparql, None::<&gio::Cancellable>) {
             Ok(cursor) => cursor,
             Err(error) => {

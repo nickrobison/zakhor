@@ -16,6 +16,7 @@ use crate::entity_resolver::EntityResolver;
 use crate::errors::IngestionError;
 use crate::provenance::ProvenanceTracker;
 use crate::sparql_builder::{build_observation_sparql, collect_provenance_triples};
+use zakhor_storage::sparql::validate_iri;
 
 /// An entity reference associated with an observation.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
@@ -32,6 +33,10 @@ pub struct Relation {
     pub object_uri: String,
     pub label: String,
 }
+
+/// A built `INSERT DATA` statement plus the triples to record in local
+/// provenance tracking: `(sparql, (subject, predicate, object) triples)`.
+pub type BuiltObservation = (String, Vec<(String, String, String)>);
 
 /// Arguments for storing a complete observation.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
@@ -129,6 +134,28 @@ impl IngestionPipeline {
                     None,
                 ));
             }
+            validate_iri(&entity.uri).map_err(|e| {
+                IngestionError::Validation(
+                    format!("entity URI is not a valid URI: {}", e.0),
+                    "validate",
+                    None,
+                )
+            })?;
+        }
+        for relation in &args.relations {
+            for (what, uri) in [
+                ("subject", &relation.subject_uri),
+                ("predicate", &relation.predicate_uri),
+                ("object", &relation.object_uri),
+            ] {
+                validate_iri(uri).map_err(|e| {
+                    IngestionError::Validation(
+                        format!("relation {what} URI is not a valid URI: {}", e.0),
+                        "validate",
+                        None,
+                    )
+                })?;
+            }
         }
         Ok(())
     }
@@ -164,10 +191,10 @@ impl IngestionPipeline {
         &self,
         args: &StoreObservationArgs,
         uuid_urn: &str,
-    ) -> (String, Vec<(String, String, String)>) {
-        let sparql = build_observation_sparql(args, uuid_urn);
+    ) -> Result<BuiltObservation, IngestionError> {
+        let sparql = build_observation_sparql(args, uuid_urn)?;
         let triples = collect_provenance_triples(args, uuid_urn);
-        (sparql, triples)
+        Ok((sparql, triples))
     }
 
     /// Stage 4: Persist to SPARQL triplestore.
@@ -213,7 +240,7 @@ impl IngestionPipeline {
                 IngestionError::Build("Failed to generate UUID".to_string(), "build", None)
             })?
             .to_string();
-        let (sparql, provenance_triples) = self.build_triples(&args, &uuid_urn);
+        let (sparql, provenance_triples) = self.build_triples(&args, &uuid_urn)?;
         tracing::debug!(
             observation_uri = %uuid_urn,
             triple_count = provenance_triples.len(),

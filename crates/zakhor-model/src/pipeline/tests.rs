@@ -79,7 +79,7 @@ fn test_build_observation_sparql_contains_all_parts() {
         }],
     };
 
-    let sparql = build_observation_sparql(&args, "urn:uuid:test-uuid-1");
+    let sparql = build_observation_sparql(&args, "urn:uuid:test-uuid-1").expect("valid IRIs");
     assert!(sparql.starts_with("PREFIX"), "should start with PREFIX");
     assert!(
         sparql.contains("INSERT DATA {"),
@@ -118,7 +118,7 @@ fn test_build_observation_with_entities() {
         ],
         relations: vec![],
     };
-    let sparql = build_observation_sparql(&args, "urn:uuid:entity-test");
+    let sparql = build_observation_sparql(&args, "urn:uuid:entity-test").expect("valid IRIs");
     assert!(sparql.contains("<http://example.com/e1>"));
     assert!(sparql.contains("<http://example.com/e2>"));
     assert!(sparql.contains("Entity 1"));
@@ -147,7 +147,7 @@ fn test_build_observation_with_relations() {
             },
         ],
     };
-    let sparql = build_observation_sparql(&args, "urn:uuid:rel-test");
+    let sparql = build_observation_sparql(&args, "urn:uuid:rel-test").expect("valid IRIs");
     assert!(
         sparql.contains("<http://example.com/s1> <http://example.com/p1> <http://example.com/o1>")
     );
@@ -163,7 +163,7 @@ fn test_build_observation_with_no_entities_or_relations() {
         entities: vec![],
         relations: vec![],
     };
-    let sparql = build_observation_sparql(&args, "urn:uuid:bare");
+    let sparql = build_observation_sparql(&args, "urn:uuid:bare").expect("valid IRIs");
     assert!(sparql.contains("rdf:type nie:InformationElement"));
     assert!(sparql.contains("nie:plainTextContent"));
     assert!(sparql.contains("bare text"));
@@ -324,7 +324,7 @@ async fn test_ingest_async_build_triples_matches_sync() {
     let uuid = tracker::functions::sparql_get_uuid_urn()
         .expect("UUID generation should work in async context")
         .to_string();
-    let (sparql, triples) = pipeline.build_triples(&args, &uuid);
+    let (sparql, triples) = pipeline.build_triples(&args, &uuid).expect("valid IRIs");
 
     assert!(
         sparql.starts_with("PREFIX"),
@@ -551,7 +551,7 @@ async fn test_build_triples_async_produces_same_sparql() {
     let uuid = tracker::functions::sparql_get_uuid_urn()
         .expect("UUID generation")
         .to_string();
-    let (sparql, _triples) = pipeline.build_triples(&args, &uuid);
+    let (sparql, _triples) = pipeline.build_triples(&args, &uuid).expect("valid IRIs");
 
     assert!(sparql.starts_with("PREFIX"));
     assert!(sparql.contains("INSERT DATA {"));
@@ -566,4 +566,71 @@ async fn test_build_triples_async_produces_same_sparql() {
         opens, closes,
         "braces should be balanced in async code path"
     );
+}
+
+// -- URI validation at the ingestion boundary (issue #77) -------------------
+
+/// A malformed entity URI used to panic inside `format_iri`, which surfaced to
+/// the caller as a wedged request that never returned. It must be a plain
+/// validation error instead.
+#[test]
+fn test_invalid_entity_uri_is_a_validation_error_not_a_panic() {
+    let pipeline = IngestionPipeline::new();
+    let args = StoreObservationArgs {
+        text: "probe".into(),
+        entities: vec![EntityRef {
+            uri: "not-a-uri".into(),
+            label: "P".into(),
+        }],
+        relations: vec![],
+    };
+
+    let err = pipeline
+        .validate(&args)
+        .expect_err("a non-absolute URI must be rejected");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("not a valid URI"),
+        "error should name the real problem, got: {msg}"
+    );
+}
+
+#[test]
+fn test_invalid_relation_uris_are_rejected() {
+    let pipeline = IngestionPipeline::new();
+    for (subject, predicate, object) in [
+        ("not-a-uri", "http://zakhor/ns/p", "http://zakhor/ns/o"),
+        ("http://zakhor/ns/s", "not-a-uri", "http://zakhor/ns/o"),
+        ("http://zakhor/ns/s", "http://zakhor/ns/p", "not-a-uri"),
+    ] {
+        let args = StoreObservationArgs {
+            text: "probe".into(),
+            entities: vec![],
+            relations: vec![Relation {
+                subject_uri: subject.into(),
+                predicate_uri: predicate.into(),
+                object_uri: object.into(),
+                label: String::new(),
+            }],
+        };
+        assert!(
+            pipeline.validate(&args).is_err(),
+            "relation ({subject}, {predicate}, {object}) must be rejected"
+        );
+    }
+}
+
+#[test]
+fn test_build_observation_sparql_reports_a_bad_uri() {
+    let args = StoreObservationArgs {
+        text: "probe".into(),
+        entities: vec![EntityRef {
+            uri: "http://example.com/a b".into(),
+            label: "P".into(),
+        }],
+        relations: vec![],
+    };
+    let err = build_observation_sparql(&args, "urn:uuid:11111111-2222-3333-4444-555555555555")
+        .expect_err("a URI containing a space is not addressable");
+    assert!(err.to_string().contains("not a valid URI"), "got: {err}");
 }

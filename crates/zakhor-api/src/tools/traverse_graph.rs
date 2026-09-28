@@ -37,7 +37,7 @@ impl MemoryHandler {
                     &args.start_id,
                     args.depth,
                     &args.edge_types,
-                );
+                )?;
                 match self.conn.query(&sparql, None::<&gio::Cancellable>) {
                     Ok(cursor) => {
                         let mut triples: Vec<TripleResult> = Vec::new();
