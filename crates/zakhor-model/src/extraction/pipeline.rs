@@ -5,6 +5,7 @@ use tokio::task::spawn_blocking;
 use crate::model_setup;
 use crate::pipeline::{EntityRef, Relation};
 
+use super::compat;
 use super::config::ExtractionConfig;
 use super::errors::ExtractionError;
 
@@ -141,6 +142,28 @@ impl ExtractionPipeline {
     ) -> Result<gliner::model::output::decoded::SpanOutput, ExtractionError> {
         let entity_strs: Vec<&str> = config.entity_labels.iter().map(|s| s.as_str()).collect();
 
+        // An empty document produces a zero-length sequence, which the ONNX
+        // graph cannot reshape. Rejecting it here keeps that runtime error
+        // out of every caller's hands, not just the ingest path's.
+        if text.trim().is_empty() {
+            return Err(ExtractionError::Inference(
+                "cannot extract entities from empty text".to_string(),
+                "inference",
+                None,
+            ));
+        }
+
+        if entity_strs.is_empty() {
+            return Err(ExtractionError::Inference(
+                "no entity labels are configured, so there is nothing to extract. Set \
+                 `entity_labels` under `[extraction]` in zakhor.toml, for example \
+                 [\"Person\", \"Organization\", \"Location\", \"Technology\"]."
+                    .to_string(),
+                "inference",
+                None,
+            ));
+        }
+
         let text_input = gliner::model::input::text::TextInput::from_str(&[text], &entity_strs)
             .map_err(|e| {
                 ExtractionError::Inference(format!("text input: {}", e), "inference", Some(e))
@@ -154,9 +177,7 @@ impl ExtractionPipeline {
         let span_output: gliner::model::output::decoded::SpanOutput = inner
             .model
             .inference(text_input, &token_pipeline, &inner.params)
-            .map_err(|e| {
-                ExtractionError::Inference(format!("NER inference: {}", e), "inference", Some(e))
-            })?;
+            .map_err(|e| ner_error(&config.model_path, e))?;
 
         Ok(span_output)
     }
@@ -359,4 +380,39 @@ impl ExtractionPipeline {
         );
         Ok(relations)
     }
+}
+
+/// Turn a NER inference failure into something the caller can act on.
+///
+/// The binding reports a decoder/output mismatch as the bare string
+/// `unexpected logits shape`, which identifies neither the model nor the
+/// expectation. When that is the failure, the model's declared interface is
+/// inspected so the message can name both sides and the remedy.
+fn ner_error(
+    model_path: &std::path::Path,
+    err: Box<dyn std::error::Error + Send + Sync>,
+) -> ExtractionError {
+    let raw = err.to_string();
+
+    if !raw.contains("unexpected logits shape") {
+        return ExtractionError::Inference(format!("NER inference: {raw}"), "inference", Some(err));
+    }
+
+    let diagnosis = compat::explain_incompatibility(model_path).unwrap_or_else(|| {
+        format!(
+            "the GLiNER decoder rejected this model's `logits` tensor ({raw}). The model at {} \
+             does not match the decoder layout the binding expects.",
+            model_path.display()
+        )
+    });
+
+    ExtractionError::Inference(
+        format!(
+            "entity extraction is unavailable with the configured model. {diagnosis} \\
+             This is a model/binding mismatch, not a configuration problem: no setting in \
+             zakhor.toml changes the result. See issue #73."
+        ),
+        "inference",
+        Some(err),
+    )
 }

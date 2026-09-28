@@ -16,7 +16,10 @@ fn test_default_config() {
     assert_eq!(config.tool_capture.max_evidence_per_decision, 50);
     assert_eq!(config.background.worker_count, 2);
     assert!(config.extraction.model_path.as_os_str().is_empty());
-    assert!(config.extraction.entity_labels.is_empty());
+    // Zero-shot extraction needs a label set; an empty default made every
+    // install without a hand-written zakhor.toml fail (issue #73).
+    assert!(!config.extraction.entity_labels.is_empty());
+    assert!(!config.extraction.relation_labels.is_empty());
     assert_eq!(config.extraction.entity_threshold, 0.5);
     assert_eq!(config.extraction.relation_threshold, 0.5);
 }
@@ -117,7 +120,10 @@ path = "/custom/db"
     assert_eq!(config.entity_resolution.alias_threshold, 1.0);
     assert_eq!(config.background.worker_count, 2);
     assert!(config.extraction.model_path.as_os_str().is_empty());
-    assert!(config.extraction.entity_labels.is_empty());
+    // Zero-shot extraction needs a label set; an empty default made every
+    // install without a hand-written zakhor.toml fail (issue #73).
+    assert!(!config.extraction.entity_labels.is_empty());
+    assert!(!config.extraction.relation_labels.is_empty());
     assert_eq!(config.extraction.entity_threshold, 0.5);
 }
 
