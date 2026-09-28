@@ -1016,8 +1016,11 @@ async def test_store_observation_rejects_malformed_entity_uri(
         )
         text = _get_text(result)
         assert "Parser error" not in text, f"raw parser error leaked: {text}"
-        # Emptiness or IRI validity may fire first; both are clean validations.
-        assert "validation:" in text, f"error should be a validation error: {text}"
+        # Emptiness, IRI validity, or parameter deserialization may fire first;
+        # all are clean rejections, but the message must name the real problem.
+        assert (
+            "validation:" in text or "IRI" in text
+        ), f"error should name the IRI problem: {text}"
 
 
 @pytest.mark.asyncio
@@ -1045,7 +1048,9 @@ async def test_nul_byte_in_entity_uri_does_not_panic(
     assert result.isError, "a NUL byte must be rejected"
     text = _get_text(result)
     assert "panicked" not in text, f"a task panicked: {text}"
-    assert "validation:" in text, f"error should be a validation error: {text}"
+    # The URI is rejected while the parameters are decoded, before any SPARQL is
+    # built, so the message names the bad code point rather than a pipeline stage.
+    assert "IRI" in text, f"error should name the IRI problem: {text}"
 
 
 @pytest.mark.asyncio

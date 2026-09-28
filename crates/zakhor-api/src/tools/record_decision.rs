@@ -63,7 +63,7 @@ impl MemoryHandler {
             sync_target = Some((create_result.decision_uri.as_str().to_string(), index_text));
 
             Ok(Json(RecordDecisionResponse {
-                decision_uri: create_result.decision_uri.as_str().to_string(),
+                decision_uri: create_result.decision_uri,
             }))
         })();
 

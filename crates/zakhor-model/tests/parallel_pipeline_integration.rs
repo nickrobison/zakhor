@@ -146,22 +146,25 @@ async fn test_extract_entities_and_relations_parallel() {
 
     // Verify entity structure
     for entity in &entities {
-        assert!(!entity.uri.is_empty(), "entity URI must not be empty");
+        // A typed URI is non-empty by construction; assert it round-trips through
+        // the IRI parser, which is the invariant that actually matters.
+        let reparsed = oxiri::Iri::parse(entity.uri.as_str()).expect("entity URI must reparse");
+        assert_eq!(reparsed.as_str(), entity.uri.as_str());
         assert!(!entity.label.is_empty(), "entity label must not be empty");
     }
 
     // Verify relation structure
     for relation in &relations {
         assert!(
-            !relation.subject_uri.is_empty(),
+            oxiri::Iri::parse(relation.subject_uri.as_str()).is_ok(),
             "relation subject must not be empty"
         );
         assert!(
-            !relation.predicate_uri.is_empty(),
+            oxiri::Iri::parse(relation.predicate_uri.as_str()).is_ok(),
             "relation predicate must not be empty"
         );
         assert!(
-            !relation.object_uri.is_empty(),
+            oxiri::Iri::parse(relation.object_uri.as_str()).is_ok(),
             "relation object must not be empty"
         );
         assert!(
@@ -236,9 +239,12 @@ async fn test_async_ingestion_pipeline_functional() {
     match result {
         Ok(ingest_result) => {
             assert!(
-                ingest_result.observation_uri.starts_with("urn:uuid:"),
+                ingest_result
+                    .observation_uri
+                    .as_str()
+                    .starts_with("urn:uuid:"),
                 "observation_uri should be a URN UUID: {}",
-                ingest_result.observation_uri
+                ingest_result.observation_uri.as_str()
             );
             assert!(
                 ingest_result.triple_count > 0,

@@ -11,13 +11,14 @@ use oxrdf::Literal;
 use tracker::SparqlConnection;
 use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
 use zakhor_common::vocab;
+use zakhor_common::vocab::{ProjectUri, RepositoryUri};
 use zakhor_storage::sparql::Prefix;
 use zakhor_storage::sparql::{format_iri, prefix_declarations, validate_iri};
 
 /// A named project in the knowledge graph.
 #[derive(Clone, Debug)]
 pub struct Project {
-    pub uri: String,
+    pub uri: ProjectUri,
     pub name: String,
     pub description: Option<String>,
 }
@@ -25,7 +26,7 @@ pub struct Project {
 /// A named code repository in the knowledge graph.
 #[derive(Clone, Debug)]
 pub struct Repository {
-    pub uri: String,
+    pub uri: RepositoryUri,
     pub name: String,
     pub description: Option<String>,
 }
@@ -263,7 +264,8 @@ pub fn create_project(
     if let Some(existing) = find_named_node(conn, vocab::project_iri().as_str(), name)? {
         warn_if_description_ignored("project", name, description);
         return Ok(Project {
-            uri: existing.uri,
+            uri: ProjectUri::parse(existing.uri)
+                .map_err(|e| format!("Stored node URI is not a well-formed IRI: {e}"))?,
             name: name.to_string(),
             description: existing.description,
         });
@@ -281,7 +283,8 @@ pub fn create_project(
         .map_err(|e| format!("Create project failed: {e}"))?;
 
     Ok(Project {
-        uri: project_uri,
+        uri: ProjectUri::parse(&project_uri)
+            .map_err(|e| format!("Generated project URI is not a well-formed IRI: {e}"))?,
         name: name.to_string(),
         description: description.map(String::from),
     })
@@ -316,7 +319,8 @@ pub fn create_repository(
     if let Some(existing) = find_named_node(conn, vocab::repository_iri().as_str(), name)? {
         warn_if_description_ignored("repository", name, description);
         return Ok(Repository {
-            uri: existing.uri,
+            uri: RepositoryUri::parse(existing.uri)
+                .map_err(|e| format!("Stored node URI is not a well-formed IRI: {e}"))?,
             name: name.to_string(),
             description: existing.description,
         });
@@ -334,7 +338,8 @@ pub fn create_repository(
         .map_err(|e| format!("Create repository failed: {e}"))?;
 
     Ok(Repository {
-        uri: repository_uri,
+        uri: RepositoryUri::parse(&repository_uri)
+            .map_err(|e| format!("Generated repository URI is not a well-formed IRI: {e}"))?,
         name: name.to_string(),
         description: description.map(String::from),
     })
@@ -381,6 +386,11 @@ ORDER BY ?label"#,
         let uri = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
         let name = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
         let desc = cursor.string(2).map(|s| s.to_string());
+        // A stored row that is not a well-formed IRI is skipped rather than
+        // failing the whole listing.
+        let Ok(uri) = ProjectUri::parse(uri) else {
+            continue;
+        };
         projects.push(Project {
             uri,
             name,
@@ -433,7 +443,7 @@ mod tests {
     #[test]
     fn test_project_struct() {
         let p = Project {
-            uri: "http://zakhor/ns/project/test".into(),
+            uri: ProjectUri::parse("http://zakhor/ns/project/test").unwrap(),
             name: "Test".into(),
             description: Some("A test project".into()),
         };
@@ -444,7 +454,7 @@ mod tests {
     #[test]
     fn test_repository_struct() {
         let r = Repository {
-            uri: "http://zakhor/ns/repository/test".into(),
+            uri: RepositoryUri::parse("http://zakhor/ns/repository/test").unwrap(),
             name: "Test".into(),
             description: None,
         };
@@ -526,7 +536,7 @@ mod tests {
             first.uri, second.uri,
             "a repeated create must return the existing project, not a new URI"
         );
-        assert_eq!(first.uri, format!("{}project/dup", Prefix::ZAKHOR));
+        assert_eq!(first.uri.as_str(), format!("{}project/dup", Prefix::ZAKHOR));
     }
 
     #[test]
@@ -548,13 +558,16 @@ mod tests {
         let spaced = create_project(&conn, "My Project", Some("a")).expect("first create");
         let slashed = create_project(&conn, "my/project", Some("b")).expect("second create");
 
-        assert_eq!(spaced.uri, format!("{}project/my-project", Prefix::ZAKHOR));
+        assert_eq!(
+            spaced.uri.as_str(),
+            format!("{}project/my-project", Prefix::ZAKHOR)
+        );
         assert_ne!(
             spaced.uri, slashed.uri,
             "distinct names must not collapse onto one node"
         );
         assert_eq!(
-            slashed.uri,
+            slashed.uri.as_str(),
             format!("{}project/my-project-2", Prefix::ZAKHOR)
         );
     }
@@ -576,7 +589,7 @@ mod tests {
         let conn = test_store("link-missing");
         let project = create_project(&conn, "p", None).expect("create project");
 
-        let err = link_to_project(&conn, "http://example.com/nope", &project.uri)
+        let err = link_to_project(&conn, "http://example.com/nope", project.uri.as_str())
             .expect_err("linking an unknown subject must fail");
 
         assert!(
@@ -604,7 +617,7 @@ mod tests {
         )
         .expect("insert entity");
 
-        link_to_project(&conn, entity, &project.uri).expect("link must succeed");
+        link_to_project(&conn, entity, project.uri.as_str()).expect("link must succeed");
     }
 
     #[test]

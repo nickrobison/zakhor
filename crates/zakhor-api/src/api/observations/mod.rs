@@ -4,6 +4,7 @@ use tracker::prelude::SparqlCursorExtManual;
 
 use super::ApiState;
 use crate::api::error::{ApiError, ApiResult};
+use zakhor_common::vocab::EntityUri;
 use zakhor_storage::sparql::prefix_declarations;
 
 mod detail;
@@ -36,15 +37,11 @@ fn clamp_limit(limit: u32) -> u32 {
     limit.clamp(1, 100)
 }
 
-fn sanitize_id(id: &str) -> String {
-    id.replace(['>', '<'], "")
-}
-
-fn observation_entity_filter(entity_id: Option<&str>) -> String {
-    match entity_id.map(str::trim).filter(|id| !id.is_empty()) {
+fn observation_entity_filter(entity_id: Option<&EntityUri>) -> String {
+    match entity_id {
         Some(id) => format!(
             "  FILTER EXISTS {{ <{}> zakhor:hasEntity ?entity . }}",
-            sanitize_id(id)
+            id.as_str()
         ),
         None => String::new(),
     }
@@ -73,7 +70,7 @@ pub struct ObservationListResponse {
 // ---------------------------------------------------------------------------
 
 /// SELECT query returning a paginated list of observations.
-fn build_all_observations_query(offset: u32, limit: u32, entity_id: Option<&str>) -> String {
+fn build_all_observations_query(offset: u32, limit: u32, entity_id: Option<&EntityUri>) -> String {
     let filter = observation_entity_filter(entity_id);
     let filter_block = if filter.is_empty() {
         String::new()
@@ -101,7 +98,7 @@ OFFSET {offset}",
 }
 
 /// SELECT COUNT query for the total number of observations.
-fn build_observations_count_query(entity_id: Option<&str>) -> String {
+fn build_observations_count_query(entity_id: Option<&EntityUri>) -> String {
     let filter = observation_entity_filter(entity_id);
     let filter_block = if filter.is_empty() {
         String::new()
@@ -143,7 +140,12 @@ pub async fn list_observations(
         .entity_id
         .as_deref()
         .map(str::trim)
-        .filter(|id| !id.is_empty());
+        .filter(|id| !id.is_empty())
+        .map(|id| {
+            EntityUri::parse(id)
+                .map_err(|e| ApiError::bad_request(format!("Invalid entity id '{id}': {e}")))
+        })
+        .transpose()?;
     if entity_id.is_some() {
         return Ok(Json(ObservationListResponse {
             observations: vec![],
@@ -157,7 +159,7 @@ pub async fn list_observations(
         let cursor = state
             .connection()
             .query(
-                &build_observations_count_query(entity_id),
+                &build_observations_count_query(entity_id.as_ref()),
                 None::<&gio::Cancellable>,
             )
             .map_err(|e| ApiError::internal(format!("SPARQL count error: {e}")))?;
@@ -172,7 +174,7 @@ pub async fn list_observations(
     };
 
     // Paginated results
-    let sparql = build_all_observations_query(offset, limit, entity_id);
+    let sparql = build_all_observations_query(offset, limit, entity_id.as_ref());
     let cursor = state
         .connection()
         .query(&sparql, None::<&gio::Cancellable>)
@@ -238,7 +240,11 @@ mod tests {
 
     #[test]
     fn test_build_all_observations_query_with_entity_filter() {
-        let q = build_all_observations_query(0, 10, Some("http://example.org/entity"));
+        let q = build_all_observations_query(
+            0,
+            10,
+            Some(&EntityUri::parse("http://example.org/entity").unwrap()),
+        );
         assert!(q.contains("<http://example.org/entity> zakhor:hasEntity ?entity"));
     }
 
@@ -251,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_build_observations_count_query_with_entity_filter() {
-        let q = build_observations_count_query(Some("urn:uuid:entity"));
+        let q = build_observations_count_query(Some(&EntityUri::parse("urn:uuid:entity").unwrap()));
         assert!(q.contains("<urn:uuid:entity> zakhor:hasEntity ?entity"));
     }
 

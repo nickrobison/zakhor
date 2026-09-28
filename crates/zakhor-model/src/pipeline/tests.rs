@@ -4,6 +4,16 @@ use std::sync::Arc;
 use tracker::SparqlConnection;
 use zakhor_storage::sparql::Prefix;
 
+use zakhor_common::vocab::{EntityUri, RelationPredicate};
+
+fn entity(uri: &str) -> EntityUri {
+    EntityUri::parse(uri).expect("test fixture must be a valid IRI")
+}
+
+fn predicate(uri: &str) -> RelationPredicate {
+    RelationPredicate::parse(uri).expect("test fixture must be a valid IRI")
+}
+
 // -- Pipeline lifecycle ---------------------------------------------------
 
 #[test]
@@ -36,18 +46,13 @@ fn test_validate_rejects_empty_text() {
 }
 
 #[test]
-fn test_validate_rejects_empty_entity_uri() {
-    let pipeline = IngestionPipeline::new();
-    let args = StoreObservationArgs {
-        text: "some text".into(),
-        entities: vec![EntityRef {
-            uri: "".into(),
-            label: "bad".into(),
-        }],
-        relations: vec![],
-    };
-    let result = pipeline.validate(&args);
-    assert!(result.is_err());
+fn test_malformed_entity_uri_is_rejected_at_construction() {
+    // The type refuses to hold a malformed IRI, so `validate` never sees one.
+    // These are the shapes that previously reached `format_iri` and panicked.
+    assert!(EntityUri::parse("").is_err());
+    assert!(EntityUri::parse("not-an-iri").is_err());
+    assert!(EntityUri::parse("<http://example.com/x>").is_err());
+    assert!(EntityUri::parse("http://exa mple.com/x").is_err());
 }
 
 #[test]
@@ -56,7 +61,7 @@ fn test_validate_accepts_valid_input() {
     let args = StoreObservationArgs {
         text: "valid text".into(),
         entities: vec![EntityRef {
-            uri: "http://example.com/e".into(),
+            uri: entity("http://example.com/e"),
             label: "E".into(),
         }],
         relations: vec![],
@@ -71,13 +76,13 @@ fn test_build_observation_sparql_contains_all_parts() {
     let args = StoreObservationArgs {
         text: "test observation text".into(),
         entities: vec![EntityRef {
-            uri: "http://example.com/entity1".into(),
+            uri: entity("http://example.com/entity1"),
             label: "Entity One".into(),
         }],
         relations: vec![Relation {
-            subject_uri: "http://example.com/subj1".into(),
-            predicate_uri: "http://example.com/pred1".into(),
-            object_uri: "http://example.com/obj1".into(),
+            subject_uri: entity("http://example.com/subj1"),
+            predicate_uri: predicate("http://example.com/pred1"),
+            object_uri: entity("http://example.com/obj1"),
             label: "related".into(),
         }],
     };
@@ -111,11 +116,11 @@ fn test_build_observation_with_entities() {
         text: "text with entities".into(),
         entities: vec![
             EntityRef {
-                uri: "http://example.com/e1".into(),
+                uri: entity("http://example.com/e1"),
                 label: "Entity 1".into(),
             },
             EntityRef {
-                uri: "http://example.com/e2".into(),
+                uri: entity("http://example.com/e2"),
                 label: "Entity 2".into(),
             },
         ],
@@ -137,15 +142,15 @@ fn test_build_observation_with_relations() {
         entities: vec![],
         relations: vec![
             Relation {
-                subject_uri: "http://example.com/s1".into(),
-                predicate_uri: "http://example.com/p1".into(),
-                object_uri: "http://example.com/o1".into(),
+                subject_uri: entity("http://example.com/s1"),
+                predicate_uri: predicate("http://example.com/p1"),
+                object_uri: entity("http://example.com/o1"),
                 label: "relates to".into(),
             },
             Relation {
-                subject_uri: "http://example.com/s2".into(),
-                predicate_uri: "http://example.com/p2".into(),
-                object_uri: "http://example.com/o2".into(),
+                subject_uri: entity("http://example.com/s2"),
+                predicate_uri: predicate("http://example.com/p2"),
+                object_uri: entity("http://example.com/o2"),
                 label: "depends on".into(),
             },
         ],
@@ -182,13 +187,13 @@ fn test_store_observation_args_struct() {
     let args = StoreObservationArgs {
         text: "hello".into(),
         entities: vec![EntityRef {
-            uri: "http://example.com/e".into(),
+            uri: entity("http://example.com/e"),
             label: "E".into(),
         }],
         relations: vec![Relation {
-            subject_uri: "http://example.com/s".into(),
-            predicate_uri: "http://example.com/p".into(),
-            object_uri: "http://example.com/o".into(),
+            subject_uri: entity("http://example.com/s"),
+            predicate_uri: predicate("http://example.com/p"),
+            object_uri: entity("http://example.com/o"),
             label: "r".into(),
         }],
     };
@@ -200,7 +205,7 @@ fn test_store_observation_args_struct() {
 #[test]
 fn test_entity_ref_debug_and_clone() {
     let e1 = EntityRef {
-        uri: "http://example.com/e1".into(),
+        uri: entity("http://example.com/e1"),
         label: "Entity One".into(),
     };
     let e2 = e1.clone();
@@ -213,9 +218,9 @@ fn test_entity_ref_debug_and_clone() {
 #[test]
 fn test_relation_debug_and_clone() {
     let r1 = Relation {
-        subject_uri: "http://example.com/s".into(),
-        predicate_uri: "http://example.com/p".into(),
-        object_uri: "http://example.com/o".into(),
+        subject_uri: entity("http://example.com/s"),
+        predicate_uri: predicate("http://example.com/p"),
+        object_uri: entity("http://example.com/o"),
         label: "label".into(),
     };
     let r2 = r1.clone();
@@ -230,13 +235,13 @@ fn test_collect_provenance_triples_basic() {
     let args = StoreObservationArgs {
         text: "test".into(),
         entities: vec![EntityRef {
-            uri: "http://example.com/e".into(),
+            uri: entity("http://example.com/e"),
             label: "E".into(),
         }],
         relations: vec![Relation {
-            subject_uri: "http://example.com/s".into(),
-            predicate_uri: "http://example.com/p".into(),
-            object_uri: "http://example.com/o".into(),
+            subject_uri: entity("http://example.com/s"),
+            predicate_uri: predicate("http://example.com/p"),
+            object_uri: entity("http://example.com/o"),
             label: "r".into(),
         }],
     };
@@ -311,13 +316,13 @@ async fn test_ingest_build_triples_matches_prepare_only() {
     let args = StoreObservationArgs {
         text: "async test observation".into(),
         entities: vec![EntityRef {
-            uri: "http://example.com/e1".into(),
+            uri: entity("http://example.com/e1"),
             label: "Entity 1".into(),
         }],
         relations: vec![Relation {
-            subject_uri: "http://example.com/s".into(),
-            predicate_uri: "http://example.com/p".into(),
-            object_uri: "http://example.com/o".into(),
+            subject_uri: entity("http://example.com/s"),
+            predicate_uri: predicate("http://example.com/p"),
+            object_uri: entity("http://example.com/o"),
             label: "r".into(),
         }],
     };
@@ -365,7 +370,7 @@ async fn test_ingest_validates_input() {
     let good_args = StoreObservationArgs {
         text: "good text".into(),
         entities: vec![EntityRef {
-            uri: "http://example.com/e".into(),
+            uri: entity("http://example.com/e"),
             label: "E".into(),
         }],
         relations: vec![],
@@ -548,13 +553,13 @@ async fn test_build_triples_async_produces_same_sparql() {
     let args = StoreObservationArgs {
         text: "test observation text".into(),
         entities: vec![EntityRef {
-            uri: "http://example.com/entity1".into(),
+            uri: entity("http://example.com/entity1"),
             label: "Entity One".into(),
         }],
         relations: vec![Relation {
-            subject_uri: "http://example.com/subj1".into(),
-            predicate_uri: "http://example.com/pred1".into(),
-            object_uri: "http://example.com/obj1".into(),
+            subject_uri: entity("http://example.com/subj1"),
+            predicate_uri: predicate("http://example.com/pred1"),
+            object_uri: entity("http://example.com/obj1"),
             label: "related".into(),
         }],
     };
@@ -581,66 +586,43 @@ async fn test_build_triples_async_produces_same_sparql() {
 // -- URI validation at the ingestion boundary (issue #77) -------------------
 
 /// A malformed entity URI used to panic inside `format_iri`, which surfaced to
-/// the caller as a wedged request that never returned. It must be a plain
-/// validation error instead.
+/// the caller as a wedged request that never returned.
+///
+/// `EntityRef::uri` is now an `EntityUri`, so rejection happens one step earlier
+/// and cannot be bypassed: the value simply cannot be constructed. The guarantee
+/// issue #77 asked for still holds, and is now stronger — there is no longer a
+/// code path on which a malformed IRI reaches SPARQL at all.
 #[test]
-fn test_invalid_entity_uri_is_a_validation_error_not_a_panic() {
-    let pipeline = IngestionPipeline::new();
-    let args = StoreObservationArgs {
-        text: "probe".into(),
-        entities: vec![EntityRef {
-            uri: "not-a-uri".into(),
-            label: "P".into(),
-        }],
-        relations: vec![],
-    };
-
-    let err = pipeline
-        .validate(&args)
-        .expect_err("a non-absolute URI must be rejected");
-    let msg = err.to_string();
+fn test_invalid_entity_uri_cannot_be_constructed() {
+    let err = EntityUri::parse("not-a-uri").expect_err("a non-absolute URI must be rejected");
     assert!(
-        msg.contains("not a valid URI"),
-        "error should name the real problem, got: {msg}"
+        !err.to_string().is_empty(),
+        "the parse error must name the real problem"
     );
 }
 
+/// Every position of a relation is typed, so a malformed IRI is rejected
+/// wherever it appears rather than only once the pipeline runs.
 #[test]
-fn test_invalid_relation_uris_are_rejected() {
-    let pipeline = IngestionPipeline::new();
+fn test_invalid_relation_uris_cannot_be_constructed() {
     for (subject, predicate, object) in [
         ("not-a-uri", "http://zakhor/ns/p", "http://zakhor/ns/o"),
         ("http://zakhor/ns/s", "not-a-uri", "http://zakhor/ns/o"),
         ("http://zakhor/ns/s", "http://zakhor/ns/p", "not-a-uri"),
     ] {
-        let args = StoreObservationArgs {
-            text: "probe".into(),
-            entities: vec![],
-            relations: vec![Relation {
-                subject_uri: subject.into(),
-                predicate_uri: predicate.into(),
-                object_uri: object.into(),
-                label: String::new(),
-            }],
-        };
         assert!(
-            pipeline.validate(&args).is_err(),
+            EntityUri::parse(subject).is_err()
+                || RelationPredicate::parse(predicate).is_err()
+                || EntityUri::parse(object).is_err(),
             "relation ({subject}, {predicate}, {object}) must be rejected"
         );
     }
 }
 
 #[test]
-fn test_build_observation_sparql_reports_a_bad_uri() {
-    let args = StoreObservationArgs {
-        text: "probe".into(),
-        entities: vec![EntityRef {
-            uri: "http://example.com/a b".into(),
-            label: "P".into(),
-        }],
-        relations: vec![],
-    };
-    let err = build_observation_sparql(&args, "urn:uuid:11111111-2222-3333-4444-555555555555")
-        .expect_err("a URI containing a space is not addressable");
-    assert!(err.to_string().contains("not a valid URI"), "got: {err}");
+fn test_uri_containing_a_space_cannot_be_constructed() {
+    assert!(
+        EntityUri::parse("http://example.com/a b").is_err(),
+        "a URI containing a space is not addressable"
+    );
 }

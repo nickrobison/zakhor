@@ -62,10 +62,15 @@ impl MemoryHandler {
         let this = self.clone();
         let result = tokio::task::spawn_blocking(move || {
             let _guard = propagate_span.enter();
-            crate::project::link_to_repository(&this.conn, &args.entity_uri, &args.repository_uri)?;
+            crate::project::link_to_repository(
+                &this.conn,
+                args.entity_uri.as_str(),
+                args.repository_uri.as_str(),
+            )?;
             Ok::<String, String>(format!(
                 "Linked {} to repository {}",
-                args.entity_uri, args.repository_uri
+                args.entity_uri.as_str(),
+                args.repository_uri.as_str()
             ))
         })
         .await

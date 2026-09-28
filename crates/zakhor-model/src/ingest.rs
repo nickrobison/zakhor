@@ -14,6 +14,7 @@ use tracker::prelude::SparqlConnectionExtManual;
 use crate::errors::IngestionError;
 use crate::extraction::ExtractionPipeline;
 use crate::pipeline::{IngestResult, IngestionPipeline, StoreObservationArgs};
+use zakhor_common::vocab::ObservationUri;
 
 impl IngestionPipeline {
     pub async fn ingest(
@@ -91,7 +92,10 @@ impl IngestionPipeline {
         let triple_count = self.track_provenance(&prepared.uuid_urn, prepared.provenance_triples);
 
         Ok(IngestResult {
-            observation_uri: prepared.uuid_urn,
+            // tracker generates this urn:uuid itself, so well-formedness is an
+            // invariant here rather than untrusted input.
+            observation_uri: ObservationUri::parse(prepared.uuid_urn)
+                .expect("tracker-generated urn:uuid is always a well-formed IRI"),
             triple_count,
         })
     }

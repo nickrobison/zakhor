@@ -8,6 +8,7 @@
 //! full-text and structured search.
 
 use gio::Cancellable;
+use oxiri::Iri;
 use oxrdf::Literal;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
@@ -32,6 +33,8 @@ use zakhor_storage::sparql::Prefix;
 /// directly.
 #[derive(Clone, Debug)]
 pub struct ToolCall {
+    // A ToolCall node IRI, not one of the six vocabulary instance-IRI shapes.
+    // Kept as String; see AdminInjectToolCallResponse::uri.
     pub uri: String,
     pub tool_name: String,
     /// Structured JSON arguments for this tool invocation.
@@ -291,8 +294,11 @@ pub fn link_toolcall_to_decision(
     toolcall_uri: &str,
     decision_uri: &str,
 ) -> Result<(), String> {
-    let safe_tc = toolcall_uri.replace('>', "");
-    let safe_dec = decision_uri.replace('>', "");
+    // Validate rather than mangle: both are node IRIs interpolated into SPARQL.
+    let toolcall_uri = Iri::parse(toolcall_uri.to_string())
+        .map_err(|e| format!("Invalid toolcall IRI '{toolcall_uri}': {e}"))?;
+    let decision_uri = Iri::parse(decision_uri.to_string())
+        .map_err(|e| format!("Invalid decision IRI '{decision_uri}': {e}"))?;
 
     let sparql = format!(
         r#"PREFIX zakhor: <{ns}>
@@ -301,8 +307,8 @@ INSERT DATA {{
   <{tc}> zakhor:evidenceFor <{dec}> .
 }}"#,
         ns = Prefix::ZAKHOR,
-        tc = safe_tc,
-        dec = safe_dec,
+        tc = toolcall_uri,
+        dec = decision_uri,
     );
 
     conn.update(&sparql, None::<&Cancellable>)
