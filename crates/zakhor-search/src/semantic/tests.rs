@@ -116,3 +116,63 @@ fn test_scored_doc_struct() {
     assert_eq!(doc.id, "test-123");
     assert!((doc.score - 0.95).abs() < 1e-6);
 }
+
+/// A semantic hit must carry the text it was indexed from, otherwise callers
+/// receive an opaque id with no content to show or act on.
+#[test]
+fn test_rank_by_similarity_returns_stored_text() {
+    let entries: Vec<SemanticEntry> = vec![
+        (
+            "urn:uuid:aaa".to_string(),
+            vec![1.0, 0.0, 0.0],
+            "The deployment pipeline uses Kubernetes.".to_string(),
+        ),
+        (
+            "urn:uuid:bbb".to_string(),
+            vec![0.0, 1.0, 0.0],
+            "Unrelated note about billing.".to_string(),
+        ),
+    ];
+
+    let results = rank_by_similarity(&entries, &[1.0, 0.0, 0.0], 10);
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(
+        results[0].id, "urn:uuid:aaa",
+        "best match should rank first"
+    );
+    assert_eq!(
+        results[0].text, "The deployment pipeline uses Kubernetes.",
+        "semantic hit must return the indexed text, not an empty string"
+    );
+    assert_eq!(results[1].text, "Unrelated note about billing.");
+}
+
+/// Ordering and truncation must still hold once text is carried along.
+#[test]
+fn test_rank_by_similarity_orders_and_truncates() {
+    let entries: Vec<SemanticEntry> = vec![
+        ("id-1".to_string(), vec![0.0, 0.0, 1.0], "first".to_string()),
+        (
+            "id-2".to_string(),
+            vec![1.0, 0.0, 0.0],
+            "second".to_string(),
+        ),
+        ("id-3".to_string(), vec![0.9, 0.1, 0.0], "third".to_string()),
+    ];
+
+    let results = rank_by_similarity(&entries, &[1.0, 0.0, 0.0], 2);
+
+    assert_eq!(results.len(), 2, "limit must truncate results");
+    assert_eq!(results[0].id, "id-2", "exact match must rank first");
+    assert_eq!(results[1].id, "id-3", "near match must rank second");
+    assert_eq!(results[0].text, "second");
+    assert_eq!(results[1].text, "third");
+}
+
+/// An empty index yields no results rather than panicking.
+#[test]
+fn test_rank_by_similarity_empty_entries() {
+    let entries: Vec<SemanticEntry> = Vec::new();
+    assert!(rank_by_similarity(&entries, &[1.0, 0.0], 5).is_empty());
+}

@@ -3,7 +3,7 @@ use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::{tool, tool_router};
 use std::time::Instant;
 use tracing::info_span;
-use zakhor_model::decision::{CreateDecisionArgs, DecisionModel};
+use zakhor_model::decision::{CreateDecisionArgs, DecisionModel, decision_index_text};
 
 use crate::args::{RecordDecisionArgs, RecordDecisionResponse};
 use crate::handler::{MemoryHandler, args_hash};
@@ -42,6 +42,8 @@ impl MemoryHandler {
         let _guard = span.enter();
         let start = Instant::now();
 
+        let mut sync_target: Option<(String, String)> = None;
+
         let result = (|| -> Result<Json<RecordDecisionResponse>, String> {
             let project_uri = parse_project_uri(&args.project_uri)?;
             let decision_args = CreateDecisionArgs {
@@ -56,12 +58,36 @@ impl MemoryHandler {
                 depends_on: vec![],
                 project_uri,
             };
+            let index_text = decision_index_text(&decision_args);
             let create_result = DecisionModel::create(&self.conn, decision_args)?;
+            sync_target = Some((create_result.decision_uri.as_str().to_string(), index_text));
 
             Ok(Json(RecordDecisionResponse {
                 decision_uri: create_result.decision_uri.as_str().to_string(),
             }))
         })();
+
+        // Index the decision so it is retrievable via search. A decision carries
+        // no nie:plainTextContent, so without this it would be write-only.
+        // Best-effort: the decision is already durable in the graph, so an index
+        // failure must not be reported as a failed record_decision call.
+        if result.is_ok()
+            && let Some(mgr) = self.sync_mgr.clone()
+            && let Some((uri, index_text)) = sync_target
+        {
+            let log_uri = uri.clone();
+            match tokio::task::spawn_blocking(move || mgr.sync_observation(&uri, &index_text, &[]))
+                .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    tracing::warn!(error = %e, uri = %log_uri, "Decision stored but index sync failed")
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, uri = %log_uri, "Decision index sync task failed")
+                }
+            }
+        }
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
         span.record("result", if result.is_ok() { "success" } else { "error" });

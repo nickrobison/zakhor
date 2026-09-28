@@ -63,20 +63,20 @@ impl IndexSyncManager {
         })
     }
 
-    /// Ensure the semantic index is initialized.
+    /// Ensure the semantic index is initialized, loading any persisted snapshot.
     ///
-    /// Uses `OnceLock::get_or_init` so that:
-    /// - In production: a background task usually `set()`s the cell first, so
-    ///   this returns instantly.
-    /// - Otherwise (tests, `--rebuild-indexes`) this falls back to a synchronous
-    ///   init.
+    /// Initialization is lazy: the embedding model is only loaded once a caller
+    /// actually needs semantic search. The first such call pays the model-load
+    /// cost; later calls reuse the initialized cell. Model-load failures are
+    /// returned as errors rather than panicking, so a missing or corrupt model
+    /// degrades search instead of taking down the caller.
     fn ensure_semantic(&self) -> ZakhorResult<std::sync::MutexGuard<'_, SemanticIndex>> {
         if !self.embedding_enabled {
             return Err(
                 ZakhorError::Internal("Embeddings are disabled via config".to_string()).into(),
             );
         }
-        let cell = self.semantic.get_or_init(|| {
+        if self.semantic.get().is_none() {
             let span = tracing::info_span!(
                 "semantic_lazy_init",
                 model = "BGESmallENV15",
@@ -84,10 +84,15 @@ impl IndexSyncManager {
             );
             let _enter = span.enter();
             let sem = SemanticIndex::new(&self.db_path, &self.models_cache_dir)
-                .expect("SemanticIndex init failed — critical model missing");
-            Mutex::new(sem)
-        });
-        cell.lock()
+                .map_err(|e| ZakhorError::Internal(format!("Semantic index init failed: {e}")))?;
+            // A concurrent caller may have won the race; either value is
+            // equivalent, and `set` reports whether this one was stored.
+            let _ = self.semantic.set(Mutex::new(sem));
+        }
+        self.semantic
+            .get()
+            .ok_or_else(|| ZakhorError::Internal("Semantic index unavailable".to_string()))?
+            .lock()
             .map_err(|e| ZakhorError::Internal(format!("Semantic lock poisoned: {e}")))
             .map_err(Into::into)
     }
@@ -142,6 +147,14 @@ impl IndexSyncManager {
         result
     }
 
+    /// Whether semantic (embedding) search is enabled by configuration.
+    ///
+    /// When `false`, hybrid search silently degrades to lexical-only; callers
+    /// should surface that to the user rather than implying full recall.
+    pub fn semantic_enabled(&self) -> bool {
+        self.embedding_enabled
+    }
+
     /// Number of vectors in the semantic index (0 if not yet initialized or disabled).
     pub fn semantic_len(&self) -> usize {
         if !self.embedding_enabled {
@@ -153,17 +166,17 @@ impl IndexSyncManager {
             .unwrap_or(0)
     }
 
-    /// Search the semantic index (lazy-init safe, returns empty vec if not initialized or disabled).
+    /// Search the semantic index (lazy-init safe, returns empty vec if disabled).
     pub fn semantic_search(&self, query: &str, limit: usize) -> Vec<crate::ScoredDoc> {
         if !self.embedding_enabled {
             return Vec::new();
         }
-        match self.semantic.get() {
-            Some(m) => match m.lock() {
-                Ok(mut guard) => guard.search(query, limit),
-                Err(_) => Vec::new(),
-            },
-            None => Vec::new(),
+        match self.ensure_semantic() {
+            Ok(mut guard) => guard.search(query, limit),
+            Err(e) => {
+                tracing::warn!(error = %e, "Semantic search unavailable");
+                Vec::new()
+            }
         }
     }
 

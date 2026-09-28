@@ -5357,6 +5357,7 @@ dependencies = [
  "tracing",
  "tracker-rs",
  "zakhor-common",
+ "zakhor-storage",
 ]
 
 [[package]]

@@ -79,3 +79,91 @@ fn test_decision_status_constants() {
     assert_eq!(vocab::decision_status::ACTIVE, "active");
     assert_eq!(vocab::decision_status::SUPERSEDED, "superseded");
 }
+
+// ── Search index text ──────────────────────────────────────────────────────
+
+/// A recorded decision must be findable by searching any part of it, so all
+/// narrative fields are composed into one indexable blob.
+#[test]
+fn test_decision_index_text_includes_all_narrative_fields() {
+    let args = CreateDecisionArgs {
+        context: "We must choose a message bus".to_string(),
+        outcome: "Adopt NATS".to_string(),
+        alternatives: vec!["Kafka".to_string(), "RabbitMQ".to_string()],
+        rationale: "Lower operational complexity".to_string(),
+        affects: vec![],
+        derived_from: vec![],
+        supersedes: None,
+        conflicts_with: vec![],
+        depends_on: vec![],
+        project_uri: None,
+    };
+
+    let text = decision_index_text(&args);
+
+    assert!(
+        text.contains("We must choose a message bus"),
+        "context missing: {text}"
+    );
+    assert!(text.contains("Adopt NATS"), "decision missing: {text}");
+    assert!(
+        text.contains("Lower operational complexity"),
+        "rationale missing: {text}"
+    );
+    assert!(text.contains("Kafka"), "alternative missing: {text}");
+    assert!(text.contains("RabbitMQ"), "alternative missing: {text}");
+}
+
+/// Empty sections must be omitted rather than emitting a dangling header.
+#[test]
+fn test_decision_index_text_omits_empty_alternatives() {
+    let args = CreateDecisionArgs {
+        context: "ctx".to_string(),
+        outcome: "out".to_string(),
+        alternatives: vec![],
+        rationale: "why".to_string(),
+        affects: vec![],
+        derived_from: vec![],
+        supersedes: None,
+        conflicts_with: vec![],
+        depends_on: vec![],
+        project_uri: None,
+    };
+
+    let text = decision_index_text(&args);
+
+    assert!(
+        !text.contains("Alternatives"),
+        "should omit empty section: {text}"
+    );
+    assert!(!text.trim().is_empty());
+}
+
+/// Blank fields must not leave empty labels behind.
+#[test]
+fn test_decision_index_text_omits_blank_fields() {
+    let args = CreateDecisionArgs {
+        context: "   ".to_string(),
+        outcome: "Adopt NATS".to_string(),
+        alternatives: vec![],
+        rationale: String::new(),
+        affects: vec![],
+        derived_from: vec![],
+        supersedes: None,
+        conflicts_with: vec![],
+        depends_on: vec![],
+        project_uri: None,
+    };
+
+    let text = decision_index_text(&args);
+
+    assert!(text.contains("Adopt NATS"));
+    assert!(
+        !text.contains("Context:"),
+        "blank context should be omitted: {text}"
+    );
+    assert!(
+        !text.contains("Rationale:"),
+        "blank rationale should be omitted: {text}"
+    );
+}

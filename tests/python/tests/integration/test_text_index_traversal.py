@@ -72,6 +72,22 @@ async def _rebuild_indexes(mcp_session: ClientSession) -> str:
     return _get_text(result)
 
 
+# `search_hybrid` reports a `warning` for two unrelated conditions: the sync
+# manager being absent (a genuine infrastructure failure, so there is nothing
+# to assert on) and semantic search being disabled (the documented default, in
+# which the lexical results are still valid and worth asserting). Skipping on
+# any warning therefore skipped every search assertion in this suite, and the
+# suite still reported success.
+_INDEXES_UNAVAILABLE = "Indexes not available"
+
+
+def _skip_if_indexes_unavailable(data: dict) -> None:
+    """Skip only when search indexes are genuinely missing."""
+    warning = data.get("warning") or ""
+    if _INDEXES_UNAVAILABLE in warning:
+        pytest.xfail(reason=f"Search indexes not available: {warning}")
+
+
 async def _get_observation_text(
     mcp_session: ClientSession,
     doc_id: str,
@@ -120,6 +136,12 @@ TEXT_PROJECT_B = f"The {UID_PROJECT_B} module implements the Beta query processo
 UID_CONSISTENCY = "ZakhorConsistencyToken_D4F7"
 TEXT_CONSISTENCY = f"The {UID_CONSISTENCY} service manages consistency checks."
 
+DECISION_UID = "ZakhorDecisionToken_B3E9"
+DECISION_CONTEXT = f"We must choose a message bus for the {DECISION_UID} workloads."
+DECISION_OUTCOME = "Adopt NATS as the message bus"
+DECISION_ALTERNATIVE = "Kafka"
+DECISION_RATIONALE = "Lower operational complexity for our team size"
+
 ENTITY_PREFIX = "http://example.org/"
 ENTITY_LABEL_PREFIX = "TextIndexEntity"
 
@@ -164,7 +186,7 @@ async def test_lexical_search_exact_match(mcp_session: ClientSession) -> None:
     search_data = _parse_json(_get_text(search_result))
 
     if search_data.get("warning"):
-        pytest.xfail(reason=f"Search indexes not available: {search_data['warning']}")
+        _skip_if_indexes_unavailable(search_data)
 
     assert "results" in search_data, f"Expected results field, got: {search_data}"
     assert search_data["count"] > 0, (
@@ -229,7 +251,7 @@ async def test_semantic_search_no_vocabulary_overlap(
     search_data = _parse_json(_get_text(search_result))
 
     if search_data.get("warning"):
-        pytest.xfail(reason=f"Search indexes not available: {search_data['warning']}")
+        _skip_if_indexes_unavailable(search_data)
 
     assert "results" in search_data, f"Expected results field, got: {search_data}"
 
@@ -290,8 +312,7 @@ async def test_observation_immediately_searchable(mcp_session: ClientSession) ->
     search_data = _parse_json(_get_text(search_result))
 
     if search_data.get("warning"):
-        # If indexes are not configured, this test is N/A
-        pytest.xfail(reason=f"Search indexes not available: {search_data['warning']}")
+        _skip_if_indexes_unavailable(search_data)
 
     assert "results" in search_data, f"Expected results field, got: {search_data}"
 
@@ -362,7 +383,7 @@ async def test_search_project_filter(mcp_session: ClientSession) -> None:
     data_a = _parse_json(_get_text(search_a))
 
     if data_a.get("warning"):
-        pytest.xfail(reason=f"Search indexes not available: {data_a['warning']}")
+        _skip_if_indexes_unavailable(data_a)
 
     assert data_a["count"] > 0, (
         f"Expected at least 1 result for project A token '{UID_PROJECT_A}', "
@@ -451,7 +472,7 @@ async def test_search_rebuild_consistency(mcp_session: ClientSession) -> None:
     data_1 = _parse_json(_get_text(search_1))
 
     if data_1.get("warning"):
-        pytest.xfail(reason=f"Search indexes not available: {data_1['warning']}")
+        _skip_if_indexes_unavailable(data_1)
 
     assert data_1["count"] > 0, (
         f"Expected at least 1 result after first rebuild for '{UID_CONSISTENCY}', "
@@ -506,3 +527,57 @@ async def test_search_no_match_returns_graceful(mcp_session: ClientSession) -> N
     assert "results" in data or "warning" in data, (
         f"Expected results or warning, got: {data}"
     )
+
+
+# ===================================================================
+# 3.7  A recorded decision is findable (issue #74)
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_recorded_decision_is_findable_after_rebuild(
+    mcp_session: ClientSession,
+) -> None:
+    """``record_decision`` output must be retrievable through search_hybrid.
+
+    Decisions used to be write-only: nothing synced them to the indexes, so a
+    recorded decision could never be found again -- the agent would have to
+    already know the decision existed in order to ask for it.
+
+    This covers the end-to-end promise. It exercises the write-path sync plus
+    the rebuild together, so it cannot attribute a hit to either one
+    individually; ``fetch_all`` in zakhor-search is unit-tested separately for
+    the rebuild projection on its own.
+    """
+    result = await mcp_session.call_tool(
+        "record_decision",
+        {
+            "context": DECISION_CONTEXT,
+            "decision": DECISION_OUTCOME,
+            "alternatives": [DECISION_ALTERNATIVE, "RabbitMQ"],
+            "rationale": DECISION_RATIONALE,
+        },
+    )
+    decision_uri = _parse_json(_get_text(result))["decision_uri"]
+
+    await _rebuild_indexes(mcp_session)
+
+    # The unique token appears only in this decision's context, so a match can
+    # only come from the decision itself.
+    for query, field in (
+        (DECISION_UID, "context"),
+        (DECISION_OUTCOME, "decision"),
+        (DECISION_RATIONALE, "rationale"),
+    ):
+        data = _parse_json(
+            _get_text(
+                await mcp_session.call_tool("search_hybrid", {"query": query, "limit": 10})
+            )
+        )
+        _skip_if_indexes_unavailable(data)
+
+        ids = {r["id"] for r in data["results"]}
+        assert decision_uri in ids, (
+            f"Decision not findable by its {field}. Searched {query!r}, "
+            f"got {sorted(ids)}, expected {decision_uri}."
+        )

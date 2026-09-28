@@ -2,7 +2,38 @@ use super::simd::cosine_similarity;
 use crate::semantic::ScoredDoc;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use std::path::{Path, PathBuf};
-use tracker::prelude::SparqlCursorExtManual;
+
+/// A stored document: its id, its embedding, and the text it was derived from.
+///
+/// The text is retained so that [`ScoredDoc`] results can carry their content.
+/// Without it a semantic hit can only report an opaque id.
+pub(crate) type SemanticEntry = (String, Vec<f32>, String);
+
+/// Rank `entries` against `query_vec` by cosine similarity, best first.
+///
+/// Pure function: no model required, so it is directly unit-testable.
+pub(crate) fn rank_by_similarity(
+    entries: &[SemanticEntry],
+    query_vec: &[f32],
+    limit: usize,
+) -> Vec<ScoredDoc> {
+    let mut scored: Vec<ScoredDoc> = entries
+        .iter()
+        .map(|(id, vec, text)| ScoredDoc {
+            id: id.clone(),
+            score: cosine_similarity(query_vec, vec),
+            text: text.clone(),
+        })
+        .collect();
+
+    scored.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    scored.truncate(limit);
+    scored
+}
 
 /// In-memory semantic vector index using `fastembed` for local CPU embeddings.
 ///
@@ -11,7 +42,7 @@ use tracker::prelude::SparqlCursorExtManual;
 /// projection* — the Tracker SPARQL store remains the source of truth.
 pub struct SemanticIndex {
     model: TextEmbedding,
-    vectors: Vec<(String, Vec<f32>)>,
+    vectors: Vec<SemanticEntry>,
     snapshot_path: PathBuf,
 }
 
@@ -51,7 +82,17 @@ impl SemanticIndex {
         };
 
         if index.snapshot_path.exists() {
-            index.load()?;
+            // A snapshot written by an older build may use an incompatible
+            // layout. This index is a derived projection — Tracker remains the
+            // source of truth — so start empty and let `rebuild_indexes`
+            // repopulate rather than refusing to start.
+            if let Err(e) = index.load() {
+                tracing::warn!(
+                    path = %index.snapshot_path.display(),
+                    error = %e,
+                    "Could not load semantic snapshot; starting empty. Run rebuild_indexes to repopulate."
+                );
+            }
         }
 
         Ok(index)
@@ -70,7 +111,8 @@ impl SemanticIndex {
             .into_iter()
             .next()
             .expect("embedding should produce exactly one vector");
-        self.vectors.push((id.to_string(), embedding));
+        self.vectors
+            .push((id.to_string(), embedding, text.to_string()));
         Ok(())
     }
 
@@ -88,23 +130,7 @@ impl SemanticIndex {
             Err(_) => return Vec::new(),
         };
 
-        let mut scored: Vec<ScoredDoc> = self
-            .vectors
-            .iter()
-            .map(|(id, vec)| ScoredDoc {
-                id: id.clone(),
-                score: cosine_similarity(&query_vec, vec),
-                text: String::new(),
-            })
-            .collect();
-
-        scored.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        scored.truncate(limit);
-        scored
+        rank_by_similarity(&self.vectors, &query_vec, limit)
     }
 
     /// Number of vectors currently in the index.
@@ -137,37 +163,16 @@ impl SemanticIndex {
 
     /// Rebuild the entire index from the Tracker SPARQL store.
     ///
-    /// Clears all existing vectors, queries every stored memory
-    /// (identifier + text content), and re-embeds each one.
+    /// Clears all existing vectors, re-reads every indexable record
+    /// (observations and decisions), and re-embeds each one.
     pub fn rebuild_from_tracker(&mut self, conn: &tracker::SparqlConnection) -> Result<(), String> {
         self.vectors.clear();
 
-        let sparql = "\
-            PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>\n\
-            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n\
-            SELECT ?identifier ?text WHERE {\n\
-                ?id rdf:type nie:InformationElement ;\n\
-                    nie:identifier ?identifier ;\n\
-                    nie:plainTextContent ?text .\n\
-            }";
+        let docs = crate::rebuild::fetch_all(conn)
+            .map_err(|e| format!("Failed to read indexable documents: {e}"))?;
 
-        let cursor = conn
-            .query(sparql, None::<&gio::Cancellable>)
-            .map_err(|e| format!("SPARQL query failed: {}", e))?;
-
-        while cursor
-            .next(None::<&gio::Cancellable>)
-            .map_err(|e| format!("Cursor iteration failed: {}", e))?
-        {
-            let id = cursor
-                .string(0)
-                .ok_or_else(|| "Missing identifier".to_string())?
-                .to_string();
-            let text = cursor
-                .string(1)
-                .ok_or_else(|| "Missing text content".to_string())?
-                .to_string();
-            self.add(&id, &text)?;
+        for doc in docs {
+            self.add(&doc.id, &doc.text)?;
         }
 
         Ok(())
