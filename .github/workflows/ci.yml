@@ -3,8 +3,12 @@ name: CI
 on:
   push:
     branches: [master]
+  # Must stay unfiltered. GitHub resolves a pull_request workflow from the PR's
+  # base branch, so a `branches: [master]` filter leaves every PR stacked on a
+  # feature branch with zero checks. The bare key below is load-bearing.
   pull_request:
-    branches: [master]
+  # Needed to verify a ref whose base predates the unfiltered trigger above.
+  workflow_dispatch:
 
 permissions:
   contents: read
