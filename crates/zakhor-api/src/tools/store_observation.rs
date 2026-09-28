@@ -31,7 +31,7 @@ impl MemoryHandler {
 
         let mut pipeline = IngestionPipeline::with_sync_manager(self.sync_mgr.clone());
         let ingest_result = pipeline
-            .ingest_async(Arc::new(self.conn.clone()), args, &correlation_id)
+            .ingest(Arc::new(self.conn.clone()), args, &correlation_id)
             .await
             .map_err(|e| format!("Ingest failed: {e}"))?;
 

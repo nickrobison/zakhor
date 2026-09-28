@@ -33,7 +33,7 @@ impl MemoryHandler {
 
         let mut pipeline = IngestionPipeline::with_sync_manager(self.sync_mgr.clone());
         let ingest_result = pipeline
-            .extract_and_ingest_async(
+            .extract_and_ingest(
                 Arc::new(self.conn.clone()),
                 &args.text,
                 &extraction,

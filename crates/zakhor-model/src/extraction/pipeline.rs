@@ -60,41 +60,16 @@ impl ExtractionPipeline {
     /// Create a new extraction pipeline, downloading the model from
     /// HuggingFace Hub if it is not already cached in `model_dir`.
     ///
-    /// This is a convenience constructor that calls
-    /// [`model_setup::ensure_model_files`] to resolve `model_path` and
-    /// `tokenizer_path`, then creates the pipeline.  The model is **not**
-    /// loaded until the first extraction call.
-    ///
-    /// # Blocking
-    ///
-    /// This constructor performs blocking I/O (directory scan and possibly
-    /// an HTTP download).  Prefer the async variant
-    /// [`new_with_setup_async`](Self::new_with_setup_async) when calling
-    /// from an async context.
+    /// Async because resolving the model is filesystem and network bound. The
+    /// blocking work runs on a dedicated thread via
+    /// [`tokio::task::spawn_blocking`]. The model itself is **not** loaded until
+    /// the first extraction call.
     #[tracing::instrument(skip(config))]
-    pub fn new_with_setup(
-        config: ExtractionConfig,
-        model_dir: &std::path::Path,
-    ) -> Result<Self, ExtractionError> {
-        let files = model_setup::ensure_model_files(model_dir)?;
-        let resolved = ExtractionConfig {
-            model_path: files.model_path,
-            tokenizer_path: files.tokenizer_path,
-            ..config
-        };
-        Ok(Self::new(resolved))
-    }
-
-    /// Async variant of [`new_with_setup`](Self::new_with_setup).
-    ///
-    /// Runs the blocking model setup on a dedicated thread via
-    /// [`tokio::task::spawn_blocking`].
-    #[tracing::instrument(skip(config))]
-    pub async fn new_with_setup_async(
+    pub async fn new_with_setup(
         config: ExtractionConfig,
         model_dir: std::path::PathBuf,
     ) -> Result<Self, ExtractionError> {
-        let files = model_setup::ensure_model_files_async(model_dir).await?;
+        let files = model_setup::ensure_model_files(model_dir).await?;
         let resolved = ExtractionConfig {
             model_path: files.model_path,
             tokenizer_path: files.tokenizer_path,

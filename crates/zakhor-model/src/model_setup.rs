@@ -99,8 +99,10 @@ pub fn find_cached_model(model_dir: &Path) -> Option<ModelFiles> {
     None
 }
 
+/// Blocking model resolution. Private: [`ensure_model_files`] is the only
+/// supported entry point and is async, so callers never block a runtime worker.
 #[tracing::instrument(skip(model_dir))]
-pub fn ensure_model_files(model_dir: &Path) -> Result<ModelFiles, ModelSetupError> {
+fn ensure_model_files_blocking(model_dir: &Path) -> Result<ModelFiles, ModelSetupError> {
     let effective_dir = resolve_cache_dir(model_dir);
     std::fs::create_dir_all(&effective_dir)?;
 
@@ -140,11 +142,14 @@ pub fn ensure_model_files(model_dir: &Path) -> Result<ModelFiles, ModelSetupErro
     })
 }
 
-/// Async wrapper around [`ensure_model_files`] that runs the blocking
-/// setup on a dedicated thread via [`tokio::task::spawn_blocking`].
+/// Resolve the model and tokenizer, downloading them if absent.
+///
+/// Async because the work is filesystem and network bound. The blocking body
+/// runs on a dedicated thread via [`tokio::task::spawn_blocking`] so it cannot
+/// stall a runtime worker.
 #[tracing::instrument(skip(model_dir))]
-pub async fn ensure_model_files_async(model_dir: PathBuf) -> Result<ModelFiles, ModelSetupError> {
-    tokio::task::spawn_blocking(move || ensure_model_files(&model_dir))
+pub async fn ensure_model_files(model_dir: PathBuf) -> Result<ModelFiles, ModelSetupError> {
+    tokio::task::spawn_blocking(move || ensure_model_files_blocking(&model_dir))
         .await
         .map_err(|e| ModelSetupError::Io(format!("spawn_blocking join: {e}")))?
 }

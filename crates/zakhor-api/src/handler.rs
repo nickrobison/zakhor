@@ -78,21 +78,22 @@ impl MemoryHandler {
         let extraction_init: Arc<OnceCell<Result<Arc<ExtractionPipeline>, String>>> =
             Arc::new(OnceCell::new());
         let extraction_bg = extraction_init.clone();
-        tokio::task::spawn_blocking(move || {
+        tokio::spawn(async move {
             tracing::info!("Starting extraction model download from HF in background");
-            let result = match ExtractionPipeline::new_with_setup(extraction_cfg, &model_dir) {
-                Ok(pipeline) => {
-                    tracing::info!("Extraction model ready in {}", model_dir.display());
-                    Ok(Arc::new(pipeline))
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "Failed to set up extraction model — extraction disabled"
-                    );
-                    Err(format!("Extraction pipeline init failed: {e}"))
-                }
-            };
+            let result =
+                match ExtractionPipeline::new_with_setup(extraction_cfg, model_dir.clone()).await {
+                    Ok(pipeline) => {
+                        tracing::info!("Extraction model ready in {}", model_dir.display());
+                        Ok(Arc::new(pipeline))
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "Failed to set up extraction model — extraction disabled"
+                        );
+                        Err(format!("Extraction pipeline init failed: {e}"))
+                    }
+                };
             let _ = extraction_bg.set(result);
         });
 

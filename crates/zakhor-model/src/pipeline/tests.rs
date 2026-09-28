@@ -1,4 +1,7 @@
 use super::*;
+use crate::extraction::ExtractionPipeline;
+use std::sync::Arc;
+use tracker::SparqlConnection;
 use zakhor_storage::sparql::Prefix;
 
 // -- Pipeline lifecycle ---------------------------------------------------
@@ -302,7 +305,7 @@ fn test_ingestion_error_join_display() {
 // -- Async ingestion methods (compile-and-behaviour check) ---------------
 
 #[tokio::test]
-async fn test_ingest_async_build_triples_matches_sync() {
+async fn test_ingest_build_triples_matches_prepare_only() {
     let pipeline = IngestionPipeline::with_resolver(None);
 
     let args = StoreObservationArgs {
@@ -343,7 +346,7 @@ async fn test_ingest_async_build_triples_matches_sync() {
 }
 
 #[tokio::test]
-async fn test_ingest_async_validates_input() {
+async fn test_ingest_validates_input() {
     let pipeline = IngestionPipeline::new();
 
     // Validation runs before persist, so we test that the sync validate()
@@ -501,29 +504,36 @@ fn test_with_sync_manager_constructor_none() {
 // -- Compile-time / structural API checks ------------------------------
 
 #[test]
-fn test_ingest_async_method_signature_compiles() {
-    // Structural check: verify ingest_async method exists on the pipeline
-    // with the expected signature.  We cannot call it without an
-    // Arc<SparqlConnection>, but we can confirm the pipeline type
-    // has the method by checking it compiles.
-    fn _assert_signature(p: &mut IngestionPipeline) {
-        // Just referencing the type suffices for a compile-time check
-        let _ = p.provenance();
+fn test_ingest_method_signature_compiles() {
+    // Fails to compile if `ingest` is absent or its arity changes. The previous
+    // version of this test claimed to check the signature but only touched
+    // `provenance()`, so it would have passed with the method deleted.
+    fn _assert_ingest(
+        p: &mut IngestionPipeline,
+        conn: Arc<SparqlConnection>,
+        args: StoreObservationArgs,
+        correlation_id: &str,
+    ) {
+        let _fut = p.ingest(conn, args, correlation_id);
     }
     let mut pipeline = IngestionPipeline::new();
-    _assert_signature(&mut pipeline);
+    let _ = &mut pipeline;
 }
 
 #[test]
-fn test_extract_and_ingest_async_method_signature_compiles() {
-    // Structural check: verify extract_and_ingest_async method exists
-    // on the pipeline with the expected signature.
-    fn _assert_signature(_p: &mut IngestionPipeline) {
-        // Compile-time verification: IngestionPipeline has
-        // extract_and_ingest_async method
+fn test_extract_and_ingest_method_signature_compiles() {
+    // Same intent for the extract-then-ingest entry point.
+    fn _assert_extract_and_ingest(
+        p: &mut IngestionPipeline,
+        conn: Arc<SparqlConnection>,
+        text: &str,
+        extraction: &ExtractionPipeline,
+        correlation_id: &str,
+    ) {
+        let _fut = p.extract_and_ingest(conn, text, extraction, correlation_id);
     }
     let mut pipeline = IngestionPipeline::new();
-    _assert_signature(&mut pipeline);
+    let _ = &mut pipeline;
 }
 
 // -- Build triples via async code path ----------------------------------
