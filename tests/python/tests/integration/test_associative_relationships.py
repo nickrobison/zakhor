@@ -1396,5 +1396,9 @@ async def test_link_tools_reject_malformed_uris(
         assert result.isError, f"{tool} {field}={value!r} should be rejected"
         text = _get_text(result)
         assert "Parser error" not in text, f"raw parser error leaked: {text}"
-        assert "not a valid URI" in text, f"error should name the problem: {text}"
+        # Link args are typed, so a malformed IRI is rejected while the
+        # parameters are decoded rather than by the pipeline's validate stage.
+        assert (
+            "not a valid URI" in text or "IRI" in text
+        ), f"error should name the IRI problem: {text}"
         assert "panicked" not in text, f"a task panicked: {text}"
