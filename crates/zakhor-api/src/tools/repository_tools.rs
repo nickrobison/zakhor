@@ -33,7 +33,6 @@ impl MemoryHandler {
                         repository_uri: repo.uri,
                     })
                 })
-                .map_err(|e| format!("Create repository failed: {e}"))
         })
         .await
         .map_err(|e| format!("Task join error: {e}"))?;

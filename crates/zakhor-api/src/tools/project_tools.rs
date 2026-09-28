@@ -27,13 +27,13 @@ impl MemoryHandler {
         let this = self.clone();
         let result = tokio::task::spawn_blocking(move || {
             let _guard = propagate_span.enter();
-            crate::project::create_project(&this.conn, &args.name, args.description.as_deref())
-                .map(|project| {
+            crate::project::create_project(&this.conn, &args.name, args.description.as_deref()).map(
+                |project| {
                     Json(CreateProjectResponse {
                         project_uri: project.uri,
                     })
-                })
-                .map_err(|e| format!("Create project failed: {e}"))
+                },
+            )
         })
         .await
         .map_err(|e| format!("Task join error: {e}"))?;
