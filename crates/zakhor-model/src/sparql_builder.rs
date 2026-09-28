@@ -8,6 +8,10 @@ use crate::pipeline::StoreObservationArgs;
 // SPARQL query builder
 // ---------------------------------------------------------------------------
 
+/// Re-exported from `zakhor_storage::sparql` so there is a single `format_iri`
+/// definition rather than one per crate.
+pub use storage_sparql::format_iri;
+
 fn invalid_iri(what: &str, value: &str) -> crate::errors::IngestionError {
     crate::errors::IngestionError::Validation(
         format!("{what} URI {value:?} is not a valid URI"),
