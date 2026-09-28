@@ -4,6 +4,7 @@ use tokio::task::spawn_blocking;
 
 use crate::model_setup;
 use crate::pipeline::{EntityRef, Relation};
+use zakhor_common::vocab::{EntityUri, RelationPredicate};
 
 use super::compat;
 use super::config::ExtractionConfig;
@@ -189,9 +190,12 @@ impl ExtractionPipeline {
                 .spans
                 .iter()
                 .flat_map(|seq| {
-                    seq.iter().map(|span| EntityRef {
-                        uri: format!("http://zakhor/ns/entity/{}", span.class()),
-                        label: span.text().to_string(),
+                    seq.iter().filter_map(|span| {
+                        let uri = format!("http://zakhor/ns/entity/{}", span.class());
+                        Some(EntityRef {
+                            uri: EntityUri::parse(uri).ok()?,
+                            label: span.text().to_string(),
+                        })
                     })
                 })
                 .collect();
@@ -233,25 +237,26 @@ impl ExtractionPipeline {
                 .relations
                 .into_iter()
                 .flat_map(|seq| {
-                    seq.into_iter().map(|rel| {
+                    seq.into_iter().filter_map(|rel| {
                         let subject_label = rel.subject();
                         let object_label = rel.object();
-                        let subject_uri = lookup
-                            .get(subject_label)
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| {
-                                format!("http://zakhor/ns/entity/{}", subject_label)
-                            });
-                        let object_uri = lookup
-                            .get(object_label)
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| format!("http://zakhor/ns/entity/{}", object_label));
-                        Relation {
-                            subject_uri,
-                            predicate_uri: format!("http://zakhor/ns/relation/{}", rel.class()),
-                            object_uri,
+                        let resolve = |label: &str| {
+                            let raw = lookup
+                                .get(label)
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| format!("http://zakhor/ns/entity/{label}"));
+                            EntityUri::parse(raw).ok()
+                        };
+                        Some(Relation {
+                            subject_uri: resolve(subject_label)?,
+                            predicate_uri: RelationPredicate::parse(format!(
+                                "http://zakhor/ns/relation/{}",
+                                rel.class()
+                            ))
+                            .ok()?,
+                            object_uri: resolve(object_label)?,
                             label: rel.class().to_string(),
-                        }
+                        })
                     })
                 })
                 .collect();
@@ -336,14 +341,16 @@ impl ExtractionPipeline {
                 // Re-map subject_uri if caller has a different URI for this label
                 if let Some(label) = internal_uri_to_label.get(relation.subject_uri.as_str())
                     && let Some(caller_uri) = caller_lookup.get(label)
+                    && let Ok(parsed) = EntityUri::parse(*caller_uri)
                 {
-                    relation.subject_uri = caller_uri.to_string();
+                    relation.subject_uri = parsed;
                 }
                 // Re-map object_uri if caller has a different URI for this label
                 if let Some(label) = internal_uri_to_label.get(relation.object_uri.as_str())
                     && let Some(caller_uri) = caller_lookup.get(label)
+                    && let Ok(parsed) = EntityUri::parse(*caller_uri)
                 {
-                    relation.object_uri = caller_uri.to_string();
+                    relation.object_uri = parsed;
                 }
             }
         }

@@ -368,3 +368,14 @@ fn entity_uri_exposes_oxiri_for_storage() {
 
     assert_eq!(iri.as_str(), "http://example.com/e1");
 }
+
+#[test]
+fn entity_uri_serializes_as_a_bare_json_string() {
+    // `#[serde(transparent)]` is what keeps MCP/REST payloads byte-identical after
+    // the contract migration: a typed URI must still serialize as a plain string,
+    // not as an object.
+    let uri = EntityUri::parse("http://example.com/e1").expect("valid IRI");
+    let json = serde_json::to_string(&uri).expect("serialize");
+
+    assert_eq!(json, "\"http://example.com/e1\"");
+}

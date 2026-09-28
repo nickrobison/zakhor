@@ -7,27 +7,39 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use zakhor_common::vocab::{EntityUri, RelationPredicate};
 use zakhor_search::IndexSyncManager;
 
 use crate::entity_resolver::EntityResolver;
 use crate::errors::IngestionError;
 use crate::provenance::ProvenanceTracker;
 use crate::sparql_builder::{build_observation_sparql, collect_provenance_triples};
-use zakhor_storage::sparql::validate_iri;
 
 /// An entity reference associated with an observation.
+///
+/// `uri` is a validated IRI rather than a `String`: construction rejects
+/// anything that is not a well-formed IRI, so the `format_iri` panic in
+/// [`crate::sparql_builder`] is unreachable from this contract.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct EntityRef {
-    pub uri: String,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub uri: EntityUri,
     pub label: String,
 }
 
 /// A relation between two entities.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct Relation {
-    pub subject_uri: String,
-    pub predicate_uri: String,
-    pub object_uri: String,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub subject_uri: EntityUri,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub predicate_uri: RelationPredicate,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub object_uri: EntityUri,
     pub label: String,
 }
 
@@ -123,37 +135,6 @@ impl IngestionPipeline {
                 None,
             ));
         }
-        for entity in &args.entities {
-            if entity.uri.trim().is_empty() {
-                return Err(IngestionError::Validation(
-                    "entity URI must not be empty".to_string(),
-                    "validate",
-                    None,
-                ));
-            }
-            validate_iri(&entity.uri).map_err(|e| {
-                IngestionError::Validation(
-                    format!("entity URI is not a valid URI: {}", e.0),
-                    "validate",
-                    None,
-                )
-            })?;
-        }
-        for relation in &args.relations {
-            for (what, uri) in [
-                ("subject", &relation.subject_uri),
-                ("predicate", &relation.predicate_uri),
-                ("object", &relation.object_uri),
-            ] {
-                validate_iri(uri).map_err(|e| {
-                    IngestionError::Validation(
-                        format!("relation {what} URI is not a valid URI: {}", e.0),
-                        "validate",
-                        None,
-                    )
-                })?;
-            }
-        }
         Ok(())
     }
 
@@ -174,8 +155,10 @@ impl IngestionPipeline {
         for entity in &mut args.entities {
             if !entity.label.starts_with("http://") && !entity.label.starts_with("urn:") {
                 let result = resolver.resolve(&entity.label);
-                if let Some(ref uri) = result.resolved_uri {
-                    entity.uri = uri.as_str().to_string();
+                if let Some(ref uri) = result.resolved_uri
+                    && let Ok(parsed) = EntityUri::parse(uri.as_str())
+                {
+                    entity.uri = parsed;
                 }
             }
         }
@@ -231,7 +214,11 @@ impl IngestionPipeline {
 
         // Capture post-resolve data needed by the async index-sync stage.
         let text = args.text.clone();
-        let entity_uris: Vec<String> = args.entities.iter().map(|e| e.uri.clone()).collect();
+        let entity_uris: Vec<String> = args
+            .entities
+            .iter()
+            .map(|e| e.uri.as_str().to_string())
+            .collect();
 
         Ok(IngestPrepared {
             uuid_urn,

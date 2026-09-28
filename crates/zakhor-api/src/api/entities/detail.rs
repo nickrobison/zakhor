@@ -1,6 +1,7 @@
 use axum::{Json, extract::Path, extract::State};
 use serde::Serialize;
 use tracker::prelude::SparqlCursorExtManual;
+use zakhor_common::vocab::{EntityUri, RelationPredicate};
 use zakhor_model::pipeline::Relation;
 
 use super::ApiState;
@@ -302,10 +303,19 @@ fn fetch_entity_relations(
             continue;
         }
 
+        // A stored row that is not a well-formed IRI is skipped rather than
+        // failing the whole request; the store is the source of truth here.
+        let (Ok(subject_uri), Ok(predicate_uri), Ok(object_uri)) = (
+            EntityUri::parse(s.as_str()),
+            RelationPredicate::parse(p.as_str()),
+            EntityUri::parse(o.as_str()),
+        ) else {
+            continue;
+        };
         relations.push(Relation {
-            subject_uri: s,
-            predicate_uri: p,
-            object_uri: o,
+            subject_uri,
+            predicate_uri,
+            object_uri,
             label,
         });
     }

@@ -43,7 +43,7 @@ pub fn build_observation_sparql(
     sparql.push_str(&format!("    nie:plainTextContent {} .\n", text_lit));
 
     for entity in &args.entities {
-        let entity_iri = format_iri(&entity.uri).map_err(|e| invalid_iri("entity", &e.0))?;
+        let entity_iri = format_iri(entity.uri.as_str()).map_err(|e| invalid_iri("entity", &e.0))?;
         let label_lit = escape_literal(&entity.label);
         sparql.push_str(&format!(
             "  {} zakhor:hasEntity {} .\n",
@@ -57,11 +57,11 @@ pub fn build_observation_sparql(
 
     for relation in &args.relations {
         let subj_iri =
-            format_iri(&relation.subject_uri).map_err(|e| invalid_iri("relation subject", &e.0))?;
-        let pred_iri = format_iri(&relation.predicate_uri)
+            format_iri(relation.subject_uri.as_str()).map_err(|e| invalid_iri("relation subject", &e.0))?;
+        let pred_iri = format_iri(relation.predicate_uri.as_str())
             .map_err(|e| invalid_iri("relation predicate", &e.0))?;
         let obj_iri =
-            format_iri(&relation.object_uri).map_err(|e| invalid_iri("relation object", &e.0))?;
+            format_iri(relation.object_uri.as_str()).map_err(|e| invalid_iri("relation object", &e.0))?;
         sparql.push_str(&format!("  {} {} {} .\n", subj_iri, pred_iri, obj_iri,));
     }
 
@@ -100,15 +100,15 @@ pub fn collect_provenance_triples(
         triples.push((
             uuid_urn.to_string(),
             format!("{}hasEntity", Prefix::ZAKHOR),
-            entity.uri.clone(),
+            entity.uri.as_str().to_string(),
         ));
         triples.push((
-            entity.uri.clone(),
+            entity.uri.as_str().to_string(),
             format!("{}type", Prefix::RDF),
             format!("{}Entity", Prefix::ZAKHOR),
         ));
         triples.push((
-            entity.uri.clone(),
+            entity.uri.as_str().to_string(),
             format!("{}label", Prefix::RDFS),
             entity.label.clone(),
         ));
@@ -116,9 +116,9 @@ pub fn collect_provenance_triples(
 
     for relation in &args.relations {
         triples.push((
-            relation.subject_uri.clone(),
-            relation.predicate_uri.clone(),
-            relation.object_uri.clone(),
+            relation.subject_uri.as_str().to_string(),
+            relation.predicate_uri.as_str().to_string(),
+            relation.object_uri.as_str().to_string(),
         ));
     }
 
