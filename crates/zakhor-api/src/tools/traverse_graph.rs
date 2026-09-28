@@ -1,16 +1,21 @@
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::{tool, tool_router};
-use std::collections::HashSet;
 use std::time::Instant;
 use tracing::info_span;
 use tracker::prelude::SparqlCursorExtManual;
 
 use crate::args::{TraverseGraphArgs, TraverseGraphResponse, TripleResult};
-use crate::handler::{MemoryHandler, args_hash, is_resource_iri, query_depth1};
+use crate::handler::{MAX_TRAVERSE_TRIPLES, MemoryHandler, args_hash, traverse_bfs};
 
 #[tool_router(router = tool_router_traverse_graph, vis = "pub(crate)")]
 impl MemoryHandler {
-    #[tool(description = "Traverse the knowledge graph from a starting node")]
+    #[tool(
+        description = "Traverse the memory graph from a starting node. `edge_types` filters by \
+                       predicate IRI (pass [] for no filter), `depth` is the number of hops. \
+                       Only the Zakhor memory vocabulary is expanded, so schema and ontology \
+                       axioms are not walked. Results are capped; `truncated` is true when the \
+                       cap was reached, meaning the result set is incomplete."
+    )]
     async fn traverse_graph(
         &self,
         Parameters(args): Parameters<TraverseGraphArgs>,
@@ -36,9 +41,14 @@ impl MemoryHandler {
                 match self.conn.query(&sparql, None::<&gio::Cancellable>) {
                     Ok(cursor) => {
                         let mut triples: Vec<TripleResult> = Vec::new();
+                        let mut truncated = false;
                         loop {
                             match cursor.next(None::<&gio::Cancellable>) {
                                 Ok(true) => {
+                                    if triples.len() >= MAX_TRAVERSE_TRIPLES {
+                                        truncated = true;
+                                        break;
+                                    }
                                     let s =
                                         cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
                                     let p =
@@ -59,57 +69,25 @@ impl MemoryHandler {
                         Ok(Json(TraverseGraphResponse {
                             triples,
                             count,
+                            truncated,
                             warning: None,
                         }))
                     }
                     Err(e) => Ok(Json(TraverseGraphResponse {
                         triples: vec![],
                         count: 0,
+                        truncated: false,
                         warning: Some(format!("Query issue: {e}")),
                     })),
                 }
             } else {
-                let mut all_triples: Vec<TripleResult> = Vec::new();
-                let mut seen_sop: HashSet<(String, String, String)> = HashSet::new();
-                let mut visited_iris: HashSet<String> = HashSet::new();
-                let mut frontier: Vec<String> = vec![args.start_id.clone()];
-                visited_iris.insert(args.start_id.clone());
-
-                for _ in 0..args.depth {
-                    let mut next_frontier: Vec<String> = Vec::new();
-                    for node in &frontier {
-                        let triples = query_depth1(&self.conn, node, &args.edge_types)?;
-                        for triple in &triples {
-                            let key = (
-                                triple.subject.clone(),
-                                triple.predicate.clone(),
-                                triple.object.clone(),
-                            );
-                            if seen_sop.insert(key) {
-                                all_triples.push(triple.clone());
-                            }
-                            let obj_iri = is_resource_iri(&triple.object)
-                                && visited_iris.insert(triple.object.clone());
-                            if obj_iri {
-                                next_frontier.push(triple.object.clone());
-                            }
-                            let subj_iri = is_resource_iri(&triple.subject)
-                                && visited_iris.insert(triple.subject.clone());
-                            if subj_iri {
-                                next_frontier.push(triple.subject.clone());
-                            }
-                        }
-                    }
-                    frontier = next_frontier;
-                    if frontier.is_empty() {
-                        break;
-                    }
-                }
-
-                let count = all_triples.len() as u64;
+                let outcome =
+                    traverse_bfs(&self.conn, &args.start_id, args.depth, &args.edge_types)?;
+                let count = outcome.triples.len() as u64;
                 Ok(Json(TraverseGraphResponse {
-                    triples: all_triples,
+                    triples: outcome.triples,
                     count,
+                    truncated: outcome.truncated,
                     warning: None,
                 }))
             }

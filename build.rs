@@ -504,10 +504,11 @@ const OPENAPI_JSON: &str = r##"{
       },
       "TraverseGraphResponse": {
         "type": "object",
-        "required": ["triples", "count"],
+        "required": ["triples", "count", "truncated"],
         "properties": {
           "triples": { "type": "array", "items": { "$ref": "#/components/schemas/TripleResult" } },
           "count": { "type": "integer", "format": "uint", "minimum": 0 },
+          "truncated": { "type": "boolean", "description": "True when the traversal hit the result cap, so the triple set is incomplete" },
           "warning": { "type": ["string", "null"] }
         }
       },
