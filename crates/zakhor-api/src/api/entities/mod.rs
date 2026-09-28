@@ -6,6 +6,7 @@ use super::ApiState;
 use crate::api::error::{ApiError, ApiResult};
 use crate::server::EntityResult;
 use crate::tools;
+use zakhor_common::vocab::EntityUri;
 
 mod detail;
 
@@ -84,7 +85,11 @@ pub async fn list_entities(
         .next(None::<&gio::Cancellable>)
         .map_err(|e| ApiError::internal(format!("Cursor error: {e}")))?
     {
-        let uri = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
+        let raw_uri = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
+        // A stored row that is not a well-formed IRI is skipped.
+        let Ok(uri) = EntityUri::parse(raw_uri) else {
+            continue;
+        };
         let label = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
         entities.push(EntityResult { uri, label });
     }
@@ -128,7 +133,7 @@ mod tests {
     fn test_entity_list_response() {
         let resp = EntityListResponse {
             entities: vec![EntityResult {
-                uri: "urn:uuid:e1".to_string(),
+                uri: EntityUri::parse("urn:uuid:e1").unwrap(),
                 label: "Entity One".to_string(),
             }],
             count: 1,

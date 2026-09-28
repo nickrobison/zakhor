@@ -5,6 +5,7 @@ use zakhor_model::pipeline::EntityRef;
 
 use super::ApiState;
 use crate::api::error::{ApiError, ApiResult};
+use zakhor_common::vocab::DecisionUri;
 use zakhor_storage::sparql::prefix_declarations;
 
 // ---------------------------------------------------------------------------
@@ -53,7 +54,6 @@ pub struct ProvenanceResponse {
 /// Build a SELECT query returning all (predicate, object) pairs for a
 /// decision, giving us all its properties.
 fn build_properties_query(decision_id: &str) -> String {
-    let safe_id = decision_id.replace(['>', '<'], "");
     let prefixes = prefix_declarations();
     format!(
         "{prefixes}SELECT ?p ?o
@@ -61,13 +61,12 @@ WHERE {{
   <{id}> ?p ?o .
 }}",
         prefixes = prefixes,
-        id = safe_id,
+        id = decision_id,
     )
 }
 
 /// Build a SELECT query returning alternatives for a decision.
 fn build_alternatives_query(decision_id: &str) -> String {
-    let safe_id = decision_id.replace(['>', '<'], "");
     let prefixes = prefix_declarations();
     format!(
         "{prefixes}SELECT ?alt
@@ -75,7 +74,7 @@ WHERE {{
   <{id}> zakhor:decisionAlternative ?alt .
 }}",
         prefixes = prefixes,
-        id = safe_id,
+        id = decision_id,
     )
 }
 
@@ -102,6 +101,9 @@ pub async fn get_decision(
     if id.is_empty() {
         return Err(ApiError::bad_request("id is required"));
     }
+    let decision_id = DecisionUri::parse(id)
+        .map_err(|e| ApiError::bad_request(format!("Invalid decision id '{id}': {e}")))?;
+    let id = decision_id.as_str();
 
     // Query all properties of this decision
     let sparql = build_properties_query(id);
@@ -228,8 +230,10 @@ mod tests {
     }
 
     #[test]
-    fn test_build_properties_query_escapes_angles() {
-        let q = build_properties_query("<urn:uuid:abc>");
+    fn test_build_properties_query_assumes_validated_iri() {
+        // The handler parses the path id with DecisionUri before calling the
+        // builder, so the builder embeds it verbatim without munging.
+        let q = build_properties_query("urn:uuid:abc");
         assert!(q.contains("<urn:uuid:abc>"));
         assert!(!q.contains("<<"));
     }

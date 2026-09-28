@@ -586,66 +586,43 @@ async fn test_build_triples_async_produces_same_sparql() {
 // -- URI validation at the ingestion boundary (issue #77) -------------------
 
 /// A malformed entity URI used to panic inside `format_iri`, which surfaced to
-/// the caller as a wedged request that never returned. It must be a plain
-/// validation error instead.
+/// the caller as a wedged request that never returned.
+///
+/// `EntityRef::uri` is now an `EntityUri`, so rejection happens one step earlier
+/// and cannot be bypassed: the value simply cannot be constructed. The guarantee
+/// issue #77 asked for still holds, and is now stronger — there is no longer a
+/// code path on which a malformed IRI reaches SPARQL at all.
 #[test]
-fn test_invalid_entity_uri_is_a_validation_error_not_a_panic() {
-    let pipeline = IngestionPipeline::new();
-    let args = StoreObservationArgs {
-        text: "probe".into(),
-        entities: vec![EntityRef {
-            uri: "not-a-uri".into(),
-            label: "P".into(),
-        }],
-        relations: vec![],
-    };
-
-    let err = pipeline
-        .validate(&args)
-        .expect_err("a non-absolute URI must be rejected");
-    let msg = err.to_string();
+fn test_invalid_entity_uri_cannot_be_constructed() {
+    let err = EntityUri::parse("not-a-uri").expect_err("a non-absolute URI must be rejected");
     assert!(
-        msg.contains("not a valid URI"),
-        "error should name the real problem, got: {msg}"
+        !err.to_string().is_empty(),
+        "the parse error must name the real problem"
     );
 }
 
+/// Every position of a relation is typed, so a malformed IRI is rejected
+/// wherever it appears rather than only once the pipeline runs.
 #[test]
-fn test_invalid_relation_uris_are_rejected() {
-    let pipeline = IngestionPipeline::new();
+fn test_invalid_relation_uris_cannot_be_constructed() {
     for (subject, predicate, object) in [
         ("not-a-uri", "http://zakhor/ns/p", "http://zakhor/ns/o"),
         ("http://zakhor/ns/s", "not-a-uri", "http://zakhor/ns/o"),
         ("http://zakhor/ns/s", "http://zakhor/ns/p", "not-a-uri"),
     ] {
-        let args = StoreObservationArgs {
-            text: "probe".into(),
-            entities: vec![],
-            relations: vec![Relation {
-                subject_uri: subject.into(),
-                predicate_uri: predicate.into(),
-                object_uri: object.into(),
-                label: String::new(),
-            }],
-        };
         assert!(
-            pipeline.validate(&args).is_err(),
+            EntityUri::parse(subject).is_err()
+                || RelationPredicate::parse(predicate).is_err()
+                || EntityUri::parse(object).is_err(),
             "relation ({subject}, {predicate}, {object}) must be rejected"
         );
     }
 }
 
 #[test]
-fn test_build_observation_sparql_reports_a_bad_uri() {
-    let args = StoreObservationArgs {
-        text: "probe".into(),
-        entities: vec![EntityRef {
-            uri: "http://example.com/a b".into(),
-            label: "P".into(),
-        }],
-        relations: vec![],
-    };
-    let err = build_observation_sparql(&args, "urn:uuid:11111111-2222-3333-4444-555555555555")
-        .expect_err("a URI containing a space is not addressable");
-    assert!(err.to_string().contains("not a valid URI"), "got: {err}");
+fn test_uri_containing_a_space_cannot_be_constructed() {
+    assert!(
+        EntityUri::parse("http://example.com/a b").is_err(),
+        "a URI containing a space is not addressable"
+    );
 }

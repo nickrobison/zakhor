@@ -63,10 +63,15 @@ impl MemoryHandler {
         let this = self.clone();
         let result = tokio::task::spawn_blocking(move || {
             let _guard = propagate_span.enter();
-            crate::project::link_to_project(&this.conn, &args.entity_uri, &args.project_uri)?;
+            crate::project::link_to_project(
+                &this.conn,
+                args.entity_uri.as_str(),
+                args.project_uri.as_str(),
+            )?;
             Ok::<String, String>(format!(
                 "Linked {} to project {}",
-                args.entity_uri, args.project_uri
+                args.entity_uri.as_str(),
+                args.project_uri.as_str()
             ))
         })
         .await

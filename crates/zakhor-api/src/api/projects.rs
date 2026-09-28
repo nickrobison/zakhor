@@ -3,6 +3,7 @@
 use axum::{Json, extract::State};
 use serde::Serialize;
 use utoipa::ToSchema;
+use zakhor_common::vocab::ProjectUri;
 use zakhor_model::ranking::ScoredEntity;
 
 use super::ApiState;
@@ -10,7 +11,8 @@ use crate::api::error::{ApiError, ApiResult};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ProjectItem {
-    pub uri: String,
+    #[schema(value_type = String)]
+    pub uri: ProjectUri,
     pub label: String,
 }
 
@@ -31,6 +33,7 @@ pub async fn list_projects(State(state): State<ApiState>) -> ApiResult<Json<Proj
     let projects = crate::project::list_projects(state.connection()).map_err(ApiError::internal)?;
     let items: Vec<ProjectItem> = projects
         .into_iter()
+        // list_projects already drops rows whose stored URI will not parse.
         .map(|p| ProjectItem {
             uri: p.uri,
             label: p.name,

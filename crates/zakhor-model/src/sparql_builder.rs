@@ -8,10 +8,6 @@ use crate::pipeline::StoreObservationArgs;
 // SPARQL query builder
 // ---------------------------------------------------------------------------
 
-/// Re-exported from `zakhor_storage::sparql` so there is a single `format_iri`
-/// definition rather than one per crate.
-pub use storage_sparql::format_iri;
-
 fn invalid_iri(what: &str, value: &str) -> crate::errors::IngestionError {
     crate::errors::IngestionError::Validation(
         format!("{what} URI {value:?} is not a valid URI"),
@@ -47,7 +43,8 @@ pub fn build_observation_sparql(
     sparql.push_str(&format!("    nie:plainTextContent {} .\n", text_lit));
 
     for entity in &args.entities {
-        let entity_iri = format_iri(entity.uri.as_str()).map_err(|e| invalid_iri("entity", &e.0))?;
+        let entity_iri =
+            format_iri(entity.uri.as_str()).map_err(|e| invalid_iri("entity", &e.0))?;
         let label_lit = escape_literal(&entity.label);
         sparql.push_str(&format!(
             "  {} zakhor:hasEntity {} .\n",
@@ -60,12 +57,12 @@ pub fn build_observation_sparql(
     }
 
     for relation in &args.relations {
-        let subj_iri =
-            format_iri(relation.subject_uri.as_str()).map_err(|e| invalid_iri("relation subject", &e.0))?;
+        let subj_iri = format_iri(relation.subject_uri.as_str())
+            .map_err(|e| invalid_iri("relation subject", &e.0))?;
         let pred_iri = format_iri(relation.predicate_uri.as_str())
             .map_err(|e| invalid_iri("relation predicate", &e.0))?;
-        let obj_iri =
-            format_iri(relation.object_uri.as_str()).map_err(|e| invalid_iri("relation object", &e.0))?;
+        let obj_iri = format_iri(relation.object_uri.as_str())
+            .map_err(|e| invalid_iri("relation object", &e.0))?;
         sparql.push_str(&format!("  {} {} {} .\n", subj_iri, pred_iri, obj_iri,));
     }
 

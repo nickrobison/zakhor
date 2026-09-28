@@ -239,9 +239,12 @@ async fn test_async_ingestion_pipeline_functional() {
     match result {
         Ok(ingest_result) => {
             assert!(
-                ingest_result.observation_uri.starts_with("urn:uuid:"),
+                ingest_result
+                    .observation_uri
+                    .as_str()
+                    .starts_with("urn:uuid:"),
                 "observation_uri should be a URN UUID: {}",
-                ingest_result.observation_uri
+                ingest_result.observation_uri.as_str()
             );
             assert!(
                 ingest_result.triple_count > 0,

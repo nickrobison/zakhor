@@ -7,7 +7,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use zakhor_common::vocab::{EntityUri, RelationPredicate};
+use zakhor_common::vocab::{EntityUri, ObservationUri, RelationPredicate};
 use zakhor_search::IndexSyncManager;
 
 use crate::entity_resolver::EntityResolver;
@@ -58,7 +58,7 @@ pub struct StoreObservationArgs {
 /// Result of a successfully ingested observation.
 #[derive(Clone, Debug)]
 pub struct IngestResult {
-    pub observation_uri: String,
+    pub observation_uri: ObservationUri,
     pub triple_count: usize,
 }
 

@@ -1,5 +1,7 @@
+use oxiri::Iri;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use zakhor_common::vocab::{EntityUri, ObservationUri, ProjectUri, RepositoryUri};
 
 #[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
 pub struct RebuildIndexesArgs {}
@@ -35,26 +37,34 @@ pub struct RecordDecisionArgs {
 
 #[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
 pub struct ExtractAndStoreArgs {
-    pub uri: String,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub uri: EntityUri,
     pub text: String,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct ExtractAndStoreResponse {
-    pub observation_uri: String,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub observation_uri: ObservationUri,
     pub entity_count: u64,
     pub relation_count: u64,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct StoreObservationResponse {
-    pub observation_uri: String,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub observation_uri: ObservationUri,
     pub triple_count: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct EntityResult {
-    pub uri: String,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub uri: EntityUri,
     pub label: String,
 }
 
@@ -98,7 +108,9 @@ pub struct SearchHybridResponse {
 
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct RecordDecisionResponse {
-    pub decision_uri: String,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub decision_uri: Iri<String>,
 }
 
 #[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
@@ -109,13 +121,19 @@ pub struct CreateProjectArgs {
 
 #[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
 pub struct LinkToProjectArgs {
-    pub entity_uri: String,
-    pub project_uri: String,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub entity_uri: EntityUri,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub project_uri: ProjectUri,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct CreateProjectResponse {
-    pub project_uri: String,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub project_uri: ProjectUri,
 }
 
 #[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
@@ -126,13 +144,19 @@ pub struct CreateRepositoryArgs {
 
 #[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
 pub struct LinkToRepositoryArgs {
-    pub entity_uri: String,
-    pub repository_uri: String,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub entity_uri: EntityUri,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub repository_uri: RepositoryUri,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct CreateRepositoryResponse {
-    pub repository_uri: String,
+    #[schemars(with = "String")]
+    #[schema(value_type = String)]
+    pub repository_uri: RepositoryUri,
 }
 
 #[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
@@ -144,5 +168,8 @@ pub struct AdminInjectToolCallArgs {
 
 #[derive(Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct AdminInjectToolCallResponse {
+    // A ToolCall node IRI. Not one of the six vocabulary instance-IRI shapes,
+    // so it stays a validated-by-construction String rather than gaining a
+    // newtype; the plan forbids new vocabulary definitions.
     pub uri: String,
 }

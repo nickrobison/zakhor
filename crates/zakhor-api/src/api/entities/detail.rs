@@ -1,7 +1,8 @@
 use axum::{Json, extract::Path, extract::State};
+use oxiri::Iri;
 use serde::Serialize;
 use tracker::prelude::SparqlCursorExtManual;
-use zakhor_common::vocab::{EntityUri, RelationPredicate};
+use zakhor_common::vocab::{EntityUri, ObservationUri, RelationPredicate};
 use zakhor_model::pipeline::Relation;
 
 use super::ApiState;
@@ -14,7 +15,8 @@ use zakhor_storage::sparql::prefix_declarations;
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct EntityDetail {
-    pub uri: String,
+    #[schema(value_type = String)]
+    pub uri: EntityUri,
     pub label: String,
     pub types: Vec<String>,
     pub related_decisions: Vec<super::EntityRef>,
@@ -25,19 +27,22 @@ pub struct EntityDetail {
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct EntityRef {
-    pub uri: String,
+    #[schema(value_type = String)]
+    pub uri: EntityUri,
     pub label: String,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ObservationRef {
-    pub uri: String,
+    #[schema(value_type = String)]
+    pub uri: ObservationUri,
     pub text: String,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct SourceLocation {
-    pub uri: String,
+    #[schema(value_type = String)]
+    pub uri: Iri<String>,
     pub label: String,
 }
 
@@ -66,7 +71,6 @@ pub struct EntityObservationsResponse {
 
 /// Build a SELECT query returning all properties of an entity.
 fn build_entity_properties_query(entity_id: &str) -> String {
-    let safe_id = entity_id.replace(['>', '<'], "");
     let prefixes = prefix_declarations();
     format!(
         "{prefixes}SELECT ?p ?o
@@ -74,13 +78,12 @@ WHERE {{
   <{id}> ?p ?o .
 }}",
         prefixes = prefixes,
-        id = safe_id,
+        id = entity_id,
     )
 }
 
 /// Build a SELECT query returning observations that reference an entity.
 fn build_entity_observations_query(entity_id: &str, limit: u32) -> String {
-    let safe_id = entity_id.replace(['>', '<'], "");
     let prefixes = prefix_declarations();
     format!(
         "{prefixes}SELECT DISTINCT ?obs ?text
@@ -90,7 +93,7 @@ WHERE {{
 }}
 LIMIT {limit}",
         prefixes = prefixes,
-        id = safe_id,
+        id = entity_id,
         limit = limit,
     )
 }
@@ -98,7 +101,6 @@ LIMIT {limit}",
 /// Build a SELECT query returning relations that involve an entity
 /// (as either subject or object).
 fn build_entity_relations_query(entity_id: &str) -> String {
-    let safe_id = entity_id.replace(['>', '<'], "");
     let prefixes = prefix_declarations();
     format!(
         "{prefixes}SELECT ?s ?p ?o ?label
@@ -109,7 +111,7 @@ WHERE {{
   OPTIONAL {{ ?p rdfs:label ?label . }}
 }}",
         prefixes = prefixes,
-        id = safe_id,
+        id = entity_id,
     )
 }
 
@@ -136,6 +138,9 @@ pub async fn get_entity(
     if id.is_empty() {
         return Err(ApiError::bad_request("id is required"));
     }
+    let entity_id = EntityUri::parse(id)
+        .map_err(|e| ApiError::bad_request(format!("Invalid entity id '{id}': {e}")))?;
+    let id = entity_id.as_str();
 
     // Get entity properties
     let sparql = build_entity_properties_query(id);
@@ -189,7 +194,7 @@ pub async fn get_entity(
     let relationships = fetch_entity_relations(state.connection(), id)?;
 
     Ok(Json(EntityDetail {
-        uri: id.to_string(),
+        uri: entity_id,
         label,
         types,
         related_decisions: vec![],
@@ -240,8 +245,10 @@ pub async fn get_entity_observations(
     if id.is_empty() {
         return Err(ApiError::bad_request("id is required"));
     }
+    let entity_id = EntityUri::parse(id)
+        .map_err(|e| ApiError::bad_request(format!("Invalid entity id '{id}': {e}")))?;
 
-    let observations = fetch_entity_observations(state.connection(), id)?;
+    let observations = fetch_entity_observations(state.connection(), entity_id.as_str())?;
     let count = observations.len();
 
     Ok(Json(EntityObservationsResponse {
@@ -270,7 +277,12 @@ fn fetch_entity_observations(
         .next(None::<&gio::Cancellable>)
         .map_err(|e| ApiError::internal(format!("Cursor error: {e}")))?
     {
-        let uri = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
+        // A stored row that is not a well-formed IRI is skipped rather than
+        // failing the whole request — the store is not the trust boundary here.
+        let raw_uri = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
+        let Ok(uri) = ObservationUri::parse(raw_uri) else {
+            continue;
+        };
         let text = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
         observations.push(ObservationRef { uri, text });
     }
@@ -357,7 +369,7 @@ mod tests {
     #[test]
     fn test_entity_detail_defaults() {
         let detail = EntityDetail {
-            uri: "urn:uuid:abc".to_string(),
+            uri: EntityUri::parse("urn:uuid:abc").unwrap(),
             label: "Test Entity".to_string(),
             types: vec!["Entity".to_string()],
             related_decisions: vec![],
@@ -365,7 +377,7 @@ mod tests {
             relationships: vec![],
             source_locations: vec![],
         };
-        assert_eq!(detail.uri, "urn:uuid:abc");
+        assert_eq!(detail.uri.as_str(), "urn:uuid:abc");
         assert_eq!(detail.types.len(), 1);
         assert_eq!(detail.types[0], "Entity");
     }
@@ -393,10 +405,10 @@ mod tests {
     #[test]
     fn test_observation_ref() {
         let obs = ObservationRef {
-            uri: "urn:uuid:obs-1".to_string(),
+            uri: ObservationUri::parse("urn:uuid:obs-1").unwrap(),
             text: "Some observation".to_string(),
         };
-        assert_eq!(obs.uri, "urn:uuid:obs-1");
+        assert_eq!(obs.uri.as_str(), "urn:uuid:obs-1");
         assert_eq!(obs.text, "Some observation");
     }
 }

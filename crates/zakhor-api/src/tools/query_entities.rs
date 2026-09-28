@@ -6,6 +6,7 @@ use tracker::prelude::SparqlCursorExtManual;
 
 use crate::args::{EntityResult, QueryEntitiesArgs, QueryEntitiesResponse};
 use crate::handler::{MemoryHandler, args_hash};
+use zakhor_common::vocab::EntityUri;
 
 #[tool_router(router = tool_router_query_entities, vis = "pub(crate)")]
 impl MemoryHandler {
@@ -37,7 +38,11 @@ impl MemoryHandler {
                 .next(None::<&gio::Cancellable>)
                 .map_err(|e| format!("Cursor error: {e}"))?
             {
-                let uri = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
+                let raw_uri = cursor.string(0).map(|s| s.to_string()).unwrap_or_default();
+                // A stored row that is not a well-formed IRI is skipped.
+                let Ok(uri) = EntityUri::parse(raw_uri) else {
+                    continue;
+                };
                 let label = cursor.string(1).map(|s| s.to_string()).unwrap_or_default();
                 entities.push(EntityResult { uri, label });
             }

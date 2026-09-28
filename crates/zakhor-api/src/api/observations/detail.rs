@@ -4,6 +4,7 @@ use tracker::prelude::SparqlCursorExtManual;
 
 use super::ApiState;
 use crate::api::error::{ApiError, ApiResult};
+use zakhor_common::vocab::ObservationUri;
 use zakhor_storage::sparql::prefix_declarations;
 
 // ---------------------------------------------------------------------------
@@ -24,7 +25,6 @@ pub struct ObservationDetail {
 
 /// SELECT query returning entities referenced by an observation.
 fn build_observation_entities_query(obs_id: &str) -> String {
-    let safe_id = super::sanitize_id(obs_id);
     let prefixes = prefix_declarations();
     format!(
         "{prefixes}SELECT DISTINCT ?entity
@@ -32,13 +32,12 @@ WHERE {{
   <{id}> zakhor:hasEntity ?entity .
 }}",
         prefixes = prefixes,
-        id = safe_id,
+        id = obs_id,
     )
 }
 
 /// SELECT query returning a single observation's detail fields.
 fn build_observation_detail_query(obs_id: &str) -> String {
-    let safe_id = super::sanitize_id(obs_id);
     let prefixes = prefix_declarations();
     format!(
         "{prefixes}SELECT ?identifier ?text ?created
@@ -49,7 +48,7 @@ WHERE {{
   OPTIONAL {{ <{id}> nie:contentCreated ?created . }}
 }}",
         prefixes = prefixes,
-        id = safe_id,
+        id = obs_id,
     )
 }
 
@@ -76,6 +75,9 @@ pub async fn get_observation(
     if id.is_empty() {
         return Err(ApiError::bad_request("id is required"));
     }
+    let observation_id = ObservationUri::parse(id)
+        .map_err(|e| ApiError::bad_request(format!("Invalid observation id '{id}': {e}")))?;
+    let id = observation_id.as_str();
 
     // Fetch detail fields
     let cursor = state
