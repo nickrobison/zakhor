@@ -259,3 +259,112 @@ fn test_decision_status_constants() {
 fn test_named_graph_prefix() {
     assert_eq!(NAMED_GRAPH_PREFIX, "http://zakhor/ns/graph/");
 }
+
+macro_rules! assert_valid_uri_newtype {
+    ($newtype:ty) => {
+        for input in [
+            "http://zakhor/ns/Entity",
+            "http://example.com/e1",
+            "urn:uuid:abc-123",
+        ] {
+            let parsed = <$newtype>::parse(input.to_owned());
+            assert!(parsed.is_ok(), "expected {input:?} to parse");
+            assert_eq!(parsed.expect("input was just checked").as_str(), input);
+        }
+    };
+}
+
+macro_rules! assert_invalid_uri_newtype {
+    ($newtype:ty) => {
+        for input in [
+            "",
+            "not-an-iri",
+            "http://exa mple.com/x",
+            "<http://example.com/x>",
+        ] {
+            assert!(
+                <$newtype>::parse(input.to_owned()).is_err(),
+                "expected {input:?} to be rejected"
+            );
+        }
+    };
+}
+
+#[test]
+fn entity_uri_parses_valid_instance_iris() {
+    assert_valid_uri_newtype!(EntityUri);
+}
+
+#[test]
+fn entity_uri_rejects_malformed_iris() {
+    assert_invalid_uri_newtype!(EntityUri);
+}
+
+#[test]
+fn observation_uri_parses_valid_instance_iris() {
+    assert_valid_uri_newtype!(ObservationUri);
+}
+
+#[test]
+fn observation_uri_rejects_malformed_iris() {
+    assert_invalid_uri_newtype!(ObservationUri);
+}
+
+#[test]
+fn project_uri_parses_valid_instance_iris() {
+    assert_valid_uri_newtype!(ProjectUri);
+}
+
+#[test]
+fn project_uri_rejects_malformed_iris() {
+    assert_invalid_uri_newtype!(ProjectUri);
+}
+
+#[test]
+fn repository_uri_parses_valid_instance_iris() {
+    assert_valid_uri_newtype!(RepositoryUri);
+}
+
+#[test]
+fn repository_uri_rejects_malformed_iris() {
+    assert_invalid_uri_newtype!(RepositoryUri);
+}
+
+#[test]
+fn decision_uri_parses_valid_instance_iris() {
+    assert_valid_uri_newtype!(DecisionUri);
+}
+
+#[test]
+fn decision_uri_rejects_malformed_iris() {
+    assert_invalid_uri_newtype!(DecisionUri);
+}
+
+#[test]
+fn relation_predicate_parses_valid_instance_iris() {
+    assert_valid_uri_newtype!(RelationPredicate);
+}
+
+#[test]
+fn relation_predicate_rejects_malformed_iris() {
+    assert_invalid_uri_newtype!(RelationPredicate);
+}
+
+#[test]
+fn entity_uri_round_trips_through_json() {
+    let original =
+        EntityUri::parse("http://example.com/e1".to_owned()).expect("valid IRI should parse");
+    let json = serde_json::to_string(&original).expect("newtype should serialize");
+    let decoded: EntityUri = serde_json::from_str(&json).expect("newtype should deserialize");
+
+    assert_eq!(decoded, original);
+}
+
+#[test]
+fn entity_uri_exposes_oxiri_for_storage() {
+    let entity =
+        EntityUri::parse("http://example.com/e1".to_owned()).expect("valid IRI should parse");
+    let iri: &oxiri::Iri<String> = entity.as_iri();
+
+    assert_eq!(iri.as_str(), "http://example.com/e1");
+}

@@ -15,5 +15,8 @@ tokio = { workspace = true, features = ["full"] }
 toml = "0.8.22"
 tracing = { workspace = true }
 iref = "3"
-oxiri = { workspace = true }
+oxiri = { workspace = true, features = ["serde"] }
 static-iref = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

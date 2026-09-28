@@ -5313,6 +5313,7 @@ dependencies = [
  "iref",
  "oxiri",
  "serde",
+ "serde_json",
  "static-iref",
  "thiserror 2.0.18",
  "tokio",
