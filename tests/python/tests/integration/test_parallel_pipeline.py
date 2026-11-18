@@ -121,7 +121,7 @@ async def test_extract_and_store_returns_entities_and_relations(
     # Gracefully skip if extraction is not available in the server binary
     if result.isError:
         if "extraction" in text.lower() or "model" in text.lower():
-            pytest.xfail(reason="Extraction pipeline not available in server binary")
+            pytest.skip(reason="Extraction pipeline not available in server binary")
         pytest.fail(f"extract_and_store failed unexpectedly: {text}")
 
     data = _parse_json(text)
@@ -167,7 +167,7 @@ async def test_parallel_entity_relation_extraction(
                 "extraction" in response_text.lower()
                 or "model" in response_text.lower()
             ):
-                pytest.xfail(
+                pytest.skip(
                     reason="Extraction pipeline not available in server binary"
                 )
             pytest.fail(f"extract_and_store failed for {uri}: {response_text}")
@@ -255,7 +255,7 @@ async def test_multiple_extractions_succeed(
                 "extraction" in response_text.lower()
                 or "model" in response_text.lower()
             ):
-                pytest.xfail(
+                pytest.skip(
                     reason="Extraction pipeline not available in server binary"
                 )
             pytest.fail(f"extract_and_store failed for {uri}: {response_text}")

@@ -197,11 +197,11 @@
           python-test = pkgs.runCommand "python-test" {
             buildInputs = [ zakhor-python-tests ];
             # Pass through from CI env; integration test requires running tracker endpoint
-            TRACKER_ENDPOINT = null;
+            ZAKHOR_SPARQL_ENDPOINT = null;
           } ''
-            export TRACKER_ENDPOINT=''${TRACKER_ENDPOINT:-}
-            if [ -z "$TRACKER_ENDPOINT" ]; then
-              echo "SKIP: TRACKER_ENDPOINT not set — integration test requires running tracker endpoint"
+            export ZAKHOR_SPARQL_ENDPOINT=''${ZAKHOR_SPARQL_ENDPOINT:-}
+            if [ -z "$ZAKHOR_SPARQL_ENDPOINT" ]; then
+              echo "SKIP: ZAKHOR_SPARQL_ENDPOINT not set — integration test requires running tracker endpoint"
               touch "$out"
               exit 0
             fi
@@ -291,7 +291,7 @@
             gcc
           ];
 
-          env = { TRACKER_ENDPOINT = "http://127.0.0.1:7878"; };
+          env = { ZAKHOR_SPARQL_ENDPOINT = "http://127.0.0.1:7878/sparql/"; };
         };
       });
 }

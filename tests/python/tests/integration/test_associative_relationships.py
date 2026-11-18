@@ -66,9 +66,7 @@ def _parse_json(text: str) -> dict:
     raise ValueError(f"Cannot parse JSON from: {text[:200]}")
 
 
-def _sparql_available() -> bool:
-    """Check if SPARQL endpoint is configured via env var."""
-    return bool(os.environ.get("ZAKHOR_SPARQL_ENDPOINT"))
+
 
 
 # ---------------------------------------------------------------------------
@@ -129,11 +127,11 @@ async def test_conflicts_with_relation(mcp_session: ClientSession) -> None:
             },
         )
     except McpError as e:
-        pytest.xfail(reason=f"admin_create_relation not available: {e}")
+        pytest.skip(reason=f"admin_create_relation not available: {e}")
 
     data = _parse_json(_get_text(result))
     if "error" in data:
-        pytest.xfail(reason=f"admin_create_relation not available: {data['error']}")
+        pytest.skip(reason=f"admin_create_relation not available: {data['error']}")
 
     assert data.get("success") is True, f"Expected success=True, got: {data}"
 
@@ -156,11 +154,11 @@ async def test_depends_on_relation(mcp_session: ClientSession) -> None:
             },
         )
     except McpError as e:
-        pytest.xfail(reason=f"admin_create_relation not available: {e}")
+        pytest.skip(reason=f"admin_create_relation not available: {e}")
 
     data = _parse_json(_get_text(result))
     if "error" in data:
-        pytest.xfail(reason=f"admin_create_relation not available: {data['error']}")
+        pytest.skip(reason=f"admin_create_relation not available: {data['error']}")
 
     assert data.get("success") is True, f"Expected success=True, got: {data}"
 
@@ -183,11 +181,11 @@ async def test_supersedes_relation(mcp_session: ClientSession) -> None:
             },
         )
     except McpError as e:
-        pytest.xfail(reason=f"admin_create_relation not available: {e}")
+        pytest.skip(reason=f"admin_create_relation not available: {e}")
 
     data = _parse_json(_get_text(result))
     if "error" in data:
-        pytest.xfail(reason=f"admin_create_relation not available: {data['error']}")
+        pytest.skip(reason=f"admin_create_relation not available: {data['error']}")
 
     assert data.get("success") is True, f"Expected success=True, got: {data}"
 
@@ -210,11 +208,11 @@ async def test_relation_verified_via_traverse(mcp_session: ClientSession) -> Non
             },
         )
     except McpError as e:
-        pytest.xfail(reason=f"admin_create_relation not available: {e}")
+        pytest.skip(reason=f"admin_create_relation not available: {e}")
 
     create_data = _parse_json(_get_text(create_result))
     if "error" in create_data:
-        pytest.xfail(
+        pytest.skip(
             reason=f"admin_create_relation not available: {create_data['error']}"
         )
 
@@ -582,8 +580,10 @@ async def test_many_to_many_traverse_from_entity(mcp_session: ClientSession) -> 
 
 
 @pytest.mark.xfail(
-    "not _sparql_available()",
-    reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
+    strict=True,
+    reason="cannot pass as designed — zakhor's embedded Tracker DB is not visible "
+    "to an external HTTP SPARQL endpoint and tinysparql's HTTP endpoint is "
+    "read-only (see #103)",
 )
 @pytest.mark.asyncio
 async def test_decision_conflicts_with_via_sparql(
@@ -635,11 +635,8 @@ async def test_decision_conflicts_with_via_sparql(
     }}
     """
     sparql_client.setQuery(conflict_sparql)
-    sparql_client.setMethod("POST")
-    try:
-        sparql_client.query()
-    except Exception as exc:
-        pytest.xfail(reason=f"conflictsWith SPARQL INSERT failed: {exc}")
+    sparql_client.setMethod("POSTDIRECT")
+    sparql_client.query()
 
     # Verify via traverse_graph from decision A
     traverse_result = await mcp_session.call_tool(
@@ -665,8 +662,10 @@ async def test_decision_conflicts_with_via_sparql(
 
 
 @pytest.mark.xfail(
-    "not _sparql_available()",
-    reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
+    strict=True,
+    reason="cannot pass as designed — zakhor's embedded Tracker DB is not visible "
+    "to an external HTTP SPARQL endpoint and tinysparql's HTTP endpoint is "
+    "read-only (see #103)",
 )
 @pytest.mark.asyncio
 async def test_decision_depends_on_via_sparql(
@@ -714,11 +713,8 @@ async def test_decision_depends_on_via_sparql(
     }}
     """
     sparql_client.setQuery(depends_sparql)
-    sparql_client.setMethod("POST")
-    try:
-        sparql_client.query()
-    except Exception as exc:
-        pytest.xfail(reason=f"dependsOn SPARQL INSERT failed: {exc}")
+    sparql_client.setMethod("POSTDIRECT")
+    sparql_client.query()
 
     # Verify via traverse_graph from decision B
     traverse_result = await mcp_session.call_tool(
@@ -764,7 +760,7 @@ async def test_toolcall_inject_and_verify(mcp_session: ClientSession) -> None:
     )
     data = _parse_json(_get_text(result))
     if "error" in data:
-        pytest.xfail(reason=f"admin_inject_tool_call not available: {data['error']}")
+        pytest.skip(reason=f"admin_inject_tool_call not available: {data['error']}")
 
     assert "uri" in data, f"Expected 'uri' in response, got: {data}"
     tc_uri: str = data["uri"]
@@ -789,8 +785,10 @@ async def test_toolcall_inject_and_verify(mcp_session: ClientSession) -> None:
 
 
 @pytest.mark.xfail(
-    "not _sparql_available()",
-    reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
+    strict=True,
+    reason="cannot pass as designed — zakhor's embedded Tracker DB is not visible "
+    "to an external HTTP SPARQL endpoint and tinysparql's HTTP endpoint is "
+    "read-only (see #103)",
 )
 @pytest.mark.asyncio
 async def test_toolcall_evidence_for_decision(
@@ -828,7 +826,7 @@ async def test_toolcall_evidence_for_decision(
     )
     tc_data = _parse_json(_get_text(tc_result))
     if "error" in tc_data:
-        pytest.xfail(reason=f"admin_inject_tool_call not available: {tc_data['error']}")
+        pytest.skip(reason=f"admin_inject_tool_call not available: {tc_data['error']}")
 
     tc_uri = tc_data["uri"]
 
@@ -840,11 +838,8 @@ async def test_toolcall_evidence_for_decision(
     }}
     """
     sparql_client.setQuery(link_sparql)
-    sparql_client.setMethod("POST")
-    try:
-        sparql_client.query()
-    except Exception as exc:
-        pytest.xfail(reason=f"evidenceFor SPARQL INSERT failed: {exc}")
+    sparql_client.setMethod("POSTDIRECT")
+    sparql_client.query()
 
     # Verify via traverse_graph from ToolCall
     traverse_result = await mcp_session.call_tool(
@@ -865,8 +860,10 @@ async def test_toolcall_evidence_for_decision(
 
 
 @pytest.mark.xfail(
-    "not _sparql_available()",
-    reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
+    strict=True,
+    reason="cannot pass as designed — zakhor's embedded Tracker DB is not visible "
+    "to an external HTTP SPARQL endpoint and tinysparql's HTTP endpoint is "
+    "read-only (see #103)",
 )
 @pytest.mark.asyncio
 async def test_toolcall_multiple_evidence_links(
@@ -900,7 +897,7 @@ async def test_toolcall_multiple_evidence_links(
         )
         tc_data = _parse_json(_get_text(tc_result))
         if "error" in tc_data:
-            pytest.xfail(
+            pytest.skip(
                 reason=f"admin_inject_tool_call not available: {tc_data['error']}"
             )
         tc_uris.append(tc_data["uri"])
@@ -914,11 +911,8 @@ async def test_toolcall_multiple_evidence_links(
         }}
         """
         sparql_client.setQuery(link_sparql)
-        sparql_client.setMethod("POST")
-        try:
-            sparql_client.query()
-        except Exception as exc:
-            pytest.xfail(reason=f"evidenceFor SPARQL INSERT failed: {exc}")
+        sparql_client.setMethod("POSTDIRECT")
+        sparql_client.query()
 
     # Verify each ToolCall links to the decision
     for tc_uri in tc_uris:
@@ -939,8 +933,10 @@ async def test_toolcall_multiple_evidence_links(
 
 
 @pytest.mark.xfail(
-    "not _sparql_available()",
-    reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
+    strict=True,
+    reason="cannot pass as designed — zakhor's embedded Tracker DB is not visible "
+    "to an external HTTP SPARQL endpoint and tinysparql's HTTP endpoint is "
+    "read-only (see #103)",
 )
 @pytest.mark.asyncio
 async def test_code_container_created(
@@ -965,11 +961,8 @@ async def test_code_container_created(
     }}
     """
     sparql_client.setQuery(create_sparql)
-    sparql_client.setMethod("POST")
-    try:
-        sparql_client.query()
-    except Exception as exc:
-        pytest.xfail(reason=f"Code container SPARQL INSERT failed: {exc}")
+    sparql_client.setMethod("POSTDIRECT")
+    sparql_client.query()
 
     # Verify via traverse_graph
     traverse_result = await mcp_session.call_tool(
@@ -999,8 +992,10 @@ async def test_code_container_created(
 
 
 @pytest.mark.xfail(
-    "not _sparql_available()",
-    reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
+    strict=True,
+    reason="cannot pass as designed — zakhor's embedded Tracker DB is not visible "
+    "to an external HTTP SPARQL endpoint and tinysparql's HTTP endpoint is "
+    "read-only (see #103)",
 )
 @pytest.mark.asyncio
 async def test_code_symbol_linked_to_container(
@@ -1029,11 +1024,8 @@ async def test_code_symbol_linked_to_container(
     }}
     """
     sparql_client.setQuery(create_container)
-    sparql_client.setMethod("POST")
-    try:
-        sparql_client.query()
-    except Exception as exc:
-        pytest.xfail(reason=f"Container SPARQL INSERT failed: {exc}")
+    sparql_client.setMethod("POSTDIRECT")
+    sparql_client.query()
 
     # Create symbol linked to container
     create_symbol = f"""
@@ -1049,10 +1041,7 @@ async def test_code_symbol_linked_to_container(
     }}
     """
     sparql_client.setQuery(create_symbol)
-    try:
-        sparql_client.query()
-    except Exception as exc:
-        pytest.xfail(reason=f"Symbol SPARQL INSERT failed: {exc}")
+    sparql_client.query()
 
     # Verify via traverse_graph from symbol
     traverse_result = await mcp_session.call_tool(
@@ -1094,8 +1083,10 @@ async def test_code_symbol_linked_to_container(
 
 
 @pytest.mark.xfail(
-    "not _sparql_available()",
-    reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
+    strict=True,
+    reason="cannot pass as designed — zakhor's embedded Tracker DB is not visible "
+    "to an external HTTP SPARQL endpoint and tinysparql's HTTP endpoint is "
+    "read-only (see #103)",
 )
 @pytest.mark.asyncio
 async def test_code_container_traverse_to_symbol(
@@ -1122,11 +1113,8 @@ async def test_code_container_traverse_to_symbol(
     }}
     """
     sparql_client.setQuery(create_container)
-    sparql_client.setMethod("POST")
-    try:
-        sparql_client.query()
-    except Exception as exc:
-        pytest.xfail(reason=f"Container SPARQL INSERT failed: {exc}")
+    sparql_client.setMethod("POSTDIRECT")
+    sparql_client.query()
 
     # Create symbol (linked to container via codeLocation)
     create_symbol = f"""
@@ -1141,10 +1129,7 @@ async def test_code_container_traverse_to_symbol(
     }}
     """
     sparql_client.setQuery(create_symbol)
-    try:
-        sparql_client.query()
-    except Exception as exc:
-        pytest.xfail(reason=f"Symbol SPARQL INSERT failed: {exc}")
+    sparql_client.query()
 
     # Traverse from container — should see forward links including
     # the incoming edge from the symbol (symbol → codeLocation → container)

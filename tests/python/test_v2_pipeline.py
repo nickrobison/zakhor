@@ -47,7 +47,9 @@ def _parse(text: str) -> dict:
 TEST_DECISION_CONTEXT = "Choosing database for the project"
 TEST_DECISION_TEXT = "Use SQLite for local development, PostgreSQL for production"
 TEST_DECISION_ALTERNATIVES = ["Use MySQL", "Use MongoDB"]
-TEST_DECISION_RATIONALE = "SQLite is zero-config for dev; PostgreSQL is production-grade"
+TEST_DECISION_RATIONALE = (
+    "SQLite is zero-config for dev; PostgreSQL is production-grade"
+)
 
 
 @pytest.mark.asyncio
@@ -117,8 +119,11 @@ async def test_project_smoke(mcp_session: ClientSession) -> None:
     with pytest.raises(Exception) as excinfo:
         await mcp_session.call_tool("list_projects", {})
     # The tool doesn't exist as MCP; it's a REST endpoint.
-    # Expected: method not found error
-    assert True  # test passed — the server didn't crash
+    # Expected: method-not-found error mentioning the missing tool.
+    exc_text = str(excinfo.value).lower()
+    assert (
+        "list_projects" in exc_text or "not found" in exc_text or "method" in exc_text
+    ), f"expected a method-not-found style error, got: {excinfo.value}"
 
 
 @pytest.mark.asyncio

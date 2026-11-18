@@ -85,7 +85,7 @@ def _skip_if_indexes_unavailable(data: dict) -> None:
     """Skip only when search indexes are genuinely missing."""
     warning = data.get("warning") or ""
     if _INDEXES_UNAVAILABLE in warning:
-        pytest.xfail(reason=f"Search indexes not available: {warning}")
+        pytest.skip(reason=f"Search indexes not available: {warning}")
 
 
 async def _get_observation_text(
@@ -258,7 +258,7 @@ async def test_semantic_search_no_vocabulary_overlap(
     if search_data["count"] == 0:
         # Semantic index may not be loaded; this is acceptable.
         # The test documents that with a working vector index this should pass.
-        pytest.xfail(
+        pytest.skip(
             reason="Semantic search returned 0 results (vector index may not be loaded). "
             "Test expects >0 when fastembed is configured."
         )
@@ -327,7 +327,7 @@ async def test_observation_immediately_searchable(mcp_session: ClientSession) ->
     else:
         # If the index doesn't auto-sync, at least verify the response
         # structure is correct and the observation exists in the graph
-        pytest.xfail(
+        pytest.skip(
             reason="Immediate search returned 0 results (index sync may not be "
             "synchronous; try rebuild_indexes first)"
         )

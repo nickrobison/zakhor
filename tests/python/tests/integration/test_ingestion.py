@@ -72,9 +72,7 @@ def _parse_json(text: str) -> dict:
     raise ValueError(f"Cannot parse JSON from: {text[:200]}")
 
 
-def _sparql_available() -> bool:
-    """Check if SPARQL endpoint is configured via env var."""
-    return bool(os.environ.get("ZAKHOR_SPARQL_ENDPOINT"))
+
 
 
 # ---------------------------------------------------------------------------
@@ -735,8 +733,10 @@ async def test_observation_has_plain_text_content(
 
 
 @pytest.mark.xfail(
-    "not _sparql_available()",
-    reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
+    strict=True,
+    reason="cannot pass as designed — zakhor's embedded Tracker DB is not visible "
+    "to an external HTTP SPARQL endpoint and tinysparql's HTTP endpoint is "
+    "read-only (see #103)",
 )
 @pytest.mark.asyncio
 async def test_sparql_observation_exists(
@@ -765,25 +765,22 @@ async def test_sparql_observation_exists(
     sparql_client.setQuery(query)
     sparql_client.setReturnFormat(JSON)
 
-    try:
-        raw = sparql_client.query().convert()
-        bindings = raw.get("results", {}).get("bindings", [])
-        assert len(bindings) >= 1, (
-            f"No SPARQL results for nie:plainTextContent on {obs_uri}"
-        )
-        text_val = bindings[0].get("text", {}).get("value", "")
-        assert test_text in text_val, (
-            f"Expected '{test_text}' in SPARQL result, got: '{text_val}'"
-        )
-    except Exception as exc:
-        pytest.xfail(
-            reason=f"SPARQL query failed (endpoint may not be available): {exc}"
-        )
+    raw = sparql_client.query().convert()
+    bindings = raw.get("results", {}).get("bindings", [])
+    assert len(bindings) >= 1, (
+        f"No SPARQL results for nie:plainTextContent on {obs_uri}"
+    )
+    text_val = bindings[0].get("text", {}).get("value", "")
+    assert test_text in text_val, (
+        f"Expected '{test_text}' in SPARQL result, got: '{text_val}'"
+    )
 
 
 @pytest.mark.xfail(
-    "not _sparql_available()",
-    reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
+    strict=True,
+    reason="cannot pass as designed — zakhor's embedded Tracker DB is not visible "
+    "to an external HTTP SPARQL endpoint and tinysparql's HTTP endpoint is "
+    "read-only (see #103)",
 )
 @pytest.mark.asyncio
 async def test_sparql_entity_type(
@@ -810,20 +807,17 @@ async def test_sparql_entity_type(
     sparql_client.setQuery(query_ask)
     sparql_client.setReturnFormat(JSON)
 
-    try:
-        raw = sparql_client.query().convert()
-        assert raw.get("boolean") is True, (
-            f"SPARQL ASK failed: {ENTITY_URI} should be rdf:type zakhor:Entity"
-        )
-    except Exception as exc:
-        pytest.xfail(
-            reason=f"SPARQL query failed (endpoint may not be available): {exc}"
-        )
+    raw = sparql_client.query().convert()
+    assert raw.get("boolean") is True, (
+        f"SPARQL ASK failed: {ENTITY_URI} should be rdf:type zakhor:Entity"
+    )
 
 
 @pytest.mark.xfail(
-    "not _sparql_available()",
-    reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
+    strict=True,
+    reason="cannot pass as designed — zakhor's embedded Tracker DB is not visible "
+    "to an external HTTP SPARQL endpoint and tinysparql's HTTP endpoint is "
+    "read-only (see #103)",
 )
 @pytest.mark.asyncio
 async def test_sparql_decision_status(
@@ -852,23 +846,20 @@ async def test_sparql_decision_status(
     sparql_client.setQuery(query)
     sparql_client.setReturnFormat(JSON)
 
-    try:
-        raw = sparql_client.query().convert()
-        bindings = raw.get("results", {}).get("bindings", [])
-        assert len(bindings) >= 1, (
-            f"No SPARQL results for decisionStatus on {decision_uri}"
-        )
-        status_val = bindings[0].get("status", {}).get("value", "")
-        assert "active" in status_val, f"Expected 'active' status, got: '{status_val}'"
-    except Exception as exc:
-        pytest.xfail(
-            reason=f"SPARQL query failed (endpoint may not be available): {exc}"
-        )
+    raw = sparql_client.query().convert()
+    bindings = raw.get("results", {}).get("bindings", [])
+    assert len(bindings) >= 1, (
+        f"No SPARQL results for decisionStatus on {decision_uri}"
+    )
+    status_val = bindings[0].get("status", {}).get("value", "")
+    assert "active" in status_val, f"Expected 'active' status, got: '{status_val}'"
 
 
 @pytest.mark.xfail(
-    "not _sparql_available()",
-    reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
+    strict=True,
+    reason="cannot pass as designed — zakhor's embedded Tracker DB is not visible "
+    "to an external HTTP SPARQL endpoint and tinysparql's HTTP endpoint is "
+    "read-only (see #103)",
 )
 @pytest.mark.asyncio
 async def test_sparql_entity_resolution_dedup(
@@ -902,23 +893,20 @@ async def test_sparql_entity_resolution_dedup(
     sparql_client.setQuery(query)
     sparql_client.setReturnFormat(JSON)
 
-    try:
-        raw = sparql_client.query().convert()
-        bindings = raw.get("results", {}).get("bindings", [])
-        if bindings:
-            count_val = int(bindings[0].get("typeCount", {}).get("value", "0"))
-            # The entity should have exactly one rdf:type zakhor:Entity triple
-            logger.info("Entity type triple count for %s: %d", entity_uri, count_val)
-            assert count_val >= 1, f"Expected at least 1 type triple, got {count_val}"
-    except Exception as exc:
-        pytest.xfail(
-            reason=f"SPARQL query failed (endpoint may not be available): {exc}"
-        )
+    raw = sparql_client.query().convert()
+    bindings = raw.get("results", {}).get("bindings", [])
+    if bindings:
+        count_val = int(bindings[0].get("typeCount", {}).get("value", "0"))
+        # The entity should have exactly one rdf:type zakhor:Entity triple
+        logger.info("Entity type triple count for %s: %d", entity_uri, count_val)
+        assert count_val >= 1, f"Expected at least 1 type triple, got {count_val}"
 
 
 @pytest.mark.xfail(
-    "not _sparql_available()",
-    reason="SPARQL endpoint not configured (set ZAKHOR_SPARQL_ENDPOINT)",
+    strict=True,
+    reason="cannot pass as designed — zakhor's embedded Tracker DB is not visible "
+    "to an external HTTP SPARQL endpoint and tinysparql's HTTP endpoint is "
+    "read-only (see #103)",
 )
 @pytest.mark.asyncio
 async def test_sparql_relation_idempotency(
@@ -957,18 +945,13 @@ async def test_sparql_relation_idempotency(
     sparql_client.setQuery(query)
     sparql_client.setReturnFormat(JSON)
 
-    try:
-        raw = sparql_client.query().convert()
-        bindings = raw.get("results", {}).get("bindings", [])
-        if bindings:
-            count_val = int(bindings[0].get("tripleCount", {}).get("value", "0"))
-            logger.info("SPARQL idempotent relation triple count: %d", count_val)
-            # At minimum the triple must exist
-            assert count_val >= 1, f"Expected at least 1 triple, got {count_val}"
-    except Exception as exc:
-        pytest.xfail(
-            reason=f"SPARQL query failed (endpoint may not be available): {exc}"
-        )
+    raw = sparql_client.query().convert()
+    bindings = raw.get("results", {}).get("bindings", [])
+    if bindings:
+        count_val = int(bindings[0].get("tripleCount", {}).get("value", "0"))
+        logger.info("SPARQL idempotent relation triple count: %d", count_val)
+        # At minimum the triple must exist
+        assert count_val >= 1, f"Expected at least 1 triple, got {count_val}"
 
 
 # ===================================================================

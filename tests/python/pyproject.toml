@@ -26,6 +26,8 @@ package = false
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["."]
+xfail_strict = true
+timeout = 180
 markers = [
     "skipif_tracker_unavailable: skip test when GNOME Tracker is not available",
 ]
