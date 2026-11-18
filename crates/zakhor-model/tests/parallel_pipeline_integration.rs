@@ -102,8 +102,12 @@ fn try_sparql_connection() -> Result<tracker::SparqlConnection, String> {
         .as_nanos();
     let tmp_dir = std::env::temp_dir().join(format!("zakhor-integration-{timestamp}"));
 
-    zakhor_storage::tracker_db::init_db(tmp_dir.to_str().ok_or_else(|| "temp path is not valid UTF-8".to_string())?)
-        .map_err(|e| format!("Tracker runtime not available: {e}"))
+    zakhor_storage::tracker_db::init_db(
+        tmp_dir
+            .to_str()
+            .ok_or_else(|| "temp path is not valid UTF-8".to_string())?,
+    )
+    .map_err(|e| format!("Tracker runtime not available: {e}"))
 }
 
 // ---------------------------------------------------------------------------

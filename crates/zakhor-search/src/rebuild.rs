@@ -12,8 +12,8 @@
 
 use std::collections::HashMap;
 
-use tracker::prelude::SparqlCursorExtManual;
 use tracker::SparqlConnection;
+use tracker::prelude::SparqlCursorExtManual;
 
 use zakhor_common::error::{ZakhorError, ZakhorResult};
 use zakhor_common::vocab;

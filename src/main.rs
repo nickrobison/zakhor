@@ -198,11 +198,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         zakhor_common::paths::resolve_models_cache_dir(cfg.models.cache_dir.as_deref());
     tracing::info!(cache = %models_cache_dir.display(), "Model cache directory");
 
-    let db_path = cfg
-        .database
-        .path
-        .to_str()
-        .ok_or_else(|| format!("database path is not valid UTF-8: {}", cfg.database.path.display()))?;
+    let db_path = cfg.database.path.to_str().ok_or_else(|| {
+        format!(
+            "database path is not valid UTF-8: {}",
+            cfg.database.path.display()
+        )
+    })?;
     let conn = tracker_db::init_db(db_path)?;
 
     let embedding_enabled = cfg.embedding.enabled;
@@ -229,7 +230,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let service = MemoryHandler::with_connection(&cfg, conn.clone(), sync_mgr, cli.ephemeral);
+    let service = MemoryHandler::from_connection(&cfg, conn.clone(), sync_mgr, cli.ephemeral);
 
     // Start background workers (ranking refresh, stale data cleanup)
     let _bg_shutdown =

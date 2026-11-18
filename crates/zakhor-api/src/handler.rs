@@ -40,12 +40,12 @@ pub struct MemoryHandler {
 }
 
 impl MemoryHandler {
-    /// Create a handler from an existing Tracker connection.
+    /// Construct a handler from an existing Tracker connection and config.
     ///
     /// The caller owns the connection lifecycle; the handler does not open a
     /// second, independent database handle (that previously produced two live
     /// connections to the same store).
-    pub fn with_connection(
+    pub fn from_connection(
         cfg: &Config,
         conn: tracker::SparqlConnection,
         sync_mgr: Option<Arc<IndexSyncManager>>,
