@@ -92,8 +92,9 @@ fn assert_extraction_outcome<T: std::fmt::Debug>(
 }
 
 /// Returns `Err` when the Tracker runtime library is not available (e.g. not
-/// installed or GLib initialisation fails), causing the calling test to skip
-/// gracefully rather than fail.
+/// Open the integration-test store, converting any open failure into a
+/// caller-visible `Err` (tests skip rather than fail when the Tracker C
+/// library or GLib resources are missing).
 fn try_sparql_connection() -> Result<tracker::SparqlConnection, String> {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -101,13 +102,8 @@ fn try_sparql_connection() -> Result<tracker::SparqlConnection, String> {
         .as_nanos();
     let tmp_dir = std::env::temp_dir().join(format!("zakhor-integration-{timestamp}"));
 
-    // `init_db` panics when the Tracker C library is missing or GLib
-    // resources are unavailable — catch that and convert to a Result.
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        zakhor_storage::tracker_db::init_db(tmp_dir.to_str().expect("temp path is valid UTF-8"))
-    }));
-
-    result.map_err(|_| "Tracker runtime not available".to_string())
+    zakhor_storage::tracker_db::init_db(tmp_dir.to_str().ok_or_else(|| "temp path is not valid UTF-8".to_string())?)
+        .map_err(|e| format!("Tracker runtime not available: {e}"))
 }
 
 // ---------------------------------------------------------------------------

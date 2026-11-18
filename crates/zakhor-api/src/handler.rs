@@ -40,29 +40,17 @@ pub struct MemoryHandler {
 }
 
 impl MemoryHandler {
-    /// Create a handler with a pre-existing Tracker connection.
-    #[allow(dead_code)]
+    /// Create a handler from an existing Tracker connection.
+    ///
+    /// The caller owns the connection lifecycle; the handler does not open a
+    /// second, independent database handle (that previously produced two live
+    /// connections to the same store).
     pub fn with_connection(
-        conn: tracker::SparqlConnection,
-        sync_mgr: Option<Arc<IndexSyncManager>>,
-    ) -> Self {
-        Self {
-            conn,
-            sync_mgr,
-            is_ephemeral: false,
-            extraction_init: Arc::new(OnceCell::new()),
-        }
-    }
-
-    #[tracing::instrument(skip(cfg, sync_mgr))]
-    pub fn new_with_config(
         cfg: &Config,
+        conn: tracker::SparqlConnection,
         sync_mgr: Option<Arc<IndexSyncManager>>,
         is_ephemeral: bool,
     ) -> Self {
-        let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
-        let conn = zakhor_storage::tracker_db::init_db(db_path);
-
         let extraction_cfg = ExtractionConfig {
             model_path: cfg.extraction.model_path.clone(),
             tokenizer_path: cfg.extraction.tokenizer_path.clone(),

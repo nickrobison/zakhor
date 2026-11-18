@@ -186,7 +186,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tmp = std::env::temp_dir().join(format!("zakhor-ephemeral-{}", std::process::id()));
         // On an async path, so filesystem work goes through tokio rather than
         // blocking the runtime thread (see #60).
-        let _ = tokio::fs::remove_dir_all(&tmp).await;
+        if let Err(e) = tokio::fs::remove_dir_all(&tmp).await {
+            tracing::warn!(error = %e, path = %tmp.display(), "Failed to remove stale ephemeral DB dir");
+        }
         tokio::fs::create_dir_all(&tmp).await?;
         cfg.database.path = tmp;
         tracing::info!(path = %cfg.database.path.display(), "Ephemeral mode — fresh Tracker DB created in temp dir");
@@ -196,8 +198,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         zakhor_common::paths::resolve_models_cache_dir(cfg.models.cache_dir.as_deref());
     tracing::info!(cache = %models_cache_dir.display(), "Model cache directory");
 
-    let db_path = cfg.database.path.to_str().unwrap_or("./zakhor-db");
-    let conn = tracker_db::init_db(db_path);
+    let db_path = cfg
+        .database
+        .path
+        .to_str()
+        .ok_or_else(|| format!("database path is not valid UTF-8: {}", cfg.database.path.display()))?;
+    let conn = tracker_db::init_db(db_path)?;
 
     let embedding_enabled = cfg.embedding.enabled;
     let sync_mgr = if cli.rebuild_indexes {
@@ -223,7 +229,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let service = MemoryHandler::new_with_config(&cfg, sync_mgr, cli.ephemeral);
+    let service = MemoryHandler::with_connection(&cfg, conn.clone(), sync_mgr, cli.ephemeral);
 
     // Start background workers (ranking refresh, stale data cleanup)
     let _bg_shutdown =
