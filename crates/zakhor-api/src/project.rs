@@ -426,6 +426,7 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&path);
         zakhor_storage::tracker_db::init_db(path.to_str().expect("utf-8 temp path"))
+            .expect("init test db")
     }
 
     #[test]

@@ -1,7 +1,8 @@
 use gio::File;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use tracker::{SparqlConnection, SparqlConnectionFlags};
+
+use zakhor_common::error::ZakhorError;
 
 /// System ontology resource paths from libtracker-sparql-3.0.so.
 ///
@@ -27,7 +28,6 @@ const SYSTEM_ONTOLOGY_RESOURCES: &[&str] = &[
 /// Extract system ontologies from the tracker library's gresources into
 /// `onto_dir`. Returns the number of ontologies successfully written.
 fn write_system_ontologies(onto_dir: &Path) -> usize {
-    let _ = std::fs::create_dir_all(onto_dir);
     let mut written = 0usize;
     for resource_path in SYSTEM_ONTOLOGY_RESOURCES {
         match gio::resources_lookup_data(resource_path, gio::ResourceLookupFlags::NONE) {
@@ -84,9 +84,14 @@ fn warmup_gresources() {
 ///
 /// This may trigger a warmup connection if tracker's gresources aren't
 /// registered yet (first call per process lifetime).
-fn prepare_ontology_dir(db_path: &Path) -> Option<gio::File> {
+fn prepare_ontology_dir(db_path: &Path) -> Result<Option<gio::File>, ZakhorError> {
     let ontology_dir = db_path.join("ontologies");
-    let _ = std::fs::create_dir_all(&ontology_dir);
+    std::fs::create_dir_all(&ontology_dir).map_err(|e| {
+        ZakhorError::Database(format!(
+            "cannot create ontology dir {}: {e}",
+            ontology_dir.display()
+        ))
+    })?;
 
     let mut n_sys = write_system_ontologies(&ontology_dir);
 
@@ -105,11 +110,15 @@ fn prepare_ontology_dir(db_path: &Path) -> Option<gio::File> {
         );
     }
 
-    // Always write the custom zakhor ontology
+    // Always write the custom zakhor ontology — without it the store has no
+    // SQL tables for zakhor classes, which is a hard failure.
     let custom_path = ontology_dir.join("99-zakhor.ontology");
-    if let Err(e) = std::fs::write(&custom_path, crate::schema::ontology_file_content()) {
-        tracing::warn!(error = %e, "Failed to write custom ontology file");
-    }
+    std::fs::write(&custom_path, crate::schema::ontology_file_content()).map_err(|e| {
+        ZakhorError::Database(format!(
+            "cannot write zakhor ontology to {}: {e}",
+            custom_path.display()
+        ))
+    })?;
 
     if n_sys > 0 {
         tracing::info!(
@@ -117,20 +126,15 @@ fn prepare_ontology_dir(db_path: &Path) -> Option<gio::File> {
             "Using combined ontology directory ({} system + zakhor)",
             n_sys,
         );
-        Some(File::for_path(&ontology_dir))
+        Ok(Some(File::for_path(&ontology_dir)))
     } else {
         tracing::warn!(
             "No system ontologies extracted — falling back to resource-based Nepomuk \
              ontology. Zakhor-specific types will not have SQL tables."
         );
-        tracker::functions::sparql_get_ontology_nepomuk()
+        Ok(tracker::functions::sparql_get_ontology_nepomuk())
     }
 }
-
-/// Track whether we've already performed an ontology-drift recovery in this
-/// process lifetime. Single retry is enough — if it fails again the error is
-/// real (e.g. corrupt disk) and should propagate.
-static DID_ONTOLOGY_RETRY: AtomicBool = AtomicBool::new(false);
 
 /// Open (or create) a Tracker SPARQL database at `path`, loading both the
 /// standard Nepomuk ontologies and Zakhor's custom ontology classes and
@@ -140,12 +144,14 @@ static DID_ONTOLOGY_RETRY: AtomicBool = AtomicBool::new(false);
 /// to the RDF store, with Zakhor-specific types (`zakhor:Entity`,
 /// `zakhor:Decision`, …) registered as queryable classes.
 ///
-/// # Ontology schema drift recovery
+/// # Ontology schema drift
 ///
 /// Tracker does not support changing `rdfs:domain` or `rdfs:range` on an
 /// already-registered property. If the current code's ontology file disagrees
-/// with the persisted database, `init_db` automatically clears the stale
-/// store and retries once. If the retry also fails, the error is propagated.
+/// with the persisted database, the connection fails with a `ZakhorError`
+/// naming the database path — it will **never** delete the existing database.
+/// To re-create the store from scratch, back the directory up and remove it
+/// yourself, then restart the server (e.g. `mv zakhor-db zakhor-db.bak-$(date +%Y%m%d) && zakhor`).
 ///
 /// # Gresource warmup
 ///
@@ -154,48 +160,36 @@ static DID_ONTOLOGY_RETRY: AtomicBool = AtomicBool::new(false);
 /// temporary Tracker connection to force library initialisation, then retries
 /// the extraction, so callers always get a fully-populated combined ontology
 /// directory in a single invocation.
-pub fn init_db(path: &str) -> SparqlConnection {
+///
+/// # Errors
+///
+/// Returns `ZakhorError::Database` if the store directory cannot be prepared,
+/// the zakhor ontology file cannot be written, or Tracker refuses to open
+/// the database (e.g. ontology drift against a persisted store).
+pub fn init_db(path: &str) -> Result<SparqlConnection, ZakhorError> {
     let store = File::for_path(path);
     let db_path = Path::new(path);
-    let _ = std::fs::create_dir_all(db_path);
+    std::fs::create_dir_all(db_path).map_err(|e| {
+        ZakhorError::Database(format!(
+            "cannot create database dir {}: {e}",
+            db_path.display()
+        ))
+    })?;
 
-    let ontology_file = prepare_ontology_dir(db_path);
+    let ontology_file = prepare_ontology_dir(db_path)?;
 
-    let result = SparqlConnection::new(
+    SparqlConnection::new(
         SparqlConnectionFlags::empty(),
         Some(&store),
         ontology_file.as_ref(),
         None::<&gio::Cancellable>,
-    );
-
-    match result {
-        Ok(conn) => conn,
-        Err(e) => {
-            let msg = format!("{e}");
-            // Tracker rejects ontology evolution (rdfs:domain / rdfs:range changes)
-            if msg.contains("is not supported") && !DID_ONTOLOGY_RETRY.swap(true, Ordering::SeqCst)
-            {
-                tracing::warn!(
-                    error = %e,
-                    "Ontology schema drift detected — clearing stale database and retrying"
-                );
-                // Nuke the entire store so Tracker can re-create it with the current ontology
-                let _ = std::fs::remove_dir_all(db_path);
-                let _ = std::fs::create_dir_all(db_path);
-                // Re-prepare ontology files in the clean directory
-                let ontology_file = prepare_ontology_dir(db_path);
-                SparqlConnection::new(
-                    SparqlConnectionFlags::empty(),
-                    Some(&store),
-                    ontology_file.as_ref(),
-                    None::<&gio::Cancellable>,
-                )
-                .expect("Failed to init Tracker DB after clearing stale store")
-            } else {
-                panic!("Failed to init Tracker DB: {e}");
-            }
-        }
-    }
+    )
+    .map_err(|e| {
+        ZakhorError::Database(format!(
+            "cannot open Tracker database at {}: {e}",
+            db_path.display()
+        ))
+    })
 }
 
 #[cfg(test)]
@@ -210,7 +204,7 @@ mod integration_tests {
         let tmp = std::env::temp_dir().join(format!("zakhor-inttest-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
 
-        let conn = init_db(tmp.to_str().unwrap());
+        let conn = init_db(tmp.to_str().unwrap()).expect("integration probe: Tracker DB must open");
 
         // Phase 1 — type query on empty DB must not crash
         let cursor = conn
@@ -268,5 +262,31 @@ mod integration_tests {
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Regression: opening a database at a path that is an existing regular
+    /// file must return an error, never panic or wipe anything.
+    #[test]
+    fn test_init_db_on_regular_file_returns_error() {
+        let file = std::env::temp_dir().join(format!(
+            "zakhor-db-not-a-dir-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&file, b"this is a file, not a directory").unwrap();
+
+        let result = init_db(file.to_str().unwrap());
+        assert!(result.is_err(), "init_db on a regular file must return Err");
+
+        // The file must be untouched — no wiping, no deletion.
+        assert_eq!(
+            std::fs::read(&file).unwrap(),
+            b"this is a file, not a directory"
+        );
+
+        let _ = std::fs::remove_file(&file);
     }
 }

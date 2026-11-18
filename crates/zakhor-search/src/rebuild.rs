@@ -190,7 +190,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).expect("create temp store dir");
 
-        let conn = zakhor_storage::tracker_db::init_db(path.to_str().expect("utf-8 temp path"));
+        let conn = zakhor_storage::tracker_db::init_db(path.to_str().expect("utf-8 temp path"))
+            .expect("init rebuild test db");
 
         let decision_uri = "urn:uuid:11111111-2222-3333-4444-555555555555";
         let context = "ZakhorRebuildToken_Q7W2 must choose a bus";
