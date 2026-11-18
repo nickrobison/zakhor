@@ -40,8 +40,9 @@ ZAKHOR_BINARY = _TARGET_DIR / "debug" / "zakhor"
 SERVER_START_TIMEOUT = 10.0  # seconds to wait for server readiness
 POLL_INTERVAL = 0.1  # seconds between readiness checks
 
-# SPARQL endpoint for direct queries (e.g., tracker3 endpoint or tinysparql)
-SPARQL_ENDPOINT = os.environ.get("ZAKHOR_SPARQL_ENDPOINT", "http://localhost:7200")
+# SPARQL endpoint for direct queries (e.g., tracker3 endpoint or tinysparql).
+# Not set by default; tests that need direct SPARQL are skipped unless it is.
+SPARQL_ENDPOINT = os.environ.get("ZAKHOR_SPARQL_ENDPOINT", "")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,22 +56,56 @@ def _find_free_port() -> int:
         return s.getsockname()[1]
 
 
-async def _is_server_ready(url: str) -> bool:
-    """Return True if the MCP server responds to a POST."""
+def _open_server_log(tmp_dir: Path | None = None):
+    """Create a log file for a server subprocess.
+
+    Returns ``(fileobj, path)``. The caller passes ``fileobj`` as the
+    subprocess stdout/stderr and must close it after the server exits;
+    ``path`` is where the output landed for post-mortem diagnostics.
+    """
+    import tempfile
+
+    kwargs = {
+        "prefix": "zakhor-server-",
+        "suffix": ".log",
+        "mode": "w+b",
+        "delete": False,
+    }
+    if tmp_dir is not None:
+        kwargs["dir"] = tmp_dir
+    tmp = tempfile.NamedTemporaryFile(**kwargs)
+    return tmp, Path(tmp.name)
+
+
+def _tail(path: Path, max_bytes: int = 8192) -> str:
+    """Return the last ``max_bytes`` of a log file, or a placeholder if missing."""
     try:
-        async with httpx.AsyncClient(
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json, text/event-stream",
-            },
-            timeout=httpx.Timeout(5.0),
-        ) as client:
-            resp = await client.post(
-                url,
-                json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
-            )
-            # Any HTTP response (2xx, 4xx) means the server is running
-            return True
+        size = path.stat().st_size
+        with open(path, "rb") as fh:
+            if size > max_bytes:
+                fh.seek(-max_bytes, 2)
+            return fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return "<server log unavailable>"
+
+
+def _health_url(mcp_url: str) -> str:
+    """Derive the /api/v1/health URL from an MCP /mcp URL."""
+    assert mcp_url.endswith("/mcp")
+    return mcp_url[: -len("/mcp")] + "/api/v1/health"
+
+
+async def _is_server_ready(url: str) -> bool:
+    """Return True if the server reports a healthy Tracker connection.
+
+    Uses the /api/v1/health endpoint, which returns 200 only when the server
+    is up and its Tracker store answers an ASK query. Anything else (connection
+    error, non-200) means "not ready".
+    """
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+            resp = await client.get(_health_url(url))
+            return resp.status_code == 200
     except (
         httpx.ConnectError,
         httpx.RemoteProtocolError,
@@ -89,16 +124,19 @@ async def _is_server_ready(url: str) -> bool:
 def sparql_client() -> SPARQLWrapper:
     """Return a SPARQLWrapper connected to the configured SPARQL endpoint.
 
-    The endpoint URL defaults to http://localhost:7200 and can be overridden
-    via the ``ZAKHOR_SPARQL_ENDPOINT`` environment variable.
+    The endpoint URL is taken from the ``ZAKHOR_SPARQL_ENDPOINT`` environment
+    variable. Tests using this fixture are skipped when it is not set.
 
-    Use this fixture when tests need to verify data directly in the Tracker
-    SPARQL store (e.g., assert triples were written correctly).
+    Uses POSTDIRECT: SPARQLWrapper's form-encoded POST method hangs against
+    tinysparql, so the query travels as a raw ``application/sparql-query``
+    body instead.
     """
+    if not SPARQL_ENDPOINT:
+        raise pytest.skip("ZAKHOR_SPARQL_ENDPOINT not set")
     client = SPARQLWrapper(SPARQL_ENDPOINT)
     client.setReturnFormat(JSON)
-    # Use POST for query execution to avoid URL-length limits
-    client.setMethod("POST")
+    client.setMethod("POSTDIRECT")
+    client.setTimeout(30)
     return client
 
 
@@ -124,14 +162,15 @@ async def tracker_available() -> bool:
     env["ZAKHOR_HTTP_PORT"] = str(port)
 
     try:
+        log_file, log_path = _open_server_log()
         proc = await asyncio.create_subprocess_exec(
             str(ZAKHOR_BINARY),
             "--http",
             "--ephemeral",
             f"--db-path={db_path}",
             env=env,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=asyncio.subprocess.STDOUT,
         )
 
         url = f"http://127.0.0.1:{port}/mcp"
@@ -143,15 +182,23 @@ async def tracker_available() -> bool:
                     await asyncio.wait_for(proc.wait(), timeout=5)
                 except (asyncio.TimeoutError, ProcessLookupError):
                     pass
+                log_file.close()
                 _cleanup_db(db_path)
+                log_path.unlink(missing_ok=True)
                 return True
 
+        logger.warning(
+            "zakhor binary smoke test failed; server output:\n%s",
+            _tail(log_path),
+        )
         proc.terminate()
         try:
             await asyncio.wait_for(proc.wait(), timeout=5)
         except (asyncio.TimeoutError, ProcessLookupError):
             pass
+        log_file.close()
         _cleanup_db(db_path)
+        log_path.unlink(missing_ok=True)
         return False
     except (OSError, asyncio.TimeoutError) as exc:
         logger.warning("Tracker/binary smoke test failed: %s", exc)
@@ -188,14 +235,15 @@ async def zakhor_server(tmp_path: Path) -> AsyncIterator[str]:
     env["ZAKHOR_HTTP_PORT"] = str(port)
     env["ZAKHOR_HTTP_HOST"] = "127.0.0.1"
 
+    log_file, log_path = _open_server_log(tmp_path)
     proc = await asyncio.create_subprocess_exec(
         str(ZAKHOR_BINARY),
         "--http",
         "--ephemeral",
         f"--db-path={db_path}",
         env=env,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
+        stdout=log_file,
+        stderr=asyncio.subprocess.STDOUT,
     )
 
     # Wait for server to be ready
@@ -211,13 +259,17 @@ async def zakhor_server(tmp_path: Path) -> AsyncIterator[str]:
             await asyncio.wait_for(proc.wait(), timeout=5)
         except (asyncio.TimeoutError, ProcessLookupError):
             pass
-        pytest.fail(f"zakhor server failed to start at {url}")
+        log_file.close()
+        pytest.fail(
+            f"zakhor server failed to start at {url}\nserver output:\n{_tail(log_path)}"
+        )
 
     logger.info("zakhor server started at %s (pid=%d)", url, proc.pid)
 
     try:
         yield url
     finally:
+        log_file.close()
         # Teardown: kill process
         if proc.returncode is None:
             if platform.system() == "Windows":

@@ -334,19 +334,14 @@ async def test_search_hybrid(mcp_session: ClientSession) -> None:
     )
 
     # Rebuild indexes so the stored content is indexed
-    # Note: zakhor starts without sync_mgr unless --rebuild-indexes is passed,
-    # so search_hybrid may return a warning about indexes not being available.
-    # We test what we can: the API responds without error.
     rebuild_result = await mcp_session.call_tool("rebuild_indexes", {})
     rebuild_text = _get_text(rebuild_result)
-    assert rebuild_text, "rebuild_indexes should return a non-empty result"
     lowered_rebuild_text = rebuild_text.lower()
-    assert (
-        "success" in lowered_rebuild_text
-        or "error" in lowered_rebuild_text
-        or "disabled" in lowered_rebuild_text
-        or "not available" in lowered_rebuild_text
-    ), f"Expected rebuild status message, got: {rebuild_text}"
+    if "not available" in lowered_rebuild_text or "disabled" in lowered_rebuild_text:
+        pytest.skip(f"Search indexes not available: {rebuild_text}")
+    assert "rebuilt successfully" in lowered_rebuild_text, (
+        f"Expected rebuild to succeed, got: {rebuild_text}"
+    )
 
     # Search by keyword
     search_result = await mcp_session.call_tool(
@@ -355,18 +350,12 @@ async def test_search_hybrid(mcp_session: ClientSession) -> None:
     )
     search_data = _parse_json(_get_text(search_result))
 
-    # If indexes are available, we should get results.
-    # If not available, we should get a warning.
-    # A warning about semantic search being disabled is the documented default
-    # and does not invalidate the lexical results, so only skip when the sync
-    # manager itself is missing.
     if "Indexes not available" in (search_data.get("warning") or ""):
-        pytest.xfail(reason=f"Search indexes not available: {search_data['warning']}")
+        pytest.skip(reason=f"Search indexes not available: {search_data['warning']}")
 
     assert "results" in search_data, f"Expected results field, got: {search_data}"
-    # At minimum, the response structure is correct
-    assert isinstance(search_data["results"], list), (
-        f"Expected results to be a list, got: {type(search_data['results'])}"
+    assert any("quantum" in str(hit).lower() for hit in search_data["results"]), (
+        f"Expected a quantum-related hit in results, got: {search_data['results']}"
     )
 
 
