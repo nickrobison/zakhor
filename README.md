@@ -130,6 +130,14 @@ seconds. Populate the index from existing memories with `rebuild_indexes`.
 | `ZAKHOR_HTTP_PORT` | HTTP bind port (default `3000`) |
 | `ZAKHOR_MODELS_CACHE_DIR` | Override the shared model cache directory (same as `[models].cache_dir`) |
 
+Any other `ZAKHOR_*` variable maps its remainder (after the prefix, underscores
+converted to dots) onto the nested config section, e.g.
+`ZAKHOR_LLM_ENDPOINT` overrides `[llm] endpoint`, or
+`ZAKHOR_EXTRACTION_ENTITY_THRESHOLD` overrides `[extraction] entity_threshold`.
+Malformed TOML config files are a hard error at startup; out-of-range values
+(failing confidence/threshold/weight checks, bad ports, zero background workers)
+also fail loudly instead of silently falling back to defaults.
+
 The SQLite/graph database path (`[database] path`, default `./zakhor-db`) intentionally
 stays where it is and is not moved under XDG.
 

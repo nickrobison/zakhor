@@ -105,11 +105,29 @@ impl Default for Config {
 impl Config {
     /// Load configuration layered from: built-in defaults < TOML file at `path` < `ZAKHOR_*` env vars.
     ///
-    /// If the TOML file is missing or malformed, defaults plus env vars are used
-    /// (a warning is logged). Existing callers that don't care about the path can
-    /// continue to use [`Config::load`].
-    pub fn load_from(path: &std::path::Path) -> Self {
+    /// A missing TOML file yields the built-in defaults plus any `ZAKHOR_*`
+    /// environment overrides. A present but malformed TOML file is a hard error
+    /// ([`ConfigError::MalformedToml`]) — silent fallbacks to defaults are never
+    /// acceptable for an explicitly configured file.
+    ///
+    /// Once the layered configuration is assembled, [`Config::validate`] runs and
+    /// any misconfiguration is surfaced via [`ConfigError::Invalid`].
+    pub fn load_from(path: &std::path::Path) -> Result<Self, ConfigError> {
         use figment::providers::{Env, Format, Serialized, Toml};
+
+        // Fail loudly on a present-but-malformed TOML file; never fall back to
+        // defaults for an explicitly configured path (issue #95).
+        if !path.as_os_str().is_empty() && path.is_file() {
+            let source = std::fs::read_to_string(path).map_err(|source| ConfigError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?;
+            let _: toml::Table =
+                toml::from_str(&source).map_err(|source| ConfigError::MalformedToml {
+                    path: path.to_path_buf(),
+                    source,
+                })?;
+        }
 
         let mut figment = Figment::new().merge(Serialized::defaults(Config::default()));
 
@@ -122,58 +140,78 @@ impl Config {
             .merge(Env::prefixed("ZAKHOR_").map(map_env_key))
             .extract();
 
-        match result {
-            Ok(config) => config,
-            Err(e) => {
-                tracing::warn!(
-                    path = %path.display(),
-                    error = %e,
-                    "Failed to load config file; using defaults + env vars"
-                );
-                Self::default().apply_env()
-            }
-        }
+        let config = result.map_err(|e| ConfigError::Load {
+            path: path.to_path_buf(),
+            source: Box::new(e),
+        })?;
+
+        config.validate()?;
+
+        Ok(config)
     }
 
     /// Load configuration from `./zakhor.toml` (preserved for backward compatibility).
-    pub fn load() -> Self {
+    pub fn load() -> Result<Self, ConfigError> {
         Self::load_from(std::path::Path::new("./zakhor.toml"))
     }
 
-    fn apply_env(mut self) -> Self {
-        if let Ok(path) = std::env::var("ZAKHOR_DB_PATH") {
-            self.database.path = PathBuf::from(path);
-        }
-        if let Ok(host) = std::env::var("ZAKHOR_HTTP_HOST") {
-            self.http.host = host;
-        }
-        if let Ok(port) = std::env::var("ZAKHOR_HTTP_PORT")
-            && let Ok(p) = port.parse::<u16>()
-        {
-            self.http.port = p;
-        }
-        self
-    }
-
     /// Load configuration from environment variables only (no TOML file).
-    pub fn load_env_only() -> Self {
+    pub fn load_env_only() -> Result<Self, ConfigError> {
         Self::load_from(std::path::Path::new(""))
     }
 }
 
 /// Translate a figment `Env` key into the matching dotted config path.
 ///
-/// Required because the previous hand-rolled loader mapped `ZAKHOR_DB_PATH`
-/// to `database.path`, `ZAKHOR_HTTP_HOST` to `http.host`, and
-/// `ZAKHOR_HTTP_PORT` to `http.port`. Figment lowercases keys by default,
-/// but we keep the mapping robust against any case variant.
+/// `ZAKHOR_` prefixed variables are stripped of the prefix by the figment
+/// [`Env`](figment::providers::Env) provider before this mapping runs, so e.g.
+/// `ZAKHOR_LLM_ENDPOINT` arrives as `LLM_ENDPOINT` and maps to `llm.endpoint`.
+///
+/// The four legacy top-level overrides keep their fully-qualified paths:
+/// `DB_PATH` → `database.path`, `HTTP_HOST` → `http.host`,
+/// `HTTP_PORT` → `http.port`, `MODELS_CACHE_DIR` → `models.cache_dir`.
+///
+/// Any other key maps onto a nested config path: the first underscore-separated
+/// segment names the config section and the remainder names the (snake_case)
+/// field, so underscores inside field names survive. Namespaced overrides
+/// therefore land correctly, e.g. `ZAKHOR_LLM_CONFIDENCE_THRESHOLD` →
+/// `llm.confidence_threshold`, `ZAKHOR_EXTRACTION_ENTITY_THRESHOLD` →
+/// `extraction.entity_threshold`, and `ZAKHOR_ENTITY_RESOLUTION_ALIAS_THRESHOLD`
+/// → `entity_resolution.alias_threshold` (multi-word sections keep their flat
+/// TOML-style name) — instead of silently becoming unknown top-level keys
+/// (issue #95).
 pub(crate) fn map_env_key(key: &UncasedStr) -> Uncased<'_> {
-    let mapped: Uncased<'_> = match key.as_str().to_ascii_uppercase().as_str() {
-        "DB_PATH" => Uncased::new("database.path"),
-        "HTTP_HOST" => Uncased::new("http.host"),
-        "HTTP_PORT" => Uncased::new("http.port"),
-        "MODELS_CACHE_DIR" => Uncased::new("models.cache_dir"),
-        other => Uncased::new(other.to_ascii_lowercase()),
+    let raw = key.as_str().to_ascii_uppercase();
+    let mapped: String = if raw == "DB_PATH" {
+        "database.path".to_string()
+    } else if raw == "HTTP_HOST" {
+        "http.host".to_string()
+    } else if raw == "HTTP_PORT" {
+        "http.port".to_string()
+    } else if raw == "MODELS_CACHE_DIR" {
+        "models.cache_dir".to_string()
+    } else {
+        let lower = raw.to_ascii_lowercase();
+        // Multi-word sections (e.g. `entity_resolution`) keep their flat name
+        // as the section key; the remainder is the snake_case field.
+        const MULTI_WORD_SECTIONS: [&str; 3] =
+            ["entity_resolution", "code_indexing", "tool_capture"];
+        let mut mapped = String::new();
+        for section in MULTI_WORD_SECTIONS {
+            let prefix = format!("{section}_");
+            if let Some(field) = lower.strip_prefix(&prefix) {
+                mapped = format!("{section}.{field}");
+                break;
+            }
+        }
+        if mapped.is_empty() {
+            if let Some((section, field)) = lower.split_once('_') {
+                mapped = format!("{section}.{field}");
+            } else {
+                mapped = lower;
+            }
+        }
+        mapped
     };
-    mapped
+    Uncased::new(mapped)
 }
