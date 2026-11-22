@@ -117,14 +117,25 @@ impl Config {
 
         // Fail loudly on a present-but-malformed TOML file; never fall back to
         // defaults for an explicitly configured path (issue #95).
-        if !path.as_os_str().is_empty() && path.is_file() {
-            let source = std::fs::read_to_string(path).map_err(|source| ConfigError::Io {
-                path: path.to_path_buf(),
+        //
+        // We resolve the file the same way figment's `Toml::file` does (walk up
+        // from cwd for relative paths) so a malformed TOML found via parent
+        // search is surfaced as `MalformedToml`, not a generic `Load` error.
+        //
+        // TOCTOU note: we check existence/read the file before figment reads it
+        // again below. A swap between the two reads is an acceptable risk for
+        // config loading; the worst case is a stale pre-parse result, not silent
+        // misconfiguration.
+        if !path.as_os_str().is_empty()
+            && let Some(resolved) = resolve_config_file(path)
+        {
+            let source = std::fs::read_to_string(&resolved).map_err(|source| ConfigError::Io {
+                path: resolved.clone(),
                 source,
             })?;
             let _: toml::Table =
                 toml::from_str(&source).map_err(|source| ConfigError::MalformedToml {
-                    path: path.to_path_buf(),
+                    path: resolved,
                     source,
                 })?;
         }
@@ -158,6 +169,26 @@ impl Config {
     /// Load configuration from environment variables only (no TOML file).
     pub fn load_env_only() -> Result<Self, ConfigError> {
         Self::load_from(std::path::Path::new(""))
+    }
+}
+
+/// Resolve the config file path the same way figment's `Toml::file` does:
+/// absolute paths are used as-is if they point to a file; relative paths are
+/// searched from the current working directory upward through parent
+/// directories until the filesystem root.
+fn resolve_config_file(path: &std::path::Path) -> Option<PathBuf> {
+    if path.is_absolute() {
+        return path.is_file().then(|| path.to_path_buf());
+    }
+
+    let cwd = std::env::current_dir().ok()?;
+    let mut dir = cwd.as_path();
+    loop {
+        let candidate = dir.join(path);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        dir = dir.parent()?;
     }
 }
 

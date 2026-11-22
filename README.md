@@ -135,7 +135,7 @@ converted to dots) onto the nested config section, e.g.
 `ZAKHOR_LLM_ENDPOINT` overrides `[llm] endpoint`, or
 `ZAKHOR_EXTRACTION_ENTITY_THRESHOLD` overrides `[extraction] entity_threshold`.
 Malformed TOML config files are a hard error at startup; out-of-range values
-(failing confidence/threshold/weight checks, bad ports, zero background workers)
+(failing confidence/threshold/weight checks, bad ports, empty `http.host`, zero background workers)
 also fail loudly instead of silently falling back to defaults.
 
 The SQLite/graph database path (`[database] path`, default `./zakhor-db`) intentionally

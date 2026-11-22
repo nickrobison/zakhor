@@ -187,6 +187,14 @@ impl Config {
             }
         }
 
+        if self.http.host.trim().is_empty() {
+            return Err(ConfigError::Invalid {
+                key: "http.host".to_string(),
+                value: self.http.host.clone(),
+                message: "http.host must not be empty".to_string(),
+            });
+        }
+
         if !(1..=u16::MAX).contains(&self.http.port) {
             return Err(ConfigError::Invalid {
                 key: "http.port".to_string(),
