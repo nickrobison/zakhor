@@ -168,14 +168,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cfg = match &config_source {
         zakhor_common::paths::ConfigSource::DefaultsOnly => {
             tracing::info!("No config file found; using built-in defaults + ZAKHOR_* env vars");
-            Config::load_env_only()
+            Config::load_env_only()?
         }
         source => {
             let path = source
                 .path()
                 .expect("non-defaults config source carries a path");
             tracing::info!(path = %path.display(), ?source, "Using config file");
-            Config::load_from(path)
+            Config::load_from(path)?
         }
     };
     if let Some(db_path) = cli.db_path {

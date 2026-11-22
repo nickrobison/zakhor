@@ -1,5 +1,37 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("failed to read config file {path}: {source}")]
+    Io {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("malformed TOML in config file {path}: {source}")]
+    MalformedToml {
+        path: std::path::PathBuf,
+        #[source]
+        source: toml::de::Error,
+    },
+
+    #[error("invalid configuration value {key} = {value}: {message}")]
+    Invalid {
+        key: String,
+        value: String,
+        message: String,
+    },
+
+    #[error("failed to load config from {path}: {source}")]
+    Load {
+        path: std::path::PathBuf,
+        #[source]
+        source: Box<figment::Error>,
+    },
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -103,6 +135,87 @@ pub struct EmbeddingConfig {
     /// is desired.
     #[serde(default)]
     pub enabled: bool,
+}
+
+impl Config {
+    /// Validate the configuration, failing with an error that names the
+    /// offending key and value when any setting falls outside its allowed range.
+    ///
+    /// Runs on every configuration load path (built-in defaults, TOML file, or
+    /// `ZAKHOR_*` environment overrides) so misconfiguration surfaces loudly
+    /// instead of silently degrading to defaults or producing broken behavior.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        for (key, value) in [
+            ("llm.confidence_threshold", self.llm.confidence_threshold),
+            (
+                "entity_resolution.alias_threshold",
+                self.entity_resolution.alias_threshold,
+            ),
+            (
+                "entity_resolution.tantivy_threshold",
+                self.entity_resolution.tantivy_threshold,
+            ),
+            (
+                "entity_resolution.fastembed_threshold",
+                self.entity_resolution.fastembed_threshold,
+            ),
+            (
+                "extraction.entity_threshold",
+                self.extraction.entity_threshold,
+            ),
+            (
+                "extraction.relation_threshold",
+                self.extraction.relation_threshold,
+            ),
+            (
+                "ranking.graph_importance_weight",
+                self.ranking.graph_importance_weight,
+            ),
+            (
+                "ranking.provenance_quality_weight",
+                self.ranking.provenance_quality_weight,
+            ),
+            ("ranking.lexical_weight", self.ranking.lexical_weight),
+            ("ranking.semantic_weight", self.ranking.semantic_weight),
+        ] {
+            if !(0.0..=1.0).contains(&value) {
+                return Err(ConfigError::Invalid {
+                    key: key.to_string(),
+                    value: value.to_string(),
+                    message: format!("{key} must be a probability between 0 and 1, got {value}"),
+                });
+            }
+        }
+
+        if self.http.host.trim().is_empty() {
+            return Err(ConfigError::Invalid {
+                key: "http.host".to_string(),
+                value: self.http.host.clone(),
+                message: "http.host must not be empty".to_string(),
+            });
+        }
+
+        if !(1..=u16::MAX).contains(&self.http.port) {
+            return Err(ConfigError::Invalid {
+                key: "http.port".to_string(),
+                value: self.http.port.to_string(),
+                message: format!(
+                    "http.port must be between 1 and 65535, got {}",
+                    self.http.port
+                ),
+            });
+        }
+
+        if self.background.worker_count == 0 {
+            return Err(ConfigError::Invalid {
+                key: "background.worker_count".to_string(),
+                value: self.background.worker_count.to_string(),
+                message: "background.worker_count must be greater than 0".to_string(),
+            });
+        }
+
+        Ok(())
+    }
 }
 
 /// Configuration for downloaded ML model caches (FastEmbed + GLiNER share one directory).
