@@ -45,6 +45,55 @@ pub fn has_relation_iri() -> &'static Iri {
     iri!("http://zakhor/ns/hasRelation")
 }
 
+/// IRI of the ontology property that persists an extracted relation labelled
+/// `label`.
+///
+/// Extraction maps a zero-shot relation label to a property in the `relation`
+/// namespace. The store ontology (`99-zakhor.ontology`, see
+/// `zakhor_storage::schema::ontology_file_content`) declares exactly the
+/// properties for the default relation labels, because Tracker rejects
+/// `INSERT DATA` triples whose predicate is not a declared property. A label
+/// outside that set therefore has no property: the extraction boundary drops
+/// such relations instead of failing the whole observation persist.
+pub fn relation_predicate_iri(label: &str) -> String {
+    format!("http://zakhor/ns/relation/{label}")
+}
+
+/// IRI for an extracted entity with surface form `label`.
+///
+/// The graph convention is `http://zakhor/ns/entity/<name>` (see
+/// `is_memory_node` consumers); the extracted span text is the name. Encoding
+/// by label rather than minting a per-mention UUID means the same surface form
+/// resolves to one node across observations, so edges accumulate on it instead
+/// of fragmenting per mention.
+///
+/// The label is percent-encoded into a single path segment: bytes that are
+/// illegal in an IRI path (space, quotes, `%`, `/`, …) are escaped, while
+/// non-ASCII text passes through unescaped — RDF IRIs (RFC 3987) allow it, and
+/// `nie`-style labels stay readable.
+pub fn entity_mention_iri(label: &str) -> String {
+    let mut encoded = String::with_capacity(label.len());
+    for ch in label.chars() {
+        match ch {
+            // `ipchar` minus `/` (a label stays one path segment).
+            'A'..='Z' | 'a'..='z' | '0'..='9' => encoded.push(ch),
+            '-' | '.' | '_' | '~' | '!' | '$' | '&' | '\'' | '(' | ')' | '*' | '+' | ',' | ';'
+            | '=' | ':' | '@' => encoded.push(ch),
+            // Non-ASCII is legal in an IRI (RFC 3987) and keeps labels readable.
+            '\u{80}'..='\u{D7FF}' | '\u{E000}'..='\u{10FFFF}' => encoded.push(ch),
+            // Everything else (space, quotes, `%`, `/`, `<`, `>`, `#`, `?`,
+            // control characters) is percent-encoded.
+            _ => {
+                let mut buf = [0u8; 4];
+                for byte in ch.encode_utf8(&mut buf).as_bytes() {
+                    encoded.push_str(&format!("%{byte:02X}"));
+                }
+            }
+        }
+    }
+    format!("http://zakhor/ns/entity/{encoded}")
+}
+
 pub fn provenance_graph_iri() -> &'static Iri {
     iri!("http://zakhor/ns/provenanceGraph")
 }

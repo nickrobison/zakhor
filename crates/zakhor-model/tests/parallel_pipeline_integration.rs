@@ -64,7 +64,7 @@ fn load_config() -> Option<ExtractionConfig> {
 /// Open the integration-test store, converting any open failure into a
 /// caller-visible `Err` (tests skip rather than fail when the Tracker C
 /// library or GLib resources are missing).
-fn try_sparql_connection() -> Result<tracker::SparqlConnection, String> {
+fn try_sparql_connection(relation_labels: &[String]) -> Result<tracker::SparqlConnection, String> {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -75,6 +75,7 @@ fn try_sparql_connection() -> Result<tracker::SparqlConnection, String> {
         tmp_dir
             .to_str()
             .ok_or_else(|| "temp path is not valid UTF-8".to_string())?,
+        relation_labels,
     )
     .map_err(|e| format!("Tracker runtime not available: {e}"))
 }
@@ -180,7 +181,7 @@ async fn test_async_ingestion_pipeline_functional() {
         None => return,
     };
 
-    let conn = match try_sparql_connection() {
+    let conn = match try_sparql_connection(&config.relation_labels) {
         Ok(c) => Arc::new(c),
         Err(e) => {
             eprintln!("skipping SPARQL-dependent test: {e}");
@@ -268,7 +269,7 @@ async fn test_ingest_async_with_empty_text() {
         None => return,
     };
 
-    let conn = match try_sparql_connection() {
+    let conn = match try_sparql_connection(&config.relation_labels) {
         Ok(c) => Arc::new(c),
         Err(e) => {
             eprintln!("skipping SPARQL-dependent test: {e}");

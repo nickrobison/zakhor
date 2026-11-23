@@ -4,7 +4,9 @@ use tokio::task::spawn_blocking;
 
 use crate::model_setup;
 use crate::pipeline::{EntityRef, Relation};
-use zakhor_common::vocab::{EntityUri, RelationPredicate};
+use zakhor_common::vocab::{
+    EntityUri, RelationPredicate, entity_mention_iri, relation_predicate_iri,
+};
 
 use super::compat;
 use super::config::ExtractionConfig;
@@ -220,14 +222,19 @@ impl ExtractionPipeline {
             // Shared NER — runs once for both entity and relation extraction
             let relex_output = Self::run_ner_inner(&inner, &config, &text)?;
 
-            // Entity extraction from the decoded spans
+            // Entity extraction from the decoded spans. The IRI is minted from
+            // the span text (not the class): a class-based IRI would collide
+            // across entities of the same type, so the second observation
+            // carrying e.g. a different person would fail to persist with a
+            // single-valued `rdfs:label` conflict. Text-keyed IRIs also mean
+            // the same surface form resolves to one node across observations.
             let entities: Vec<EntityRef> = relex_output
                 .spans
                 .spans
                 .iter()
                 .flat_map(|seq| {
                     seq.iter().filter_map(|span| {
-                        let uri = format!("http://zakhor/ns/entity/{}", span.class());
+                        let uri = entity_mention_iri(span.text());
                         Some(EntityRef {
                             uri: EntityUri::parse(uri).ok()?,
                             label: span.text().to_string(),
@@ -253,21 +260,23 @@ impl ExtractionPipeline {
                     {
                         continue;
                     }
-                    let subject_class = sequence_spans[rel.subject_index].class().to_string();
-                    let object_class = sequence_spans[rel.object_index].class().to_string();
+                    // The predicate is always one of the configured labels
+                    // (those are what the model is prompted with), and the
+                    // store ontology declares a property per configured label
+                    // (`init_db`), so a predicted relation always has a
+                    // persistable predicate.
+                    let subject_label = sequence_spans[rel.subject_index].text().to_string();
+                    let object_label = sequence_spans[rel.object_index].text().to_string();
                     let resolve = |label: &str| -> Option<EntityUri> {
-                        let raw = format!("http://zakhor/ns/entity/{label}");
+                        let raw = entity_mention_iri(label);
                         EntityUri::parse(raw).ok()
                     };
-                    let predicate_uri = RelationPredicate::parse(format!(
-                        "http://zakhor/ns/relation/{}",
-                        rel.predicate
-                    ))
-                    .ok();
+                    let predicate_uri =
+                        RelationPredicate::parse(relation_predicate_iri(&rel.predicate)).ok();
                     if let (Some(subject_uri), Some(predicate_uri), Some(object_uri)) = (
-                        resolve(&subject_class),
+                        resolve(&subject_label),
                         predicate_uri,
-                        resolve(&object_class),
+                        resolve(&object_label),
                     ) {
                         relations.push(Relation {
                             subject_uri,

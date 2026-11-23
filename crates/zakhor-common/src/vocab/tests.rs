@@ -379,3 +379,78 @@ fn entity_uri_serializes_as_a_bare_json_string() {
 
     assert_eq!(json, "\"http://example.com/e1\"");
 }
+
+// -- entity_mention_iri ------------------------------------------------------
+
+#[test]
+fn entity_mention_iri_keeps_simple_labels_readable() {
+    assert_eq!(
+        entity_mention_iri("Kubernetes"),
+        "http://zakhor/ns/entity/Kubernetes"
+    );
+    assert_eq!(
+        entity_mention_iri("Mountain View"),
+        "http://zakhor/ns/entity/Mountain%20View"
+    );
+}
+
+#[test]
+fn entity_mention_iri_escapes_iri_illegal_characters() {
+    // `/` would create a second path segment, `%` would fake an escape, `#`
+    // would start a fragment, `"` and `<` are simply illegal in an IRI path.
+    assert_eq!(
+        entity_mention_iri("AC/DC"),
+        "http://zakhor/ns/entity/AC%2FDC"
+    );
+    assert_eq!(
+        entity_mention_iri("100% sure"),
+        "http://zakhor/ns/entity/100%25%20sure"
+    );
+    assert_eq!(
+        entity_mention_iri("AT&T <beta>"),
+        "http://zakhor/ns/entity/AT&T%20%3Cbeta%3E"
+    );
+}
+
+#[test]
+fn entity_mention_iri_passes_non_ascii_through() {
+    // RDF IRIs (RFC 3987) allow non-ASCII; keeping it unescaped keeps the
+    // node readable in the graph.
+    assert_eq!(
+        entity_mention_iri("München"),
+        "http://zakhor/ns/entity/München"
+    );
+}
+
+#[test]
+fn entity_mention_iri_is_always_a_valid_iri() {
+    let samples = [
+        "Steve Jobs",
+        "R&D (EMEA)",
+        "a-b_c.d~e",
+        "quote\"name",
+        "semi;colon:colon",
+        "München // Büro",
+        "100%",
+        "tab\tsep",
+    ];
+    for label in samples {
+        let iri = entity_mention_iri(label);
+        // The same validation the SPARQL builder applies before persisting.
+        let parsed = oxiri::Iri::parse(iri.clone());
+        assert!(
+            parsed.is_ok(),
+            "entity_mention_iri({label:?}) = {iri:?} is not a valid IRI: {parsed:?}"
+        );
+    }
+}
+
+// -- relation_predicate_iri --------------------------------------------------
+
+#[test]
+fn relation_predicate_iri_uses_the_relation_namespace() {
+    assert_eq!(
+        relation_predicate_iri("worksAt"),
+        "http://zakhor/ns/relation/worksAt"
+    );
+}

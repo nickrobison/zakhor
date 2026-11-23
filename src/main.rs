@@ -204,7 +204,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             cfg.database.path.display()
         )
     })?;
-    let conn = tracker_db::init_db(db_path)?;
+    let conn = tracker_db::init_db(db_path, &cfg.extraction.relation_labels)?;
 
     let embedding_enabled = cfg.embedding.enabled;
     let sync_mgr = if cli.rebuild_indexes {
