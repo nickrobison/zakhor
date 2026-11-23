@@ -340,9 +340,11 @@ mod tests {
         );
         assert_eq!(c.logits_rank, Some(4));
         assert!(!c.has_relations);
-        assert!(SPAN_MODE_ONLY_INPUTS
-            .iter()
-            .all(|n| c.inputs.iter().any(|i| i == n)));
+        assert!(
+            SPAN_MODE_ONLY_INPUTS
+                .iter()
+                .all(|n| c.inputs.iter().any(|i| i == n))
+        );
         assert_eq!(verdict(&c), None);
     }
 
@@ -397,9 +399,11 @@ mod tests {
             false,
         );
         assert!(!c.has_relations);
-        assert!(!SPAN_MODE_ONLY_INPUTS
-            .iter()
-            .all(|n| c.inputs.iter().any(|i| i == n)));
+        assert!(
+            !SPAN_MODE_ONLY_INPUTS
+                .iter()
+                .all(|n| c.inputs.iter().any(|i| i == n))
+        );
         assert!(
             verdict(&c).is_some(),
             "token-only export without relations must be rejected"

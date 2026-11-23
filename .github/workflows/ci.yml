@@ -235,7 +235,10 @@ jobs:
           for i in $(seq 90); do
             if [ -f "$HF_HUB_CACHE/models--nickrobison--gliner-relex-onnx/refs/main" ]; then
               echo "Model downloaded and cached after $((i * 2))s"
-              ls -lh "$HF_HUB_CACHE/models--nickrobison--gliner-relex-onnx/snapshots/"*/model.onnx
+              # The server prefers model_static.onnx and falls back to the
+              # legacy model.onnx, so accept either (but at least one must
+              # be present — an empty glob means the download half-failed).
+              ls -lh "$HF_HUB_CACHE/models--nickrobison--gliner-relex-onnx/snapshots/"*/model*.onnx
               OK=1
               break
             fi
