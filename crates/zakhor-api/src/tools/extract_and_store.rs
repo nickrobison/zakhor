@@ -48,8 +48,8 @@ impl MemoryHandler {
 
         Ok(Json(ExtractAndStoreResponse {
             observation_uri: ingest_result.observation_uri,
-            entity_count: 0,
-            relation_count: 0,
+            entity_count: ingest_result.entity_count as u64,
+            relation_count: ingest_result.relation_count as u64,
         }))
     }
 }

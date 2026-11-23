@@ -14,6 +14,10 @@ use super::errors::ExtractionError;
 struct Inner {
     model: orp::model::Model,
     params: gliner::model::params::Parameters,
+    runner: gliner::model::pipeline::relex::RelexRunner<
+        gliner::text::splitter::RegexSplitter,
+        gliner::text::tokenizer::HFTokenizer,
+    >,
 }
 
 /// ONNX-based entity and relation extraction pipeline backed by GLiNER.
@@ -98,15 +102,49 @@ impl ExtractionPipeline {
             })?;
 
         let params = gliner::model::params::Parameters::default()
-            .with_threshold(self.config.entity_threshold);
+            .with_threshold(self.config.entity_threshold)
+            .with_relation_threshold(self.config.relation_threshold);
 
-        let inner = Arc::new(Inner { model, params });
+        let runner = gliner::model::pipeline::relex::RelexRunner::new(&self.config.tokenizer_path)
+            .map_err(|e| {
+                ExtractionError::ModelLoad(format!("tokenizer: {}", e), "model_load", Some(e))
+            })?;
+
+        match compat::relation_support(&self.config.model_path) {
+            Some(compat::RelationSupport::Native) => {
+                tracing::debug!("extraction model exposes working native relations");
+            }
+            Some(compat::RelationSupport::Degraded) => {
+                // The legacy export froze its relation outputs into constants
+                // at export time; entities still work, relations never will.
+                tracing::warn!(
+                    "the extraction model at {} is a legacy GLiNER-RELEX export whose \
+                     relation outputs are structurally unusable (baked empty at export \
+                     time). Entity extraction works; relation extraction will return \
+                     nothing. Replace the model with a static-capacity export \
+                     (span_idx/span_mask inputs) to restore relations.",
+                    self.config.model_path.display()
+                );
+            }
+            Some(compat::RelationSupport::None) => {
+                tracing::debug!("extraction model exposes no relation outputs");
+            }
+            None => {
+                tracing::debug!("could not read the extraction model's interface for a relation-support check");
+            }
+        }
+
+        let inner = Arc::new(Inner {
+            model,
+            params,
+            runner,
+        });
         *guard = Some(inner.clone());
         tracing::debug!("ONNX model loaded and cached");
         Ok(inner)
     }
 
-    /// Run NER only and return the span output.
+    /// Run NER only and return the decoded relex output (spans + native relations).
     ///
     /// This is the shared computation that both entity and relation extraction
     /// need.  Defined as an associated function so it can be called from inside
@@ -115,7 +153,7 @@ impl ExtractionPipeline {
         inner: &Inner,
         config: &ExtractionConfig,
         text: &str,
-    ) -> Result<gliner::model::output::decoded::SpanOutput, ExtractionError> {
+    ) -> Result<gliner::model::output::decoded::RelexOutput, ExtractionError> {
         let entity_strs: Vec<&str> = config.entity_labels.iter().map(|s| s.as_str()).collect();
 
         // An empty document produces a zero-length sequence, which the ONNX
@@ -140,22 +178,21 @@ impl ExtractionPipeline {
             ));
         }
 
-        let text_input = gliner::model::input::text::TextInput::from_str(&[text], &entity_strs)
-            .map_err(|e| {
-                ExtractionError::Inference(format!("text input: {}", e), "inference", Some(e))
-            })?;
+        let text_input = gliner::model::input::text::TextInput::with_relations(
+            vec![text.to_string()],
+            entity_strs.iter().map(|s| s.to_string()).collect(),
+            config.relation_labels.clone(),
+        )
+        .map_err(|e| {
+            ExtractionError::Inference(format!("text input: {}", e), "inference", Some(e))
+        })?;
 
-        let token_pipeline =
-            gliner::model::pipeline::token::TokenPipeline::new(&config.tokenizer_path).map_err(
-                |e| ExtractionError::ModelLoad(format!("tokenizer: {}", e), "model_load", Some(e)),
-            )?;
-
-        let span_output: gliner::model::output::decoded::SpanOutput = inner
-            .model
-            .inference(text_input, &token_pipeline, &inner.params)
+        let relex_output: gliner::model::output::decoded::RelexOutput = inner
+            .runner
+            .extract(&inner.model, text_input, &inner.params)
             .map_err(|e| ner_error(&config.model_path, e))?;
 
-        Ok(span_output)
+        Ok(relex_output)
     }
 
     /// Extract entities and relations from `text` in a single NER pass.
@@ -182,11 +219,11 @@ impl ExtractionPipeline {
 
         let (entities, relations) = spawn_blocking(move || {
             // Shared NER — runs once for both entity and relation extraction
-            let span_output = Self::run_ner_inner(&inner, &config, &text)?;
+            let relex_output = Self::run_ner_inner(&inner, &config, &text)?;
 
-            // Entity extraction from span_output (non-consuming iteration so
-            // span_output can be passed to the RE pipeline below)
-            let entities: Vec<EntityRef> = span_output
+            // Entity extraction from the decoded spans
+            let entities: Vec<EntityRef> = relex_output
+                .spans
                 .spans
                 .iter()
                 .flat_map(|seq| {
@@ -200,66 +237,48 @@ impl ExtractionPipeline {
                 })
                 .collect();
 
-            // Relation schema
-            let mut relation_schema = gliner::model::input::relation::schema::RelationSchema::new();
-            for label in &config.relation_labels {
-                relation_schema.push(label);
+            // Map the relations decoded natively by the RELEX pass to Zakhor
+            // Relation types. The subject/object indices refer to the span list of
+            // the sequence the relation was decoded for.
+            let mut relations: Vec<Relation> = Vec::new();
+            for (sequence_idx, sequence_relations) in relex_output.relations.iter().enumerate() {
+                let sequence_spans = relex_output
+                    .spans
+                    .spans
+                    .get(sequence_idx)
+                    .cloned()
+                    .unwrap_or_default();
+                for rel in sequence_relations {
+                    if rel.subject_index >= sequence_spans.len()
+                        || rel.object_index >= sequence_spans.len()
+                    {
+                        continue;
+                    }
+                    let subject_class = sequence_spans[rel.subject_index].class().to_string();
+                    let object_class = sequence_spans[rel.object_index].class().to_string();
+                    let resolve = |label: &str| -> Option<EntityUri> {
+                        let raw = format!("http://zakhor/ns/entity/{label}");
+                        EntityUri::parse(raw).ok()
+                    };
+                    let predicate_uri = RelationPredicate::parse(format!(
+                        "http://zakhor/ns/relation/{}",
+                        rel.predicate
+                    ))
+                    .ok();
+                    if let (Some(subject_uri), Some(predicate_uri), Some(object_uri)) = (
+                        resolve(&subject_class),
+                        predicate_uri,
+                        resolve(&object_class),
+                    ) {
+                        relations.push(Relation {
+                            subject_uri,
+                            predicate_uri,
+                            object_uri,
+                            label: rel.predicate.clone(),
+                        });
+                    }
+                }
             }
-
-            let rel_pipeline = gliner::model::pipeline::relation::RelationPipeline::default(
-                &config.tokenizer_path,
-                &relation_schema,
-            )
-            .map_err(|e| {
-                ExtractionError::ModelLoad(
-                    format!("relation pipeline: {}", e),
-                    "model_load",
-                    Some(e),
-                )
-            })?;
-
-            // Relation extraction pipeline consumes span_output
-            let relation_output: gliner::model::output::relation::RelationOutput = inner
-                .model
-                .inference(span_output, &rel_pipeline, &inner.params)
-                .map_err(|e| {
-                    ExtractionError::Inference(format!("RE inference: {}", e), "inference", Some(e))
-                })?;
-
-            // Build label → URI lookup from extracted entities
-            let lookup: std::collections::HashMap<&str, &str> = entities
-                .iter()
-                .map(|e| (e.label.as_str(), e.uri.as_str()))
-                .collect();
-
-            // Map GLiNER relations to Zakhor Relation types
-            let relations: Vec<Relation> = relation_output
-                .relations
-                .into_iter()
-                .flat_map(|seq| {
-                    seq.into_iter().filter_map(|rel| {
-                        let subject_label = rel.subject();
-                        let object_label = rel.object();
-                        let resolve = |label: &str| {
-                            let raw = lookup
-                                .get(label)
-                                .map(|s| s.to_string())
-                                .unwrap_or_else(|| format!("http://zakhor/ns/entity/{label}"));
-                            EntityUri::parse(raw).ok()
-                        };
-                        Some(Relation {
-                            subject_uri: resolve(subject_label)?,
-                            predicate_uri: RelationPredicate::parse(format!(
-                                "http://zakhor/ns/relation/{}",
-                                rel.class()
-                            ))
-                            .ok()?,
-                            object_uri: resolve(object_label)?,
-                            label: rel.class().to_string(),
-                        })
-                    })
-                })
-                .collect();
 
             Ok::<(Vec<EntityRef>, Vec<Relation>), ExtractionError>((entities, relations))
         })

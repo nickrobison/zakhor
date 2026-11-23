@@ -9,6 +9,20 @@ use std::path::{Path, PathBuf};
 /// HuggingFace repository that hosts the GLiNER-RELEX ONNX model.
 pub const HF_REPO: &str = "nickrobison/gliner-relex-onnx";
 
+/// The corrected, static-capacity export of the same weights.
+///
+/// The repository's original `model.onnx` bakes its relation outputs into
+/// constants at export time (the pair-building step is data-dependent, so the
+/// ONNX tracer froze `rel_idx`/`rel_mask`), which makes relation extraction
+/// silently return nothing. `model_static.onnx` is a re-export of the same
+/// weights whose relation head takes the entity slots as inputs, restoring
+/// data-driven relations. It is preferred whenever it is available; the
+/// legacy file remains a functional fallback for entity extraction.
+pub const STATIC_MODEL_FILE: &str = "model_static.onnx";
+
+/// The legacy export shipped with the repository.
+pub const LEGACY_MODEL_FILE: &str = "model.onnx";
+
 /// Files that must be present for the extraction pipeline to function.
 #[cfg_attr(not(test), allow(dead_code))]
 const REQUIRED_FILES: &[&str] = &["model.onnx", "tokenizer.json"];
@@ -82,21 +96,32 @@ fn cache_repo_dir() -> String {
 /// `get()`, which does remote work even on a warm cache. Callers that only want
 /// to know whether the model is present — startup diagnostics, tests — need
 /// this instead. Returns `None` when the required files are missing.
+///
+/// The static-capacity export is preferred over the legacy one: see
+/// [`STATIC_MODEL_FILE`].
 pub fn find_cached_model(model_dir: &Path) -> Option<ModelFiles> {
     let snapshots = resolve_cache_dir(model_dir)
         .join(cache_repo_dir())
         .join("snapshots");
     let entries = std::fs::read_dir(&snapshots).ok()?;
+    let mut legacy: Option<ModelFiles> = None;
     for entry in entries.flatten() {
         let dir = entry.path();
-        if REQUIRED_FILES.iter().all(|f| dir.join(f).exists()) {
+        if !REQUIRED_FILES.iter().all(|f| dir.join(f).exists()) {
+            continue;
+        }
+        if dir.join(STATIC_MODEL_FILE).exists() {
             return Some(ModelFiles {
-                model_path: dir.join("model.onnx"),
+                model_path: dir.join(STATIC_MODEL_FILE),
                 tokenizer_path: dir.join("tokenizer.json"),
             });
         }
+        legacy.get_or_insert(ModelFiles {
+            model_path: dir.join(LEGACY_MODEL_FILE),
+            tokenizer_path: dir.join("tokenizer.json"),
+        });
     }
-    None
+    legacy
 }
 
 /// Blocking model resolution. Private: [`ensure_model_files`] is the only
@@ -122,9 +147,20 @@ fn ensure_model_files_blocking(model_dir: &Path) -> Result<ModelFiles, ModelSetu
 
     let repo = api.model(HF_REPO.to_string());
 
-    let model_path = repo
-        .get("model.onnx")
-        .map_err(|e| ModelSetupError::Download(format!("model.onnx: {e}")))?;
+    // Prefer the static-capacity export (working relations); fall back to the
+    // legacy file, which is always present in the repository.
+    let model_path = match repo.get(STATIC_MODEL_FILE) {
+        Ok(path) => path,
+        Err(e) => {
+            tracing::debug!(
+                "static-capacity export {STATIC_MODEL_FILE} not available ({}), \
+                 falling back to {LEGACY_MODEL_FILE}",
+                e
+            );
+            repo.get(LEGACY_MODEL_FILE)
+                .map_err(|e| ModelSetupError::Download(format!("model.onnx: {e}")))?
+        }
+    };
 
     let tokenizer_path = repo
         .get("tokenizer.json")
