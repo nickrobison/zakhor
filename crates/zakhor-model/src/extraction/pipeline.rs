@@ -110,11 +110,13 @@ impl ExtractionPipeline {
                 ExtractionError::ModelLoad(format!("tokenizer: {}", e), "model_load", Some(e))
             })?;
 
-        match compat::relation_support(&self.config.model_path) {
-            Some(compat::RelationSupport::Native) => {
+        // Classify from the loaded session: re-reading the ONNX file for a
+        // contract check would parse the (large) graph a second time.
+        match compat::relation_support_of(&model) {
+            compat::RelationSupport::Native => {
                 tracing::debug!("extraction model exposes working native relations");
             }
-            Some(compat::RelationSupport::Degraded) => {
+            compat::RelationSupport::Degraded => {
                 // The legacy export froze its relation outputs into constants
                 // at export time; entities still work, relations never will.
                 tracing::warn!(
@@ -126,11 +128,8 @@ impl ExtractionPipeline {
                     self.config.model_path.display()
                 );
             }
-            Some(compat::RelationSupport::None) => {
+            compat::RelationSupport::None => {
                 tracing::debug!("extraction model exposes no relation outputs");
-            }
-            None => {
-                tracing::debug!("could not read the extraction model's interface for a relation-support check");
             }
         }
 

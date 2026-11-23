@@ -97,6 +97,21 @@ pub fn read_contract(model_path: &Path) -> Result<ModelContract, String> {
     })
 }
 
+/// Read the contract from an already-loaded model instead of opening the ONNX
+/// file a second time — a large graph would otherwise be parsed twice on the
+/// first extraction call.
+pub fn read_contract_from(model: &orp::model::Model) -> ModelContract {
+    let outputs = model.output_names();
+    ModelContract {
+        inputs: model.input_names(),
+        logits_rank: model.output_rank("logits"),
+        has_relations: outputs
+            .iter()
+            .any(|o| o == "rel_logits" || o == "rel_idx" || o == "rel_mask"),
+        outputs,
+    }
+}
+
 /// How much of the extraction feature set the configured model can deliver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelationSupport {
@@ -115,20 +130,25 @@ pub enum RelationSupport {
 /// `None` when the model's interface cannot be read at all.
 pub fn relation_support(model_path: &Path) -> Option<RelationSupport> {
     let contract = read_contract(model_path).ok()?;
-    relation_support_for(&contract)
+    Some(relation_support_for(&contract))
 }
 
-fn relation_support_for(contract: &ModelContract) -> Option<RelationSupport> {
+/// Classify the relation capabilities of an already-loaded model.
+pub fn relation_support_of(model: &orp::model::Model) -> RelationSupport {
+    relation_support_for(&read_contract_from(model))
+}
+
+fn relation_support_for(contract: &ModelContract) -> RelationSupport {
     if !contract.has_relations {
-        return Some(RelationSupport::None);
+        return RelationSupport::None;
     }
     let takes_span_inputs = SPAN_MODE_ONLY_INPUTS
         .iter()
         .all(|name| contract.inputs.iter().any(|i| i == name));
     if takes_span_inputs {
-        Some(RelationSupport::Native)
+        RelationSupport::Native
     } else {
-        Some(RelationSupport::Degraded)
+        RelationSupport::Degraded
     }
 }
 
@@ -340,7 +360,7 @@ mod tests {
         assert_eq!(verdict(&c), None);
         assert_eq!(
             relation_support_for(&c),
-            Some(RelationSupport::Degraded),
+            RelationSupport::Degraded,
             "the legacy export's baked relation outputs must not be reported as native"
         );
     }
@@ -363,7 +383,7 @@ mod tests {
             true,
         );
         assert_eq!(verdict(&c), None);
-        assert_eq!(relation_support_for(&c), Some(RelationSupport::Native));
+        assert_eq!(relation_support_for(&c), RelationSupport::Native);
     }
 
     /// A token-mode export without relation outputs is still not something the
