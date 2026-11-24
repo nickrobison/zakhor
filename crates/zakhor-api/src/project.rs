@@ -425,8 +425,11 @@ mod tests {
             N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         ));
         let _ = std::fs::remove_dir_all(&path);
-        zakhor_storage::tracker_db::init_db(path.to_str().expect("utf-8 temp path"))
-            .expect("init test db")
+        zakhor_storage::tracker_db::init_db(
+            path.to_str().expect("utf-8 temp path"),
+            &zakhor_common::config::extraction_defaults::default_relation_labels(),
+        )
+        .expect("init test db")
     }
 
     #[test]

@@ -1454,7 +1454,7 @@ dependencies = [
 [[package]]
 name = "gline-rs"
 version = "1.0.2-SNAPSHOT"
-source = "git+https://github.com/nickrobison/gline-rs?branch=ort-rc12#fa045c6ba0da1a3e227710b399ca08d390b8eb68"
+source = "git+https://github.com/nickrobison/gline-rs?branch=relex-decode#c5c1d9bb1543a8e7756912288099a3f029bb805e"
 dependencies = [
  "composable",
  "csv",
@@ -2611,7 +2611,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 [[package]]
 name = "orp"
 version = "0.9.3-SNAPSHOT"
-source = "git+https://github.com/nickrobison/orp?branch=ort-rc12#cf38f4d9733b4ca8169b4384b96190388d6a6391"
+source = "git+https://github.com/nickrobison/orp?branch=relex-decode#7df18a5146996017806acab1417ce403378a603d"
 dependencies = [
  "composable",
  "ndarray 0.16.1",

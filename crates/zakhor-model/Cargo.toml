@@ -30,6 +30,6 @@ hf-hub = "0.5"
 # GLiNER extraction pipeline - using forked gline-rs/orp with ort =2.0.0-rc.12 to match fastembed
 # load-dynamic must stay off: Cargo feature unification would override fastembed's
 # statically linked ort/download-binaries, requiring libonnxruntime.so at runtime.
-gline-rs = { git = "https://github.com/nickrobison/gline-rs", branch = "ort-rc12" }
-orp = { git = "https://github.com/nickrobison/orp", branch = "ort-rc12" }
+gline-rs = { git = "https://github.com/nickrobison/gline-rs", branch = "relex-decode" }
+orp = { git = "https://github.com/nickrobison/orp", branch = "relex-decode" }
 ort = { version = "2.0.0-rc.12" }

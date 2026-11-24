@@ -1,5 +1,12 @@
 use super::*;
 use crate::sparql::Prefix;
+use zakhor_common::config::extraction_defaults::default_relation_labels;
+
+/// The relation labels the ontology-content tests declare; the app defaults,
+/// so the generated file exercises the relation properties.
+fn test_relation_labels() -> Vec<String> {
+    default_relation_labels()
+}
 
 #[test]
 fn test_entity_iri_contains_zakhor() {
@@ -172,7 +179,7 @@ fn test_all_five_properties_defined() {
 
 #[test]
 fn test_ontology_file_contains_prefixes() {
-    let ttl = ontology_file_content();
+    let ttl = ontology_file_content(&test_relation_labels());
     assert!(ttl.contains("@prefix rdf:"), "missing rdf prefix");
     assert!(ttl.contains("@prefix rdfs:"), "missing rdfs prefix");
     assert!(ttl.contains("@prefix xsd:"), "missing xsd prefix");
@@ -186,7 +193,7 @@ fn test_ontology_file_contains_prefixes() {
 
 #[test]
 fn test_ontology_file_declares_nrl_ontology() {
-    let ttl = ontology_file_content();
+    let ttl = ontology_file_content(&test_relation_labels());
     assert!(
         ttl.contains("a nrl:Namespace, nrl:Ontology"),
         "should declare zakhor as nrl:Namespace, nrl:Ontology"
@@ -203,7 +210,7 @@ fn test_ontology_file_declares_nrl_ontology() {
 
 #[test]
 fn test_ontology_file_has_all_six_classes() {
-    let ttl = ontology_file_content();
+    let ttl = ontology_file_content(&test_relation_labels());
     for class in &[
         "Entity",
         "Decision",
@@ -223,7 +230,7 @@ fn test_ontology_file_has_all_six_classes() {
 
 #[test]
 fn test_ontology_file_has_all_five_properties() {
-    let ttl = ontology_file_content();
+    let ttl = ontology_file_content(&test_relation_labels());
     for prop in &[
         "hasEntity",
         "hasRelation",
@@ -241,8 +248,37 @@ fn test_ontology_file_has_all_five_properties() {
 }
 
 #[test]
+fn test_ontology_file_declares_relation_predicates() {
+    let labels = test_relation_labels();
+    let ttl = ontology_file_content(&labels);
+    // Extracted relations are persisted as subject/predicate/object triples
+    // whose predicate must be a declared property, so every configured relation
+    // label needs its `ns/relation/{label}` property in the ontology. This is
+    // the coupling `extract_and_store` depends on to persist what the model
+    // predicts. The properties live under the dedicated `zrel:` prefix because
+    // Tracker resolves property IRIs against declared prefixes only.
+    for label in &labels {
+        let pattern = format!("zrel:{label} a rdf:Property");
+        assert!(
+            ttl.contains(&pattern),
+            "missing relation property definition for {label}"
+        );
+    }
+    assert!(
+        ttl.contains("@prefix zrel: <http://zakhor/ns/relation/> ."),
+        "the relation namespace prefix must be declared"
+    );
+
+    // Labels that were never configured must not appear.
+    assert!(
+        !ttl.contains("zrel:customUnconfigured a rdf:Property"),
+        "undeclared labels must not gain properties"
+    );
+}
+
+#[test]
 fn test_ontology_file_each_triple_terminated() {
-    let ttl = ontology_file_content();
+    let ttl = ontology_file_content(&test_relation_labels());
     // Every non-empty, non-prefix line should end with '.', ';', or ',' (Turtle syntax).
     for (i, line) in ttl.lines().enumerate() {
         let trimmed = line.trim();

@@ -23,6 +23,7 @@ impl IngestionPipeline {
         args: StoreObservationArgs,
         correlation_id: &str,
     ) -> Result<IngestResult, IngestionError> {
+        let (entity_count, relation_count) = (args.entities.len(), args.relations.len());
         let prepared = self.prepare_ingest(args, correlation_id)?;
 
         // Stage 4: Persist + Index Sync (concurrent via tokio::join!)
@@ -97,6 +98,8 @@ impl IngestionPipeline {
             observation_uri: ObservationUri::parse(prepared.uuid_urn)
                 .expect("tracker-generated urn:uuid is always a well-formed IRI"),
             triple_count,
+            entity_count,
+            relation_count,
         })
     }
 

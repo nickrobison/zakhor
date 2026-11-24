@@ -79,29 +79,32 @@ neither re-downloads its ONNX model when the other's cache moves:
 
 ### Entity Extraction
 
-`extract_and_store` is **currently non-functional and cannot be fixed by
-configuration.** The model Zakhor ships (`nickrobison/gliner-relex-onnx`) and the
-pinned `gline-rs` binding disagree about the decoder contract, so every call
-fails during NER inference. This is tracked in [#73](https://github.com/nickrobison/zakhor/issues/73).
+`extract_and_store` runs end to end: it extracts entities and the relations
+between them from the input text via the GLiNER ONNX model and stores the
+observation. Two independent defects had broken it, both now fixed in the
+forked binding (`nickrobison/gline-rs`, branch `relex-decode`) and the model
+artifact:
 
-The failure is reported with the model's actual signature and the layouts the
-binding expects, rather than a bare `unexpected logits shape`:
+1. **Decoder contract mismatch.** The shipped `UniEncoderSpanRelex` export lays
+   `logits` out as `(batch, sequence_length, num_ent_classes, num_idx_classes)`,
+   which no stock `gline-rs` decoder could read. The fork decodes that layout.
+2. **Baked relation outputs.** Even with the right decoder, the original
+   export's relation outputs (`rel_logits`, `rel_idx`, `rel_mask`) are useless:
+   the pair-building step is data-dependent, so the ONNX tracer froze `rel_idx`
+   (all `-1`) and `rel_mask` (all `false`) into constants at export time. No
+   runtime can extract relations from that graph. The corrected
+   `model_static.onnx` export of the same weights takes the entity slots as
+   inputs (`span_idx`, `span_mask`) and scores every ordered pair of the fixed
+   slot set; the binding's `RelexRunner` fills those slots from the decoded
+   entities in a second pass.
 
-```
-entity extraction is unavailable with the configured model. the model at
-~/.cache/zakhor/models/.../model.onnx takes only [input_ids, attention_mask,
-words_mask, text_lengths] and emits `logits` as rank 4 ... The binding's two
-decoders expect span mode ... or token mode ...
-```
+Model resolution prefers `model_static.onnx` and falls back to the legacy
+`model.onnx`, which still works for entity extraction but runs in a degraded
+mode (relations always come back empty — a warning is logged at startup). If
+extraction ever fails again, the error names the model's actual signature and
+the layouts the binding expects, rather than a bare `unexpected logits shape`.
 
-The short version: the model is the `UniEncoderSpanRelex` export, whose logits
-are laid out `(batch, sequence, num_ent_classes, num_idx_classes)`. The binding
-only implements decoders for the candidate-span export
-(`(batch, words, max_width, classes)`, which also needs `span_idx`/`span_mask`
-inputs the model does not accept) and the token export
-(`(3, batch, words, classes)`). Neither matches.
-
-Until the model is swapped, use `store_observation` and pass `entities` and
+When extraction is unavailable, use `store_observation` and pass `entities` and
 `relations` explicitly — that path works and is covered by tests.
 
 ### Semantic Search
@@ -147,7 +150,7 @@ stays where it is and is not moved under XDG.
 | Tool | Args | Description |
 |------|------|-------------|
 | `store_observation` | `text`, `entities`, `relations` | Store an observation plus its entities and relations. All three are required. `entities` is an array of `{uri, label}`; `relations` is an array of `{subject_uri, predicate_uri, object_uri, label}` |
-| `extract_and_store` | `uri`, `text` | **Currently unavailable — see [Entity extraction](#entity-extraction).** Intended to auto-extract entities and relations from text (GLiNER) and store them |
+| `extract_and_store` | `uri`, `text` | Auto-extracts entities and relations from text (GLiNER ONNX) and stores them; reports the number of entities and relations extracted |
 | `query_entities` | `pattern`, `limit` | Query entities by label pattern in the knowledge graph |
 | `traverse_graph` | `start_id`, `depth`, `edge_types` | Traverse memory-graph edges from a node. All three are required; `edge_types` is an array of predicate IRIs (pass `[]` for no filter). Expansion follows only the Zakhor memory vocabulary, so schema and ontology axioms are not walked. Results are capped, and the response's `truncated` flag is `true` when the cap was hit — meaning the result set is incomplete |
 | `search_hybrid` | `query`, `limit` | Lexical (BM25) plus optional semantic (embedding) search fused with RRF. Returns a `warning` when semantic search is disabled and ranking is lexical-only |

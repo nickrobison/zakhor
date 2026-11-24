@@ -5,14 +5,13 @@
 //! model can be found, so the suite stays green on a machine without it while
 //! still running everywhere the model is present.
 //!
-//! The extraction assertions are written as characterisation checks: the model
-//! currently shipped in `nickrobison/gliner-relex-onnx` cannot be decoded by
-//! the pinned `gline-rs` (see issue #73), so requiring `is_ok()` would make
-//! every one of these fail. Instead both outcomes are accepted, with the
-//! *quality* of each asserted — a success must yield well-formed output, and a
-//! failure must carry an actionable diagnosis rather than the binding's opaque
-//! `unexpected logits shape`. That keeps the tests meaningful before and after
-//! the model is swapped.
+//! The extraction assertions require the success path: the pinned `gline-rs`
+//! fork now decodes the shipped `nickrobison/gliner-relex-onnx` export end to
+//! end (entity spans plus native relation decode, see issue #94), so a failing
+//! extraction is a real regression and must fail the test rather than be
+//! papered over. Failures that do surface are still required to be actionable —
+//! the binding's bare `unexpected logits shape` must never reach a caller, and
+//! the shipped model's declared interface must be one the binding accepts.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -61,41 +60,11 @@ fn load_config() -> Option<ExtractionConfig> {
     })
 }
 
-/// Accept either outcome of an extraction call, asserting the quality of each.
-///
-/// The shipped model cannot be decoded by the pinned binding (issue #73), so
-/// demanding success would make these tests permanently red. A failure is only
-/// acceptable when it explains itself: the binding's bare
-/// `unexpected logits shape` must never reach a caller, because that string
-/// names neither the model nor the remedy.
-fn assert_extraction_outcome<T: std::fmt::Debug>(
-    result: &Result<T, zakhor_model::extraction::ExtractionError>,
-    what: &str,
-) -> bool {
-    match result {
-        Ok(_) => true,
-        Err(e) => {
-            let msg = e.to_string();
-            assert!(
-                !msg.contains("unexpected logits shape"),
-                "{what}: the binding's opaque shape error must be translated into an \
-                 actionable diagnosis, got: {msg}"
-            );
-            assert!(
-                msg.contains("#73") || msg.contains("unavailable"),
-                "{what}: failure should be actionable, got: {msg}"
-            );
-            eprintln!("note: {what} unavailable with this model (expected until #73): {msg}");
-            false
-        }
-    }
-}
-
 /// Returns `Err` when the Tracker runtime library is not available (e.g. not
 /// Open the integration-test store, converting any open failure into a
 /// caller-visible `Err` (tests skip rather than fail when the Tracker C
 /// library or GLib resources are missing).
-fn try_sparql_connection() -> Result<tracker::SparqlConnection, String> {
+fn try_sparql_connection(relation_labels: &[String]) -> Result<tracker::SparqlConnection, String> {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -106,6 +75,7 @@ fn try_sparql_connection() -> Result<tracker::SparqlConnection, String> {
         tmp_dir
             .to_str()
             .ok_or_else(|| "temp path is not valid UTF-8".to_string())?,
+        relation_labels,
     )
     .map_err(|e| format!("Tracker runtime not available: {e}"))
 }
@@ -127,13 +97,10 @@ async fn test_extract_entities_and_relations_parallel() {
     let pipeline = ExtractionPipeline::new(config);
     let text = "John works at Google in Mountain View.";
 
-    let result = pipeline
+    let (entities, relations) = pipeline
         .extract_entities_and_relations(text, "test-parallel-001")
-        .await;
-    if !assert_extraction_outcome(&result, "extract_entities_and_relations") {
-        return;
-    }
-    let (entities, relations) = result.unwrap();
+        .await
+        .expect("entity + relation extraction should succeed end to end (#94)");
 
     assert!(
         !entities.is_empty(),
@@ -186,15 +153,11 @@ async fn test_extract_entities_and_relations_single_ner_pass() {
     let pipeline = ExtractionPipeline::new(config);
     let text = "Satya Nadella is CEO of Microsoft.";
 
-    let result = pipeline
+    let (entities, relations) = pipeline
         .extract_entities_and_relations(text, "test-smoke-001")
-        .await;
+        .await
+        .expect("extraction should succeed end to end (#94)");
 
-    if !assert_extraction_outcome(&result, "extract_entities_and_relations") {
-        return;
-    }
-
-    let (entities, relations) = result.unwrap();
     assert!(
         !entities.is_empty() || !relations.is_empty(),
         "a successful extraction must yield something from: {text}"
@@ -218,7 +181,7 @@ async fn test_async_ingestion_pipeline_functional() {
         None => return,
     };
 
-    let conn = match try_sparql_connection() {
+    let conn = match try_sparql_connection(&config.relation_labels) {
         Ok(c) => Arc::new(c),
         Err(e) => {
             eprintln!("skipping SPARQL-dependent test: {e}");
@@ -231,6 +194,19 @@ async fn test_async_ingestion_pipeline_functional() {
 
     let text = "John works at Google in Mountain View.";
     let correlation_id = "test-functional-001";
+
+    let (entities, relations) = extraction
+        .extract_entities_and_relations(text, correlation_id)
+        .await
+        .expect("extraction should succeed end to end (#94)");
+    assert!(
+        !entities.is_empty(),
+        "expected at least one entity in: {text}"
+    );
+    assert!(
+        !relations.is_empty(),
+        "expected at least one relation in: {text}"
+    );
 
     let result = pipeline
         .extract_and_ingest(conn, text, &extraction, correlation_id)
@@ -254,29 +230,27 @@ async fn test_async_ingestion_pipeline_functional() {
         }
         Err(e) => {
             // If the pipeline fails at persist (e.g. ontology mismatch in CI),
-            // verify it's not an extraction or validation error — those stages
-            // must succeed before we even attempt SPARQL.
+            // verify it's not a validation error — extraction and validation
+            // have already succeeded by this point.
             let err_str = e.to_string();
             assert!(
                 !err_str.contains("validation:"),
                 "validation should not fail with non-empty text: {err_str}"
             );
-            // Extraction may legitimately be unavailable with the model that is
-            // currently published (issue #73). What must never happen is a
-            // failure the caller cannot act on, so the opaque binding error is
-            // rejected explicitly.
+            // What must never happen is a failure the caller cannot act on, so
+            // the opaque binding error is rejected explicitly.
             assert!(
                 !err_str.contains("unexpected logits shape"),
                 "the binding's opaque shape error must not reach the caller: {err_str}"
             );
-            // Allow persist / build errors when running in environments
+            // Allow persist / sync errors when running in environments
             // without a fully-working Tracker in-process store.
-            let is_persist_or_build = err_str.contains("persist:")
-                || err_str.contains("build:")
+            let is_persist_or_sync = err_str.contains("persist:")
+                || err_str.contains("sync:")
                 || err_str.contains("SPARQL");
             assert!(
-                is_persist_or_build,
-                "unexpected error (expected persist/build only): {err_str}"
+                is_persist_or_sync,
+                "unexpected error (expected persist/sync only): {err_str}"
             );
             eprintln!(
                 "note: pipeline failed at persist stage (Tracker store may \
@@ -295,7 +269,7 @@ async fn test_ingest_async_with_empty_text() {
         None => return,
     };
 
-    let conn = match try_sparql_connection() {
+    let conn = match try_sparql_connection(&config.relation_labels) {
         Ok(c) => Arc::new(c),
         Err(e) => {
             eprintln!("skipping SPARQL-dependent test: {e}");
@@ -341,15 +315,11 @@ async fn test_correlation_id_in_trace_logs() {
     let text = "Test correlation id tracking through extraction pipeline.";
     let correlation_id = "test-correlation-uid-001";
 
-    let result = pipeline
+    let (entities, relations) = pipeline
         .extract_entities_and_relations(text, correlation_id)
-        .await;
+        .await
+        .expect("extraction should succeed end to end (#94)");
 
-    if !assert_extraction_outcome(&result, "extract_entities_and_relations") {
-        return;
-    }
-
-    let (entities, relations) = result.unwrap();
     // At minimum the method completed without error; extraction results are
     // model-dependent so we only assert the call itself succeeded and the
     // correlation_id was accepted by the tracing instrumentation.
@@ -361,13 +331,13 @@ async fn test_correlation_id_in_trace_logs() {
 
 /// Pins the shipped model's declared interface.
 ///
-/// The extraction bug in #73 was invisible because nothing recorded what the
+/// The extraction bug used to be invisible because nothing recorded what the
 /// model actually declares. This test reads the real ONNX file when present and
 /// asserts the properties that decide whether the binding can decode it: a
-/// `logits` output of rank 4, and the candidate-span inputs that distinguish
-/// the supported span export from the RELEX export. It documents reality
-/// rather than asserting a wish, so it keeps passing after a model swap and
-/// will show exactly what changed.
+/// `logits` output of rank 4, native relation outputs, and — for the token
+/// RELEX export — the token-style inputs the fork's RELEX pipeline feeds. It
+/// documents reality rather than asserting a wish, so it keeps passing after a
+/// model swap and will show exactly what changed.
 #[test]
 fn test_shipped_model_declares_a_decodable_interface() {
     let Some((model_path, tokenizer_path)) = discover_model() else {
@@ -384,11 +354,12 @@ fn test_shipped_model_declares_a_decodable_interface() {
         .unwrap_or_else(|e| panic!("could not read {}: {e}", model_path.display()));
 
     eprintln!(
-        "model {} declares inputs {:?} outputs {:?} logits_rank {:?}",
+        "model {} declares inputs {:?} outputs {:?} logits_rank {:?} has_relations {}",
         model_path.display(),
         contract.inputs,
         contract.outputs,
-        contract.logits_rank
+        contract.logits_rank,
+        contract.has_relations
     );
 
     assert!(
@@ -401,15 +372,45 @@ fn test_shipped_model_declares_a_decodable_interface() {
         Some(4),
         "both gline-rs decoders require a rank-4 `logits` tensor"
     );
+    assert!(
+        contract.has_relations,
+        "the shipped relex model must emit native relation outputs, got {:?}",
+        contract.outputs
+    );
 
-    // Documented, not asserted: this is the property that currently fails.
-    let span_inputs_present = ["span_idx", "span_mask"]
+    // The shipped model must be the static-capacity export: token-style
+    // inputs plus the `span_idx`/`span_mask` slot inputs the relation head
+    // scores pairs over. The legacy export (token inputs only) baked its
+    // relation outputs into constants, which is exactly what #94 is about.
+    let takes_span_inputs = ["span_idx", "span_mask"]
         .iter()
         .all(|n| contract.inputs.iter().any(|i| i == n));
-    if !span_inputs_present {
-        eprintln!(
-            "note: this model takes no candidate-span inputs, so it is not the \
-             candidate-span export the binding's span decoder expects (issue #73)"
-        );
-    }
+    assert!(
+        takes_span_inputs,
+        "the shipped relex model must expose the static-capacity slot inputs \
+         (span_idx/span_mask), got {:?}; the legacy export's relation outputs \
+         are structurally constant and cannot produce relations",
+        contract.inputs
+    );
+    assert!(
+        ["input_ids", "attention_mask"]
+            .iter()
+            .all(|n| contract.inputs.iter().any(|i| i == n)),
+        "the shipped relex model must feed the token-mode decoder, got {:?}",
+        contract.inputs
+    );
+
+    // The whole point of the fix (#94): the shipped model is now a supported
+    // configuration whose relations actually work — not merely a signature the
+    // decoder accepts.
+    assert_eq!(
+        zakhor_model::extraction::compat::explain_incompatibility(&model_path),
+        None,
+        "the shipped relex model must be accepted by the binding's decoder contract"
+    );
+    assert_eq!(
+        zakhor_model::extraction::compat::relation_support(&model_path),
+        Some(zakhor_model::extraction::compat::RelationSupport::Native),
+        "the shipped relex model must expose data-driven (native) relations"
+    );
 }

@@ -60,6 +60,10 @@ pub struct StoreObservationArgs {
 pub struct IngestResult {
     pub observation_uri: ObservationUri,
     pub triple_count: usize,
+    /// Entities extracted from (or supplied for) the ingested observation.
+    pub entity_count: usize,
+    /// Relations extracted from (or supplied for) the ingested observation.
+    pub relation_count: usize,
 }
 
 /// Intermediate state after stages 1–3, shared by sync/async entry points.

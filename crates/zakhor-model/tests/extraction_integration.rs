@@ -59,32 +59,17 @@ async fn test_extraction_pipeline_extracts_entities_and_relations() {
     let pipeline = ExtractionPipeline::new(config);
     let text = "John works at Google in Mountain View.";
 
-    // The published model cannot be decoded by the pinned binding (#73), so
-    // success is not yet reachable. Both outcomes are accepted; what is asserted
-    // is that a failure explains itself rather than surfacing the binding's
-    // opaque `unexpected logits shape`.
-    let entities = match pipeline.extract_entities(text, "").await {
-        Ok(found) => {
-            assert!(
-                !found.is_empty(),
-                "a successful extraction must yield entities from: {text}"
-            );
-            found
-        }
-        Err(err) => {
-            let msg = err.to_string();
-            assert!(
-                !msg.contains("unexpected logits shape"),
-                "the binding's opaque error must not reach the caller: {msg}"
-            );
-            assert!(
-                msg.contains("#73") || msg.contains("unavailable"),
-                "failure should be actionable, got: {msg}"
-            );
-            eprintln!("note: extraction unavailable with this model (#73): {msg}");
-            return;
-        }
-    };
+    // The full entity + relation extraction must run end to end against the
+    // shipped model: the single NER pass yields entities and the native
+    // relation decode runs on top of them (#94).
+    let entities = pipeline
+        .extract_entities(text, "")
+        .await
+        .expect("entity extraction should succeed end to end");
+    assert!(
+        !entities.is_empty(),
+        "a successful extraction must yield entities from: {text}"
+    );
 
     let relations = pipeline
         .extract_relations(text, &entities, "")

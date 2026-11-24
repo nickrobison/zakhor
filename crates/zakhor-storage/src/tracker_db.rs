@@ -84,7 +84,10 @@ fn warmup_gresources() {
 ///
 /// This may trigger a warmup connection if tracker's gresources aren't
 /// registered yet (first call per process lifetime).
-fn prepare_ontology_dir(db_path: &Path) -> Result<Option<gio::File>, ZakhorError> {
+fn prepare_ontology_dir(
+    db_path: &Path,
+    relation_labels: &[String],
+) -> Result<Option<gio::File>, ZakhorError> {
     let ontology_dir = db_path.join("ontologies");
     std::fs::create_dir_all(&ontology_dir).map_err(|e| {
         ZakhorError::Database(format!(
@@ -113,7 +116,11 @@ fn prepare_ontology_dir(db_path: &Path) -> Result<Option<gio::File>, ZakhorError
     // Always write the custom zakhor ontology — without it the store has no
     // SQL tables for zakhor classes, which is a hard failure.
     let custom_path = ontology_dir.join("99-zakhor.ontology");
-    std::fs::write(&custom_path, crate::schema::ontology_file_content()).map_err(|e| {
+    std::fs::write(
+        &custom_path,
+        crate::schema::ontology_file_content(relation_labels),
+    )
+    .map_err(|e| {
         ZakhorError::Database(format!(
             "cannot write zakhor ontology to {}: {e}",
             custom_path.display()
@@ -166,7 +173,7 @@ fn prepare_ontology_dir(db_path: &Path) -> Result<Option<gio::File>, ZakhorError
 /// Returns `ZakhorError::Database` if the store directory cannot be prepared,
 /// the zakhor ontology file cannot be written, or Tracker refuses to open
 /// the database (e.g. ontology drift against a persisted store).
-pub fn init_db(path: &str) -> Result<SparqlConnection, ZakhorError> {
+pub fn init_db(path: &str, relation_labels: &[String]) -> Result<SparqlConnection, ZakhorError> {
     let store = File::for_path(path);
     let db_path = Path::new(path);
     std::fs::create_dir_all(db_path).map_err(|e| {
@@ -176,7 +183,7 @@ pub fn init_db(path: &str) -> Result<SparqlConnection, ZakhorError> {
         ))
     })?;
 
-    let ontology_file = prepare_ontology_dir(db_path)?;
+    let ontology_file = prepare_ontology_dir(db_path, relation_labels)?;
 
     SparqlConnection::new(
         SparqlConnectionFlags::empty(),
@@ -204,7 +211,11 @@ mod integration_tests {
         let tmp = std::env::temp_dir().join(format!("zakhor-inttest-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
 
-        let conn = init_db(tmp.to_str().unwrap()).expect("integration probe: Tracker DB must open");
+        let conn = init_db(
+            tmp.to_str().unwrap(),
+            &zakhor_common::config::extraction_defaults::default_relation_labels(),
+        )
+        .expect("integration probe: Tracker DB must open");
 
         // Phase 1 — type query on empty DB must not crash
         let cursor = conn
@@ -264,6 +275,58 @@ mod integration_tests {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    /// Reopening a store whose ontology gained relation properties must apply
+    /// the additions, so a user adding `[extraction] relation_labels` between
+    /// restarts can persist the new predicates into the existing store.
+    #[test]
+    fn test_ontology_property_additions_apply_on_reopen() {
+        let tmp = std::env::temp_dir().join(format!("zakhor-ontoevo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        let one_label = vec!["worksAt".to_string()];
+        {
+            let conn = init_db(tmp.to_str().unwrap(), &one_label)
+                .expect("first open with one relation label must succeed");
+            // Seed one observation so the store has data before the reopen.
+            conn.update(
+                "INSERT DATA { \
+                 <urn:uuid:seed-1> a <http://zakhor/ns/Entity> ; \
+                 rdfs:label \"seed\"@en . }",
+                None::<&gio::Cancellable>,
+            )
+            .expect("seed insert must succeed");
+        }
+
+        // Reopen with an additional label: the ontology file now declares one
+        // more property than the store was created with.
+        let two_labels = vec!["worksAt".to_string(), "locatedIn".to_string()];
+        let conn = init_db(tmp.to_str().unwrap(), &two_labels)
+            .expect("reopen with an added relation label must succeed");
+
+        // The newly declared property must be insertable right away.
+        conn.update(
+            "INSERT DATA { \
+             <urn:uuid:seed-1> <http://zakhor/ns/relation/locatedIn> \
+             <http://zakhor/ns/entity/Berlin> . }",
+            None::<&gio::Cancellable>,
+        )
+        .expect("a property added to the ontology after creation must be insertable");
+
+        let cursor = conn
+            .query(
+                "SELECT ?o WHERE { \
+                 <urn:uuid:seed-1> <http://zakhor/ns/relation/locatedIn> ?o }",
+                None::<&gio::Cancellable>,
+            )
+            .expect("querying the new property must work");
+        assert!(
+            cursor.next(None::<&gio::Cancellable>).unwrap(),
+            "the inserted relation must come back"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     /// Regression: opening a database at a path that is an existing regular
     /// file must return an error, never panic or wipe anything.
     #[test]
@@ -278,7 +341,10 @@ mod integration_tests {
         ));
         std::fs::write(&file, b"this is a file, not a directory").unwrap();
 
-        let result = init_db(file.to_str().unwrap());
+        let result = init_db(
+            file.to_str().unwrap(),
+            &zakhor_common::config::extraction_defaults::default_relation_labels(),
+        );
         assert!(result.is_err(), "init_db on a regular file must return Err");
 
         // The file must be untouched — no wiping, no deletion.

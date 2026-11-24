@@ -9,9 +9,22 @@ use std::path::{Path, PathBuf};
 /// HuggingFace repository that hosts the GLiNER-RELEX ONNX model.
 pub const HF_REPO: &str = "nickrobison/gliner-relex-onnx";
 
-/// Files that must be present for the extraction pipeline to function.
-#[cfg_attr(not(test), allow(dead_code))]
-const REQUIRED_FILES: &[&str] = &["model.onnx", "tokenizer.json"];
+/// The corrected, static-capacity export of the same weights.
+///
+/// The repository's original `model.onnx` bakes its relation outputs into
+/// constants at export time (the pair-building step is data-dependent, so the
+/// ONNX tracer froze `rel_idx`/`rel_mask`), which makes relation extraction
+/// silently return nothing. `model_static.onnx` is a re-export of the same
+/// weights whose relation head takes the entity slots as inputs, restoring
+/// data-driven relations. It is preferred whenever it is available; the
+/// legacy file remains a functional fallback for entity extraction.
+pub const STATIC_MODEL_FILE: &str = "model_static.onnx";
+
+/// The legacy export shipped with the repository.
+pub const LEGACY_MODEL_FILE: &str = "model.onnx";
+
+/// The file every model snapshot must contain, whichever export it carries.
+const TOKENIZER_FILE: &str = "tokenizer.json";
 
 /// Paths to the downloaded model and tokenizer files.
 #[derive(Clone, Debug)]
@@ -82,21 +95,37 @@ fn cache_repo_dir() -> String {
 /// `get()`, which does remote work even on a warm cache. Callers that only want
 /// to know whether the model is present — startup diagnostics, tests — need
 /// this instead. Returns `None` when the required files are missing.
+///
+/// The static-capacity export is preferred over the legacy one: see
+/// [`STATIC_MODEL_FILE`].
 pub fn find_cached_model(model_dir: &Path) -> Option<ModelFiles> {
     let snapshots = resolve_cache_dir(model_dir)
         .join(cache_repo_dir())
         .join("snapshots");
     let entries = std::fs::read_dir(&snapshots).ok()?;
+    let mut legacy: Option<ModelFiles> = None;
     for entry in entries.flatten() {
         let dir = entry.path();
-        if REQUIRED_FILES.iter().all(|f| dir.join(f).exists()) {
+        if !dir.join(TOKENIZER_FILE).exists() {
+            continue;
+        }
+        // A snapshot may carry the static export, the legacy one, or both;
+        // only the legacy one satisfies the (superseded) REQUIRED_FILES gate
+        // the download path used to enforce, so the scan must not require it.
+        if dir.join(STATIC_MODEL_FILE).exists() {
             return Some(ModelFiles {
-                model_path: dir.join("model.onnx"),
-                tokenizer_path: dir.join("tokenizer.json"),
+                model_path: dir.join(STATIC_MODEL_FILE),
+                tokenizer_path: dir.join(TOKENIZER_FILE),
+            });
+        }
+        if dir.join(LEGACY_MODEL_FILE).exists() {
+            legacy.get_or_insert(ModelFiles {
+                model_path: dir.join(LEGACY_MODEL_FILE),
+                tokenizer_path: dir.join(TOKENIZER_FILE),
             });
         }
     }
-    None
+    legacy
 }
 
 /// Blocking model resolution. Private: [`ensure_model_files`] is the only
@@ -122,9 +151,20 @@ fn ensure_model_files_blocking(model_dir: &Path) -> Result<ModelFiles, ModelSetu
 
     let repo = api.model(HF_REPO.to_string());
 
-    let model_path = repo
-        .get("model.onnx")
-        .map_err(|e| ModelSetupError::Download(format!("model.onnx: {e}")))?;
+    // Prefer the static-capacity export (working relations); fall back to the
+    // legacy file, which is always present in the repository.
+    let model_path = match repo.get(STATIC_MODEL_FILE) {
+        Ok(path) => path,
+        Err(e) => {
+            tracing::debug!(
+                "static-capacity export {STATIC_MODEL_FILE} not available ({}), \
+                 falling back to {LEGACY_MODEL_FILE}",
+                e
+            );
+            repo.get(LEGACY_MODEL_FILE)
+                .map_err(|e| ModelSetupError::Download(format!("model.onnx: {e}")))?
+        }
+    };
 
     let tokenizer_path = repo
         .get("tokenizer.json")
@@ -195,10 +235,51 @@ mod tests {
     }
 
     #[test]
-    fn test_required_files_are_listed() {
-        assert!(REQUIRED_FILES.contains(&"model.onnx"));
-        assert!(REQUIRED_FILES.contains(&"tokenizer.json"));
-        assert_eq!(REQUIRED_FILES.len(), 2);
+    fn test_model_file_names_are_stable() {
+        // These names are part of the on-disk cache layout and the HF repo's
+        // file list; changing them orphans existing caches.
+        assert_eq!(STATIC_MODEL_FILE, "model_static.onnx");
+        assert_eq!(LEGACY_MODEL_FILE, "model.onnx");
+        assert_eq!(TOKENIZER_FILE, "tokenizer.json");
+    }
+
+    /// The cache scan must agree with the download path: prefer the
+    /// static-capacity export, and accept a snapshot that carries only it.
+    /// Gating the scan on the legacy `model.onnx` (as it used to) would skip a
+    /// static-only snapshot and trigger a pointless ~900 MB re-download.
+    #[test]
+    fn test_find_cached_model_prefers_static_and_accepts_static_only() {
+        let dir = std::env::temp_dir().join(format!("zakhor-model-setup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let snapshots = dir.join(cache_repo_dir()).join("snapshots");
+
+        let legacy_snap = snapshots.join("abc123");
+        std::fs::create_dir_all(&legacy_snap).unwrap();
+        std::fs::write(legacy_snap.join(LEGACY_MODEL_FILE), b"x").unwrap();
+        std::fs::write(legacy_snap.join(TOKENIZER_FILE), b"x").unwrap();
+
+        // A legacy-only snapshot resolves to the legacy file.
+        let found = find_cached_model(&dir).expect("legacy snapshot must be found");
+        assert_eq!(found.model_path, legacy_snap.join(LEGACY_MODEL_FILE));
+
+        // A static-only snapshot is found even without the legacy file...
+        let static_snap = snapshots.join("def456");
+        std::fs::create_dir_all(&static_snap).unwrap();
+        std::fs::write(static_snap.join(STATIC_MODEL_FILE), b"x").unwrap();
+        std::fs::write(static_snap.join(TOKENIZER_FILE), b"x").unwrap();
+
+        // ...and preferred over the legacy one, regardless of scan order.
+        let found = find_cached_model(&dir).expect("static snapshot must be found");
+        assert_eq!(found.model_path, static_snap.join(STATIC_MODEL_FILE));
+
+        // A snapshot with neither model file is ignored.
+        let empty_snap = snapshots.join("ghi789");
+        std::fs::create_dir_all(&empty_snap).unwrap();
+        std::fs::write(empty_snap.join(TOKENIZER_FILE), b"x").unwrap();
+        let found = find_cached_model(&dir).expect("static snapshot must still be found");
+        assert_eq!(found.model_path, static_snap.join(STATIC_MODEL_FILE));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
