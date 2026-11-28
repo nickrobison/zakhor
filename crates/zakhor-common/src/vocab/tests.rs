@@ -454,3 +454,64 @@ fn relation_predicate_iri_uses_the_relation_namespace() {
         "http://zakhor/ns/relation/worksAt"
     );
 }
+
+// -- canonical schema coverage ----------------------------------------------
+
+#[test]
+fn test_canonical_schema_covers_all_vocabulary_classes() {
+    let expected = [
+        ("Entity", entity_iri().as_str()),
+        ("Decision", decision_iri().as_str()),
+        ("Project", project_iri().as_str()),
+        ("Repository", repository_iri().as_str()),
+        ("Issue", issue_iri().as_str()),
+        ("Constraint", constraint_iri().as_str()),
+        ("Observation", observation_iri().as_str()),
+        ("ToolCall", tool_call_iri().as_str()),
+        ("CodeContainer", code_container_iri().as_str()),
+        ("CodeSymbol", code_symbol_iri().as_str()),
+    ];
+    for (name, iri) in expected {
+        assert!(
+            CLASSES.iter().any(|c| c.name == name && c.iri() == iri),
+            "canonical schema must declare class {name} at {iri}"
+        );
+    }
+}
+
+#[test]
+fn test_canonical_schema_covers_all_vocabulary_properties() {
+    let expected = [
+        ("hasEntity", has_entity_iri().as_str()),
+        ("hasRelation", has_relation_iri().as_str()),
+        ("provenanceGraph", provenance_graph_iri().as_str()),
+        ("decisionContext", decision_context_iri().as_str()),
+        ("decisionOutcome", decision_outcome_iri().as_str()),
+        ("alternative", decision_alternative_iri().as_str()),
+        ("decisionRationale", decision_rationale_iri().as_str()),
+        ("decisionStatus", decision_status_iri().as_str()),
+        ("conflictsWith", conflicts_with_iri().as_str()),
+        ("dependsOn", depends_on_iri().as_str()),
+        ("supersedes", supersedes_iri().as_str()),
+        ("evidenceFor", evidence_for_iri().as_str()),
+        ("belongsToProject", belongs_to_project_iri().as_str()),
+        ("belongsToRepository", belongs_to_repository_iri().as_str()),
+        ("toolName", tool_name_iri().as_str()),
+        ("toolArguments", tool_arguments_iri().as_str()),
+        ("sessionId", session_id_iri().as_str()),
+        ("timestamp", timestamp_iri().as_str()),
+        ("graphImportance", graph_importance_iri().as_str()),
+        ("provenanceQuality", provenance_quality_iri().as_str()),
+        ("codeLocation", code_location_iri().as_str()),
+        ("codeLanguage", code_language_iri().as_str()),
+        ("codeSymbolKind", code_symbol_kind_iri().as_str()),
+        ("codeLineStart", code_line_start_iri().as_str()),
+        ("tombstone", tombstone_iri().as_str()),
+    ];
+    for (name, iri) in expected {
+        assert!(
+            PROPERTIES.iter().any(|p| p.name == name && p.iri() == iri),
+            "canonical schema must declare property {name} at {iri}"
+        );
+    }
+}
