@@ -35,6 +35,14 @@ pub fn tool_call_iri() -> &'static Iri {
     iri!("http://zakhor/ns/ToolCall")
 }
 
+pub fn code_container_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/CodeContainer")
+}
+
+pub fn code_symbol_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/CodeSymbol")
+}
+
 // --- Predicate IRIs ---
 
 pub fn has_entity_iri() -> &'static Iri {
@@ -182,4 +190,20 @@ pub fn graph_importance_iri() -> &'static Iri {
 
 pub fn provenance_quality_iri() -> &'static Iri {
     iri!("http://zakhor/ns/provenanceQuality")
+}
+
+pub fn tombstone_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/tombstone")
+}
+
+pub fn code_language_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/codeLanguage")
+}
+
+pub fn code_symbol_kind_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/codeSymbolKind")
+}
+
+pub fn code_line_start_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/codeLineStart")
 }

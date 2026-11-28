@@ -3,7 +3,6 @@
 mod builder;
 mod escape;
 mod prefix;
-mod queries;
 
 #[cfg(test)]
 mod tests;
@@ -13,8 +12,5 @@ pub use escape::InvalidIri;
 pub use escape::escape_literal;
 pub use escape::format_iri;
 pub use escape::validate_iri;
-#[cfg(test)]
-pub(crate) use prefix::PREFIX_LIST;
 pub use prefix::Prefix;
 pub use prefix::prefix_declarations;
-pub use queries::ontology_construct;

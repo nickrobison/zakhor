@@ -11,7 +11,8 @@ use std::time::Duration;
 use tokio::sync::Notify;
 use tracker::SparqlConnection;
 use tracker::prelude::{SparqlConnectionExtManual, SparqlCursorExtManual};
-use zakhor_storage::sparql::Prefix;
+use zakhor_common::vocab;
+use zakhor_storage::sparql::{self as storage_sparql, Prefix};
 
 /// Configuration for periodic background tasks.
 pub struct BackgroundConfig {
@@ -77,7 +78,7 @@ fn refresh_ranking(conn: &SparqlConnection) -> Result<(), String> {
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 
 DELETE {{ <{uri}> zakhor:graphImportance ?old . }}
-INSERT {{ <{uri}> zakhor:graphImportance "{score}"^^xsd:float . }}
+INSERT {{ <{uri}> zakhor:graphImportance "{score}"^^xsd:double . }}
 WHERE {{ OPTIONAL {{ <{uri}> zakhor:graphImportance ?old . }} }}"#,
             ns = Prefix::ZAKHOR,
             uri = safe_uri,
@@ -93,17 +94,19 @@ WHERE {{ OPTIONAL {{ <{uri}> zakhor:graphImportance ?old . }} }}"#,
 /// Tombstone walking — mark decisions that have been superseded for >30 days
 /// with a `zakhor:tombstone` flag.
 fn cleanup_stale_data(conn: &SparqlConnection) -> Result<(), String> {
+    let status_lit = storage_sparql::escape_literal(vocab::decision_status::SUPERSEDED);
     let sparql = format!(
         r#"PREFIX zakhor: <{ns}>
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 
 SELECT ?decision WHERE {{
   ?decision rdf:type zakhor:Decision .
-  ?decision zakhor:decisionStatus "superseded"@en .
+  ?decision zakhor:decisionStatus {status_lit} .
   FILTER NOT EXISTS {{ ?decision zakhor:tombstone true . }}
 }}
 LIMIT 100"#,
         ns = Prefix::ZAKHOR,
+        status_lit = status_lit,
     );
 
     let cursor = conn
@@ -147,10 +150,21 @@ mod tests {
 
     #[test]
     fn test_tombstone_honours_limit() {
-        // Unit test — ensuring the WHERE clause shape compiles
-        let _sparql = format!(
-            "PREFIX zakhor: <{}> SELECT ?d WHERE {{ ?d zakhor:decisionStatus \"superseded\"@en }} LIMIT 100",
-            Prefix::ZAKHOR
+        // Unit test — ensuring the WHERE clause shape compiles with a plain
+        // (simple) literal, matching how `decisionStatus` is written on create.
+        let status_lit = storage_sparql::escape_literal("superseded");
+        let sparql = format!(
+            "PREFIX zakhor: <{}> SELECT ?d WHERE {{ ?d zakhor:decisionStatus {} }} LIMIT 100",
+            Prefix::ZAKHOR,
+            status_lit,
+        );
+        assert!(
+            sparql.contains("\"superseded\""),
+            "decision status must be a plain literal: {sparql}"
+        );
+        assert!(
+            !sparql.contains("\"superseded\"@en"),
+            "decision status must not be language-tagged: {sparql}"
         );
     }
 }

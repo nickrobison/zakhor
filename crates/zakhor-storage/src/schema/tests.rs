@@ -1,6 +1,7 @@
 use super::*;
 use crate::sparql::Prefix;
 use zakhor_common::config::extraction_defaults::default_relation_labels;
+use zakhor_common::vocab::schema::{CLASSES, PROPERTIES};
 
 /// The relation labels the ontology-content tests declare; the app defaults,
 /// so the generated file exercises the relation properties.
@@ -36,141 +37,23 @@ fn test_has_entity_iri_contains_zakhor() {
 }
 
 #[test]
-fn test_construct_query_well_formed() {
-    let q = ontology_construct_query();
-    assert!(q.starts_with("PREFIX"), "should start with PREFIX");
-    assert!(q.contains("CONSTRUCT {"), "should contain CONSTRUCT");
-    assert!(q.contains("WHERE {"), "should contain WHERE");
-    let opens = q.matches('{').count();
-    let closes = q.matches('}').count();
-    assert_eq!(
-        opens, closes,
-        "braces should be balanced: {} opens vs {} closes",
-        opens, closes
-    );
-    assert!(
-        q.contains("Repository"),
-        "construct query should register Repository class"
-    );
-    assert!(
-        q.contains("belongsToRepository"),
-        "construct query should register belongsToRepository property"
-    );
-    assert!(
-        q.contains("belongsToProject"),
-        "construct query should register belongsToProject property"
-    );
-}
-
-#[test]
-fn test_insert_query_well_formed() {
-    let q = ontology_insert_query();
-    assert!(q.starts_with("PREFIX"), "should start with PREFIX");
-    assert!(q.contains("INSERT DATA {"), "should contain INSERT DATA");
-    assert!(!q.contains("CONSTRUCT"), "should NOT contain CONSTRUCT");
-    assert!(
-        q.contains("<http://zakhor/ns/Entity>"),
-        "should reference Entity IRI"
-    );
-    assert!(
-        q.contains("<http://zakhor/ns/Decision>"),
-        "should reference Decision IRI"
-    );
-    assert!(
-        q.contains("<http://zakhor/ns/Project>"),
-        "should reference Project IRI"
-    );
-    assert!(
-        q.contains("<http://zakhor/ns/Issue>"),
-        "should reference Issue IRI"
-    );
-    assert!(
-        q.contains("<http://zakhor/ns/Constraint>"),
-        "should reference Constraint IRI"
-    );
-    assert!(
-        q.contains("<http://zakhor/ns/Observation>"),
-        "should reference Observation IRI"
-    );
-    assert!(
-        q.contains("<http://zakhor/ns/hasEntity>"),
-        "should reference hasEntity IRI"
-    );
-    assert!(
-        q.contains("<http://zakhor/ns/hasRelation>"),
-        "should reference hasRelation IRI"
-    );
-    assert!(
-        q.contains("<http://zakhor/ns/provenanceGraph>"),
-        "should reference provenanceGraph IRI"
-    );
-    assert!(
-        q.contains("<http://zakhor/ns/decisionContext>"),
-        "should reference decisionContext IRI"
-    );
-    assert!(
-        q.contains("<http://zakhor/ns/decisionRationale>"),
-        "should reference decisionRationale IRI"
-    );
-    let opens = q.matches('{').count();
-    let closes = q.matches('}').count();
-    assert_eq!(
-        opens, closes,
-        "braces should be balanced: {} opens vs {} closes",
-        opens, closes
-    );
-    assert!(
-        q.contains("<http://zakhor/ns/Repository>"),
-        "should reference Repository IRI"
-    );
-    assert!(
-        q.contains("<http://zakhor/ns/belongsToRepository>"),
-        "should reference belongsToRepository IRI"
-    );
-    assert!(
-        q.contains("<http://zakhor/ns/belongsToProject>"),
-        "should reference belongsToProject IRI"
-    );
-}
-
-#[test]
-fn test_all_six_classes_defined() {
-    let iris = [
-        entity_iri(),
-        decision_iri(),
-        project_iri(),
-        repository_iri(),
-        issue_iri(),
-        constraint_iri(),
-        observation_iri(),
-    ];
-    for iri in &iris {
+fn test_all_schema_classes_use_zakhor_ns() {
+    for class in CLASSES {
         assert!(
-            iri.as_str().starts_with(Prefix::ZAKHOR),
+            class.iri().starts_with(Prefix::ZAKHOR),
             "class IRI should start with zakhor ns: {}",
-            iri
+            class.iri()
         );
     }
 }
 
 #[test]
-fn test_all_five_properties_defined() {
-    let iris = [
-        has_entity_iri(),
-        has_relation_iri(),
-        provenance_graph_iri(),
-        decision_context_iri(),
-        decision_outcome_iri(),
-        decision_alternative_iri(),
-        decision_rationale_iri(),
-        belongs_to_project_iri(),
-        belongs_to_repository_iri(),
-    ];
-    for iri in &iris {
+fn test_all_schema_properties_use_zakhor_ns() {
+    for prop in PROPERTIES {
         assert!(
-            iri.as_str().starts_with(Prefix::ZAKHOR),
+            prop.iri().starts_with(Prefix::ZAKHOR),
             "property IRI should start with zakhor ns: {}",
-            iri
+            prop.iri()
         );
     }
 }
@@ -209,40 +92,39 @@ fn test_ontology_file_declares_nrl_ontology() {
 }
 
 #[test]
-fn test_ontology_file_has_all_six_classes() {
+fn test_ontology_file_has_all_canonical_classes() {
     let ttl = ontology_file_content(&test_relation_labels());
-    for class in &[
-        "Entity",
-        "Decision",
-        "Project",
-        "Issue",
-        "Constraint",
-        "Observation",
-    ] {
-        let pattern = format!("zakhor:{} a rdfs:Class", class);
+    for class in CLASSES {
+        let pattern = format!("zakhor:{} a rdfs:Class", class.name);
         assert!(
             ttl.contains(&pattern),
             "missing class definition for {}",
-            class
+            class.name
         );
     }
 }
 
 #[test]
-fn test_ontology_file_has_all_five_properties() {
+fn test_ontology_file_has_all_canonical_properties() {
     let ttl = ontology_file_content(&test_relation_labels());
-    for prop in &[
-        "hasEntity",
-        "hasRelation",
-        "provenanceGraph",
-        "decisionContext",
-        "decisionRationale",
-    ] {
-        let pattern = format!("zakhor:{} a rdf:Property", prop);
+    for prop in PROPERTIES {
+        let pattern = format!("zakhor:{} a rdf:Property", prop.name);
         assert!(
             ttl.contains(&pattern),
             "missing property definition for {}",
-            prop
+            prop.name
+        );
+        assert!(
+            ttl.contains(&format!("rdfs:domain {}", prop.domain)),
+            "missing domain for {} (expected {})",
+            prop.name,
+            prop.domain
+        );
+        assert!(
+            ttl.contains(&format!("rdfs:range {}", prop.range)),
+            "missing range for {} (expected {})",
+            prop.name,
+            prop.range
         );
     }
 }
@@ -273,6 +155,20 @@ fn test_ontology_file_declares_relation_predicates() {
     assert!(
         !ttl.contains("zrel:customUnconfigured a rdf:Property"),
         "undeclared labels must not gain properties"
+    );
+}
+
+#[test]
+fn test_ontology_file_last_modified_is_derived_from_schema() {
+    let labels = test_relation_labels();
+    let ttl = ontology_file_content(&labels);
+    // The timestamp must be derived from the canonical schema hash, not a
+    // hardcoded literal that can silently go stale.
+    let expected = zakhor_common::vocab::schema::ontology_last_modified(&labels);
+    let pattern = format!("nrl:lastModified \"{expected}\"^^xsd:dateTime");
+    assert!(
+        ttl.contains(&pattern),
+        "nrl:lastModified should be derived: expected {pattern:?}, got ontology file"
     );
 }
 

@@ -1,37 +1,6 @@
 use super::*;
 
 #[test]
-fn test_ontology_construct_prefix() {
-    let q = ontology_construct("?s ?p ?o .", "?s ?p ?o .");
-    assert!(q.starts_with("PREFIX"));
-    assert!(q.contains("CONSTRUCT {"));
-    assert!(q.contains("WHERE {"));
-}
-
-#[test]
-fn test_prefix_count() {
-    let q = ontology_construct("?s ?p ?o .", "?s ?p ?o .");
-    let prefix_count = q.lines().filter(|l| l.starts_with("PREFIX")).count();
-    assert_eq!(
-        prefix_count,
-        PREFIX_LIST.len(),
-        "all prefixes should be declared"
-    );
-}
-
-#[test]
-fn test_prefix_nie() {
-    let q = ontology_construct("?s ?p ?o .", "?s ?p ?o .");
-    assert!(q.contains("PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>"));
-}
-
-#[test]
-fn test_prefix_rdf() {
-    let q = ontology_construct("?s ?p ?o .", "?s ?p ?o .");
-    assert!(q.contains("PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>"));
-}
-
-#[test]
 fn test_literal_with_quotes_is_escaped() {
     let text = "hello \"world\"";
     let q = SparqlBuilder::insert_data("urn:uuid:x", text).expect("urn:uuid: IRI is valid");
@@ -134,21 +103,8 @@ fn test_query_braces_balanced() {
             SparqlBuilder::delete_insert_where("x", "y"),
         ),
         (
-            "construct",
-            SparqlBuilder::construct("?s ?p ?o .", "?s ?p ?o ."),
-        ),
-        (
             "insert_data_raw",
             SparqlBuilder::insert_data_raw("?s ?p ?o ."),
-        ),
-        (
-            "construct_triple",
-            SparqlBuilder::construct_triple(
-                "urn:uuid:x",
-                "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
-                "http://www.semanticdesktop.org/ontologies/2007/01/19/nie#InformationElement",
-                "?s ?p ?o .",
-            ),
         ),
     ] {
         let open = q.matches('{').count();
@@ -172,19 +128,7 @@ fn test_escape_literal_empty() {
     assert_eq!(s, r#""""#, "empty literal should be empty quoted string");
 }
 
-#[test]
-fn test_braces_balanced() {
-    let q = ontology_construct("?s ?p ?o .", "?s ?p ?o .");
-    let open = q.matches('{').count();
-    let close = q.matches('}').count();
-    assert_eq!(open, close, "unbalanced braces in {}", q);
-}
-
 // -- URI validation and injection ------------------------------------------
-//
-// The literal tests above prove text cannot break out of a quoted literal.
-// These prove the same for the other interpolation site: a URI, which is
-// framed by angle brackets instead of quotes and so needs different handling.
 
 /// Inputs that must never be accepted as an address.
 fn hostile_uris() -> Vec<&'static str> {

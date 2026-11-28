@@ -42,7 +42,7 @@ pub fn create_container(
     let container_uri = format!("{}code/container/{}", Prefix::ZAKHOR, path_hash(path));
     let safe_path = path.replace('\'', "\\'");
     let lang_clause = language
-        .map(|l| format!("  <{}> zakhor:codeLanguage \"{}\"@en .", container_uri, l))
+        .map(|l| format!("  <{}> zakhor:codeLanguage \"{}\" .", container_uri, l))
         .unwrap_or_default();
 
     let sparql = format!(
@@ -52,7 +52,7 @@ PREFIX zakhor: <{ns}>
 
 INSERT DATA {{
   <{uri}> rdf:type zakhor:CodeContainer .
-  <{uri}> zakhor:codeLocation "{path}"@en .
+  <{uri}> zakhor:codeLocation "{path}" .
 {lang_clause}}}"#,
         ns = Prefix::ZAKHOR,
         uri = container_uri,
@@ -100,7 +100,7 @@ PREFIX zakhor: <{ns}>
 INSERT DATA {{
   <{uri}> rdf:type zakhor:CodeSymbol .
   <{uri}> rdfs:label "{name}"@en .
-  <{uri}> zakhor:codeSymbolKind "{kind}"@en .
+  <{uri}> zakhor:codeSymbolKind "{kind}" .
   <{uri}> zakhor:codeLocation <{container}> .
 {line_clause}}}"#,
         ns = Prefix::ZAKHOR,
@@ -129,7 +129,7 @@ pub fn list_containers(
     language: Option<&str>,
 ) -> Result<Vec<CodeContainer>, String> {
     let filter = language
-        .map(|l| format!("FILTER(?lang = \"{}\"@en)", l.replace('\'', "\\'")))
+        .map(|l| format!("FILTER(?lang = \"{}\")", l.replace('\'', "\\'")))
         .unwrap_or_default();
 
     let sparql = format!(

@@ -1,5 +1,3 @@
-use oxrdf::{NamedNode, Triple};
-
 use super::escape::{InvalidIri, escape_literal, format_iri};
 use super::prefix::{Prefix, prefix_declarations};
 
@@ -86,39 +84,6 @@ impl SparqlBuilder {
             prefix_declarations(),
             text_lit,
             id_lit,
-        )
-    }
-
-    /// Build a `CONSTRUCT { … } WHERE { … }` query.
-    ///
-    /// `construct_pattern` and `where_pattern` are arbitrary triple-pattern
-    /// fragments (prefixed names are resolved by the `PREFIX` declarations).
-    pub fn construct(construct_pattern: &str, where_pattern: &str) -> String {
-        format!(
-            "{}CONSTRUCT {{\n{}\n}}\nWHERE {{\n{}\n}}",
-            prefix_declarations(),
-            construct_pattern,
-            where_pattern,
-        )
-    }
-
-    /// Build a CONSTRUCT query that uses `Triple::fmt::Display` for safe
-    /// triple formatting via `oxrdf`.
-    pub fn construct_triple(
-        subject_iri: &str,
-        predicate_iri: &str,
-        object_iri: &str,
-        where_clause: &str,
-    ) -> String {
-        let s = NamedNode::new(subject_iri.to_string()).expect("invalid subject IRI");
-        let p = NamedNode::new(predicate_iri.to_string()).expect("invalid predicate IRI");
-        let o = NamedNode::new(object_iri.to_string()).expect("invalid object IRI");
-        let triple = Triple::new(s, p, o);
-        format!(
-            "{}CONSTRUCT {{\n{}\n}}\nWHERE {{\n{}\n}}",
-            prefix_declarations(),
-            triple,
-            where_clause,
         )
     }
 
