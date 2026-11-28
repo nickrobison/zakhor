@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { getJson } from "./client";
 
-export type DecisionStatus = "active" | "superseded" | "proposed" | "archived";
-export type DecisionSort = "modified" | "created" | "referenced" | "confidence";
+export type DecisionStatus = "active" | "superseded";
+export type DecisionSort = "created" | "modified";
 
 export const decisionSummarySchema = z.object({
   id: z.string(),

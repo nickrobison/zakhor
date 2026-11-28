@@ -22,6 +22,17 @@ pub(crate) fn parse_project_uri(raw: &Option<String>) -> Result<Option<Iri<Strin
     }
 }
 
+/// Parse supersedes from args into an Option<Iri<String>>, same contract as
+/// [`parse_project_uri`].
+pub(crate) fn parse_supersedes_uri(raw: &Option<String>) -> Result<Option<Iri<String>>, String> {
+    match raw {
+        None => Ok(None),
+        Some(uri) => Iri::parse(uri.to_string())
+            .map(Some)
+            .map_err(|e| format!("Invalid supersedes URI '{uri}': {e}")),
+    }
+}
+
 #[tool_router(router = tool_router_record_decision, vis = "pub(crate)")]
 impl MemoryHandler {
     #[tool(
@@ -46,6 +57,7 @@ impl MemoryHandler {
 
         let result = (|| -> Result<Json<RecordDecisionResponse>, String> {
             let project_uri = parse_project_uri(&args.project_uri)?;
+            let supersedes = parse_supersedes_uri(&args.supersedes)?;
             let decision_args = CreateDecisionArgs {
                 context: args.context,
                 outcome: args.decision,
@@ -53,7 +65,7 @@ impl MemoryHandler {
                 rationale: args.rationale,
                 affects: vec![],
                 derived_from: vec![],
-                supersedes: None,
+                supersedes,
                 conflicts_with: vec![],
                 depends_on: vec![],
                 project_uri,
@@ -64,6 +76,7 @@ impl MemoryHandler {
 
             Ok(Json(RecordDecisionResponse {
                 decision_uri: create_result.decision_uri,
+                warning: create_result.supersedes_warning,
             }))
         })();
 
@@ -124,6 +137,36 @@ mod tests {
         assert!(result.is_err());
         let err_msg = result.unwrap_err();
         assert!(err_msg.contains("Invalid project_uri"));
+        assert!(err_msg.contains("not a valid uri"));
+    }
+
+    #[test]
+    fn test_parse_supersedes_uri_none_is_ok() {
+        let result = parse_supersedes_uri(&None);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), None);
+    }
+
+    #[test]
+    fn test_parse_supersedes_uri_valid_uri_round_trips() {
+        let uri = Some("urn:uuid:550e8400-e29b-41d4-a716-446655440000".to_string());
+        let result = parse_supersedes_uri(&uri);
+        assert!(result.is_ok());
+        let parsed = result.unwrap();
+        assert!(parsed.is_some());
+        assert_eq!(
+            parsed.unwrap().as_str(),
+            "urn:uuid:550e8400-e29b-41d4-a716-446655440000"
+        );
+    }
+
+    #[test]
+    fn test_parse_supersedes_uri_invalid_uri_errors_with_message() {
+        let uri = Some("not a valid uri".to_string());
+        let result = parse_supersedes_uri(&uri);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("Invalid supersedes URI"));
         assert!(err_msg.contains("not a valid uri"));
     }
 }

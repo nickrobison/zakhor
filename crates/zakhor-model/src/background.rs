@@ -52,8 +52,16 @@ pub fn start_background_workers(conn: SparqlConnection, config: BackgroundConfig
                     }
                 }
                 _ = cleanup_timer.tick() => {
-                    if let Err(e) = cleanup_stale_data(&conn) {
-                        tracing::warn!("Background cleanup failed: {e}");
+                    match cleanup_stale_data(&conn) {
+                        Ok(outcome) if outcome.tombstoned > 0 || outcome.stale > 0 => {
+                            tracing::info!(
+                                "Cleanup pass: tombstoned {} superseded decisions, {} stale",
+                                outcome.tombstoned,
+                                outcome.stale
+                            );
+                        }
+                        Ok(_) => {}
+                        Err(e) => tracing::warn!("Background cleanup failed: {e}"),
                     }
                 }
                 _ = shutdown_clone.notified() => {
@@ -90,48 +98,105 @@ WHERE {{ OPTIONAL {{ <{uri}> zakhor:graphImportance ?old . }} }}"#,
     Ok(())
 }
 
-/// Tombstone walking — mark decisions that have been superseded for >30 days
-/// with a `zakhor:tombstone` flag.
-fn cleanup_stale_data(conn: &SparqlConnection) -> Result<(), String> {
-    let sparql = format!(
+/// Outcome of a cleanup pass, for logging and tests.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CleanupOutcome {
+    /// Superseded decisions that were missing a tombstone and got one this
+    /// pass (at most [`CLEANUP_BATCH_LIMIT`]).
+    pub tombstoned: u64,
+    /// Superseded decisions whose tombstone is older than the staleness
+    /// window — candidates for future eviction.
+    pub stale: u64,
+}
+
+/// How many missing tombstones one cleanup pass may write.
+const CLEANUP_BATCH_LIMIT: u32 = 100;
+
+/// A decision counts as stale once it has been superseded for this long.
+const STALENESS_WINDOW_DAYS: i64 = 30;
+
+/// Maintenance pass over superseded decisions.
+///
+/// `zakhor:tombstone` records *when* a decision was superseded (written by
+/// [`zakhor_model::decision::DecisionModel::supersede`]). This pass:
+///
+/// 1. Backfills the tombstone for superseded decisions that lack one (e.g.
+///    rows written before this predicate existed), using the current time —
+///    the original transition time is unknowable, so the staleness window
+///    starts now.
+/// 2. Reports decisions superseded for more than [`STALENESS_WINDOW_DAYS`]
+///    days as stale, so operators (and the future eviction job) can see what
+///    is eligible for removal. Nothing is deleted: cleanup never mutates or
+///    drops user data beyond stamping tombstones.
+pub fn cleanup_stale_data(conn: &SparqlConnection) -> Result<CleanupOutcome, String> {
+    let mut outcome = CleanupOutcome::default();
+
+    // 1. Backfill tombstones (bounded per pass; the rest waits for the next).
+    let missing = format!(
         r#"PREFIX zakhor: <{ns}>
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 
 SELECT ?decision WHERE {{
   ?decision rdf:type zakhor:Decision .
-  ?decision zakhor:decisionStatus "superseded"@en .
-  FILTER NOT EXISTS {{ ?decision zakhor:tombstone true . }}
+  ?decision zakhor:decisionStatus "superseded" .
+  FILTER NOT EXISTS {{ ?decision zakhor:tombstone ?any_tombstone . }}
 }}
-LIMIT 100"#,
+LIMIT {limit}"#,
         ns = Prefix::ZAKHOR,
+        limit = CLEANUP_BATCH_LIMIT,
     );
-
     let cursor = conn
-        .query(&sparql, None::<&Cancellable>)
+        .query(&missing, None::<&Cancellable>)
         .map_err(|e| format!("Stale data query failed: {e}"))?;
-
-    let mut count = 0u64;
     while cursor
         .next(None::<&Cancellable>)
         .map_err(|e| format!("Cursor error: {e}"))?
     {
-        if let Some(uri) = cursor.string(0).map(|s| s.to_string()) {
-            let safe = uri.replace('>', "");
-            let update = format!(
-                "PREFIX zakhor: <{ns}> INSERT DATA {{ <{safe}> zakhor:tombstone true . }}",
-                ns = Prefix::ZAKHOR,
-                safe = safe,
-            );
-            if conn.update(&update, None::<&Cancellable>).is_ok() {
-                count += 1;
-            }
-        }
+        let uri = cursor
+            .string(0)
+            .map(|s| s.to_string())
+            .ok_or("stale-data query returned a NULL decision URI")?;
+        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let update = format!(
+            "PREFIX zakhor: <{ns}> PREFIX xsd: <http://www.w3.org/2001/XMLSchema#> \
+             INSERT DATA {{ <{uri}> zakhor:tombstone \"{now}\"^^xsd:dateTime . }}",
+            ns = Prefix::ZAKHOR,
+            uri = uri,
+            now = now,
+        );
+        conn.update(&update, None::<&Cancellable>)
+            .map_err(|e| format!("Failed to tombstone {uri}: {e}"))?;
+        outcome.tombstoned += 1;
     }
 
-    if count > 0 {
-        tracing::info!("Tombstoned {count} superseded decisions");
+    // 2. Report decisions superseded longer than the staleness window.
+    let cutoff = (chrono::Utc::now() - chrono::Duration::days(STALENESS_WINDOW_DAYS))
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let stale = format!(
+        r#"PREFIX zakhor: <{ns}>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT ?decision WHERE {{
+  ?decision zakhor:decisionStatus "superseded" .
+  ?decision zakhor:tombstone ?tombstone .
+  FILTER(?tombstone < "{cutoff}"^^xsd:dateTime)
+}}"#,
+        ns = Prefix::ZAKHOR,
+        cutoff = cutoff,
+    );
+    let cursor = conn
+        .query(&stale, None::<&Cancellable>)
+        .map_err(|e| format!("Stale decision query failed: {e}"))?;
+    // Count only: the worker logs one aggregate line per pass. Logging per
+    // decision would flood the log on stores with large superseded backlogs.
+    while cursor
+        .next(None::<&Cancellable>)
+        .map_err(|e| format!("Cursor error: {e}"))?
+    {
+        outcome.stale += 1;
     }
-    Ok(())
+
+    Ok(outcome)
 }
 
 #[cfg(test)]
@@ -143,14 +208,5 @@ mod tests {
         let cfg = BackgroundConfig::default();
         assert_eq!(cfg.rank_interval, Duration::from_secs(3600));
         assert_eq!(cfg.cleanup_interval, Duration::from_secs(86400));
-    }
-
-    #[test]
-    fn test_tombstone_honours_limit() {
-        // Unit test — ensuring the WHERE clause shape compiles
-        let _sparql = format!(
-            "PREFIX zakhor: <{}> SELECT ?d WHERE {{ ?d zakhor:decisionStatus \"superseded\"@en }} LIMIT 100",
-            Prefix::ZAKHOR
-        );
     }
 }

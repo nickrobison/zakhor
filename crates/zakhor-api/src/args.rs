@@ -33,6 +33,10 @@ pub struct RecordDecisionArgs {
     pub rationale: String,
     /// Optional project URI to associate this decision with.
     pub project_uri: Option<String>,
+    /// Optional URI of an existing decision this one supersedes. The target's
+    /// status transitions to `superseded` and its transition time is recorded
+    /// in `zakhor:tombstone`.
+    pub supersedes: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]
@@ -111,6 +115,10 @@ pub struct RecordDecisionResponse {
     #[schemars(with = "String")]
     #[schema(value_type = String)]
     pub decision_uri: Iri<String>,
+    /// Present when the decision was stored but its `supersedes` transition
+    /// failed. The decision is durable; callers must not retry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, JsonSchema, utoipa::ToSchema)]

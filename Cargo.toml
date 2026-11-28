@@ -10,6 +10,7 @@ zakhor-search = { path = "crates/zakhor-search" }
 zakhor-storage = { path = "crates/zakhor-storage" }
 
 axum = "0.7"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 gio = "0.22.6"
 oxiri = "0.2"
 oxrdf = "0.3"

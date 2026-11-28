@@ -5327,6 +5327,7 @@ dependencies = [
 name = "zakhor-model"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "gio",
  "gline-rs",
  "hf-hub 0.5.0",

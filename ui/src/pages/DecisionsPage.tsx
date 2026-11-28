@@ -14,8 +14,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { listDecisions, type DecisionStatus, type DecisionSort, type DecisionSummary } from "@/lib/api/decisions";
 
 const DEFAULT_LIMIT = 20;
-const STATUS_OPTIONS: DecisionStatus[] = ["active", "proposed", "superseded", "archived"];
-const SORT_OPTIONS: DecisionSort[] = ["modified", "created", "referenced", "confidence"];
+const STATUS_OPTIONS: DecisionStatus[] = ["active", "superseded"];
+const SORT_OPTIONS: DecisionSort[] = ["created", "modified"];
 
 function normalizeStatus(value: string): DecisionStatus {
   if (STATUS_OPTIONS.includes(value as DecisionStatus)) return value as DecisionStatus;
@@ -24,7 +24,7 @@ function normalizeStatus(value: string): DecisionStatus {
 
 function normalizeSort(value: string): DecisionSort {
   if (SORT_OPTIONS.includes(value as DecisionSort)) return value as DecisionSort;
-  return "modified";
+  return "created";
 }
 
 export function DecisionsPage() {
@@ -33,7 +33,7 @@ export function DecisionsPage() {
 
   const q = searchParams.q ?? "";
   const status = normalizeStatus(searchParams.status ?? "active");
-  const sort = normalizeSort(searchParams.sort ?? "modified");
+  const sort = normalizeSort(searchParams.sort ?? "created");
   const limit = Math.min(100, Math.max(1, searchParams.limit ?? DEFAULT_LIMIT));
   const offset = Math.max(0, searchParams.offset ?? 0);
 

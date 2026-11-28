@@ -92,7 +92,7 @@ vi.mock("@/lib/api/decisions", () => ({
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
-  useSearch: () => ({ q: "", status: "active", sort: "modified", limit: 20, offset: 0 }),
+  useSearch: () => ({ q: "", status: "active", sort: "created", limit: 20, offset: 0 }),
   useParams: () => ({ decisionId: "decision-1" }),
   Link: ({ children, to, params }: { children: React.ReactNode; to: string; params?: { decisionId?: string; entityId?: string } }) =>
     params?.decisionId || params?.entityId ? (
@@ -163,7 +163,7 @@ describe("DecisionsPage", () => {
 
     expect(screen.getByPlaceholderText(/search decisions/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /active/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /archived/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /superseded/i })).toBeInTheDocument();
   });
 
   it("renders sort dropdown options", () => {
@@ -172,8 +172,6 @@ describe("DecisionsPage", () => {
     expect(screen.getByText(/sort by:/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /modified/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /created/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /confidence/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /referenced/i })).toBeInTheDocument();
   });
 
   it("fetches decisions with correct query parameters", async () => {
@@ -183,7 +181,7 @@ describe("DecisionsPage", () => {
       expect(mocks.listDecisions).toHaveBeenCalledWith({
         q: "",
         status: "active",
-        sort: "modified",
+        sort: "created",
         limit: 20,
         offset: 0,
       });

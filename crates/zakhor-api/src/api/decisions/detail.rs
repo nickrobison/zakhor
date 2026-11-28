@@ -114,9 +114,12 @@ pub async fn get_decision(
 
     let zakhor_prefix = "http://zakhor/ns/";
     let rdf_type = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+    let nrl_added = "http://tracker.api.gnome.org/ontology/v3/nrl#added";
     let mut outcome = String::new();
     let mut context = String::new();
     let mut rationale = String::new();
+    let mut status = String::new();
+    let mut created: Option<String> = None;
     let mut found_decision = false;
 
     while cursor
@@ -134,6 +137,13 @@ pub async fn get_decision(
             context = o;
         } else if p == format!("{}decisionRationale", zakhor_prefix) {
             rationale = o;
+        } else if p == format!("{}decisionStatus", zakhor_prefix) {
+            // The decision's real status ("active"/"superseded"), not a
+            // hardcoded default (#96).
+            status = o;
+        } else if p == nrl_added {
+            // Tracker-maintained creation timestamp.
+            created = Some(o);
         }
     }
 
@@ -153,8 +163,12 @@ pub async fn get_decision(
     Ok(Json(DecisionDetail {
         id: id.to_string(),
         title,
-        status: "active".to_string(),
-        created: None,
+        // A decision created through DecisionModel always has a status; an
+        // empty one signals corrupt data rather than a default.
+        status,
+        created,
+        // No per-decision modified *time* exists: Tracker's nrl:modified is
+        // a modification counter, not a displayable timestamp.
         modified: None,
         context,
         outcome,
