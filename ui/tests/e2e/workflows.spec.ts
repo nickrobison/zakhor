@@ -44,7 +44,7 @@ test.describe("Zakhor web UI workflows", () => {
     await expect(page.getByRole("heading", { name: /decision explorer/i })).toBeVisible();
     await expect(page.getByText("Use React Flow for graph visualization")).toBeVisible();
 
-    await page.getByRole("button", { name: "Archived" }).click();
+    await page.getByRole("button", { name: "Superseded" }).click();
     await expect(page.getByText("Archive old design")).toBeVisible();
 
     await page.getByRole("button", { name: "Active" }).click();

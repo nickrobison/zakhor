@@ -35,7 +35,7 @@ export const apiFixtures = {
       {
         id: "decision-3",
         title: "Archive old design",
-        status: "archived",
+        status: "superseded",
         created: "2023-01-01T00:00:00.000Z",
         modified: "2024-01-01T00:00:00.000Z",
         confidence: 45,
