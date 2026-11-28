@@ -4,7 +4,7 @@ use tracker::prelude::SparqlCursorExtManual;
 
 use super::ApiState;
 use crate::api::error::{ApiError, ApiResult};
-use zakhor_storage::sparql::prefix_declarations;
+use zakhor_storage::sparql::{escape_literal, prefix_declarations};
 
 mod detail;
 
@@ -22,10 +22,12 @@ fn clamp_limit(limit: u32) -> u32 {
     limit.clamp(1, 100)
 }
 
+/// Decision statuses that actually exist in the model. `proposed`/`archived`
+/// were previously accepted but never matchable (#96); they are now rejected
+/// instead of silently returning empty result sets.
 fn validate_status(status: Option<&str>) -> Result<Option<String>, ApiError> {
     match status {
-        None | Some("active") => Ok(status.map(str::to_string)),
-        Some("superseded" | "proposed" | "archived") => Ok(status.map(str::to_string)),
+        None | Some("active" | "superseded") => Ok(status.map(str::to_string)),
         Some(other) => Err(ApiError::bad_request(format!("invalid status: {other}"))),
     }
 }
@@ -35,20 +37,28 @@ fn is_missing_schema_error(error: &str) -> bool {
     lower.contains("unknown class") || lower.contains("unknown property")
 }
 
+/// Sort keys that are backed by stored data. Tracker auto-maintains
+/// `nrl:added` (creation time) and `nrl:modified` (modification counter), so
+/// both orderings are real. `referenced`/`confidence` were previously accepted
+/// but ignored; they are now rejected (#96).
 fn validate_sort(sort: Option<&str>) -> Result<Option<String>, ApiError> {
     match sort {
-        None | Some("modified") | Some("created") | Some("referenced") | Some("confidence") => {
-            Ok(sort.map(str::to_string))
-        }
+        None | Some("created" | "modified") => Ok(sort.map(str::to_string)),
         Some(other) => Err(ApiError::bad_request(format!("invalid sort: {other}"))),
     }
 }
 
-fn status_filter(status: Option<&str>) -> String {
+/// WHERE fragment binding `?status` for filtering and display.
+///
+/// With a status filter the triple pattern is required so the filter compares
+/// a bound value; without one the status is bound optionally for display.
+fn status_pattern(status: Option<&str>) -> String {
     match status {
-        Some("active") | None => String::new(),
-        Some("superseded" | "proposed" | "archived") => "  FILTER(false)\n".to_string(),
-        Some(other) => format!("  FILTER(?status = \"{other}\")\n"),
+        Some(s) => format!(
+            "  ?id zakhor:decisionStatus ?status .\n  FILTER(?status = {})\n",
+            escape_literal(s)
+        ),
+        None => "  OPTIONAL { ?id zakhor:decisionStatus ?status . }\n".to_string(),
     }
 }
 
@@ -61,15 +71,15 @@ fn build_filter_clauses(q: Option<&str>, status: Option<&str>) -> String {
             safe
         ));
     }
-    filters.push_str(&status_filter(status));
+    filters.push_str(&status_pattern(status));
     filters
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub struct DecisionListQuery {
-    /// Filter by status: active, superseded, proposed, archived
+    /// Filter by status: active, superseded
     status: Option<String>,
-    /// Sort field: modified, created, referenced, confidence
+    /// Sort field: created (newest first), modified (most recently modified first)
     sort: Option<String>,
     /// Full-text search over decision outcome
     q: Option<String>,
@@ -105,6 +115,10 @@ pub struct DecisionListResponse {
 
 /// Build a SELECT query to list decisions with optional status filter and
 /// text search over the outcome field.
+///
+/// `nrl:added`/`nrl:modified` are bound for ordering (and `nrl:added` is
+/// returned as the creation time). They are optional because they are
+/// Tracker-maintained metadata, not zakhor ontology properties.
 fn build_list_query(
     q: Option<&str>,
     status: Option<&str>,
@@ -112,26 +126,30 @@ fn build_list_query(
     limit: u32,
     offset: u32,
 ) -> String {
-    let filter_clause = build_filter_clauses(q, status);
+    let mut where_fragment = build_filter_clauses(q, status);
+    where_fragment.push_str("  OPTIONAL { ?id nrl:added ?added . }\n");
+    where_fragment.push_str("  OPTIONAL { ?id nrl:modified ?modified . }\n");
 
+    // The default ordering is newest-created first; `sort` selects between
+    // the same key (`created`) and Tracker's modification counter
+    // (`modified`, most recently touched first).
     let order_clause = match sort {
-        Some("created") => "ORDER BY ?id".to_string(),
-        _ => "ORDER BY DESC(?id)".to_string(),
+        Some("modified") => "ORDER BY DESC(?modified)",
+        _ => "ORDER BY DESC(?added)",
     };
 
     let prefixes = prefix_declarations();
 
     format!(
-        "{prefixes}SELECT ?id ?outcome
+        "{prefixes}SELECT ?id ?outcome ?status ?added
 WHERE {{
   ?id rdf:type zakhor:Decision .
-  OPTIONAL {{ ?id zakhor:decisionOutcome ?outcome . }}
-{filter}
+{where}
 }}
 {order}
 LIMIT {limit} OFFSET {offset}",
         prefixes = prefixes,
-        filter = filter_clause,
+        where = where_fragment,
         order = order_clause,
         limit = limit,
         offset = offset,
@@ -236,11 +254,23 @@ pub async fn list_decisions(
             .string(1)
             .map(|s| s.to_string())
             .unwrap_or_default();
+        // The decision's real status; every decision created through
+        // DecisionModel has one, so an empty value would signal data
+        // corruption rather than a missing default.
+        let status = data_cursor
+            .string(2)
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let created = data_cursor.string(3).map(|s| s.to_string());
         decisions.push(DecisionSummary {
             id,
-            title: outcome.clone(),
-            status: "active".to_string(),
-            created: None,
+            title: outcome,
+            status,
+            created,
+            // There is no per-decision modified *time*: Tracker maintains
+            // nrl:modified as a modification counter, which is not a
+            // displayable timestamp. Ordering by it is still honoured via
+            // `sort=modified`.
             modified: None,
         });
     }
@@ -284,6 +314,10 @@ mod tests {
             validate_status(Some("superseded")).unwrap(),
             Some("superseded".to_string())
         );
+        // Statuses that never exist in the model are rejected rather than
+        // silently matching zero rows (#96).
+        assert!(validate_status(Some("proposed")).is_err());
+        assert!(validate_status(Some("archived")).is_err());
         assert!(validate_status(Some("invalid")).is_err());
     }
 
@@ -291,21 +325,16 @@ mod tests {
     fn test_validate_sort_accepts_supported_values() {
         assert_eq!(validate_sort(None).unwrap(), None);
         assert_eq!(
-            validate_sort(Some("modified")).unwrap(),
-            Some("modified".to_string())
-        );
-        assert_eq!(
             validate_sort(Some("created")).unwrap(),
             Some("created".to_string())
         );
         assert_eq!(
-            validate_sort(Some("referenced")).unwrap(),
-            Some("referenced".to_string())
+            validate_sort(Some("modified")).unwrap(),
+            Some("modified".to_string())
         );
-        assert_eq!(
-            validate_sort(Some("confidence")).unwrap(),
-            Some("confidence".to_string())
-        );
+        // Sort keys with no backing data are rejected rather than ignored (#96).
+        assert!(validate_sort(Some("referenced")).is_err());
+        assert!(validate_sort(Some("confidence")).is_err());
         assert!(validate_sort(Some("invalid")).is_err());
     }
 
@@ -321,12 +350,30 @@ mod tests {
     }
 
     #[test]
+    fn test_status_pattern_unfiltered_binds_optionally() {
+        let pattern = status_pattern(None);
+        assert!(pattern.contains("OPTIONAL { ?id zakhor:decisionStatus ?status . }"));
+        assert!(!pattern.contains("FILTER"));
+    }
+
+    #[test]
+    fn test_status_pattern_filtered_requires_binding() {
+        let pattern = status_pattern(Some("superseded"));
+        assert!(pattern.contains("?id zakhor:decisionStatus ?status ."));
+        assert!(pattern.contains("FILTER(?status = \"superseded\")"));
+        assert!(!pattern.contains("OPTIONAL"));
+    }
+
+    #[test]
     fn test_build_list_query_default() {
         let q = build_list_query(None, None, None, 20, 0);
-        assert!(q.contains("SELECT ?id ?outcome"));
+        assert!(q.contains("SELECT ?id ?outcome ?status ?added"));
         assert!(q.contains("LIMIT 20"));
         assert!(q.contains("OFFSET 0"));
-        assert!(q.contains("ORDER BY DESC(?id)"));
+        // Default order is newest-created first.
+        assert!(q.contains("ORDER BY DESC(?added)"));
+        assert!(q.contains("OPTIONAL { ?id nrl:added ?added . }"));
+        assert!(q.contains("OPTIONAL { ?id nrl:modified ?modified . }"));
         assert!(!q.contains("FILTER(CONTAINS"));
         assert!(!q.contains("FILTER(false)"));
     }
@@ -341,9 +388,18 @@ mod tests {
 
     #[test]
     fn test_build_list_query_with_status() {
-        let q = build_list_query(None, Some("archived"), Some("created"), 10, 5);
-        assert!(q.contains("FILTER(false)"));
-        assert!(q.contains("ORDER BY ?id"));
+        let q = build_list_query(None, Some("superseded"), Some("created"), 10, 5);
+        // The status filter matches real rows instead of FILTER(false) (#96).
+        assert!(q.contains("?id zakhor:decisionStatus ?status ."));
+        assert!(q.contains("FILTER(?status = \"superseded\")"));
+        assert!(!q.contains("FILTER(false)"));
+        assert!(q.contains("ORDER BY DESC(?added)"));
+    }
+
+    #[test]
+    fn test_build_list_query_sort_modified() {
+        let q = build_list_query(None, None, Some("modified"), 20, 0);
+        assert!(q.contains("ORDER BY DESC(?modified)"));
     }
 
     #[test]
@@ -366,9 +422,11 @@ mod tests {
     }
 
     #[test]
-    fn test_build_count_query_with_inactive_status() {
+    fn test_build_count_query_with_status_filter() {
         let q = build_count_query(None, Some("superseded"));
-        assert!(q.contains("FILTER(false)"));
+        assert!(q.contains("?id zakhor:decisionStatus ?status ."));
+        assert!(q.contains("FILTER(?status = \"superseded\")"));
+        assert!(!q.contains("FILTER(false)"));
     }
 
     #[test]

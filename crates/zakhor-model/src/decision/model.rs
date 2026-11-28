@@ -60,11 +60,19 @@ pub fn decision_index_text(args: &CreateDecisionArgs) -> String {
 /// Decisions are created directly with `active` status (no Candidate/Proposed
 /// states). They can be related via `supersedes`, `conflictsWith`, and
 /// `dependsOn` edges. Status transitions: active -> superseded (when a newer
-/// Decision supersedes this one).
+/// Decision supersedes this one). A supersede records the transition time in
+/// `zakhor:tombstone`, which the background cleanup uses to enforce its
+/// 30-day staleness window.
 pub struct DecisionModel;
 
 impl DecisionModel {
     /// Create a new Decision directly with `active` status.
+    ///
+    /// When `args.supersedes` names an existing decision, that decision's
+    /// status transitions to `superseded` (the documented semantics for the
+    /// `supersedes` edge). The new decision is inserted first, so a failed
+    /// supersede leaves the new decision durable in the graph — the error
+    /// surfaces so the caller knows the transition did not happen.
     ///
     /// Returns the decision URI and status.
     pub fn create(
@@ -81,28 +89,78 @@ impl DecisionModel {
         conn.update(&sparql, None::<&Cancellable>)
             .map_err(|e| format!("Failed to create decision: {}", e))?;
 
+        if let Some(ref superseded) = args.supersedes {
+            Self::supersede(conn, superseded)?;
+        }
+
         Ok(CreateDecisionResult {
             decision_uri,
             status: vocab::decision_status::ACTIVE.to_string(),
         })
     }
 
-    /// Supersede an existing decision (set its status to superseded).
+    /// Supersede an existing decision (set its status to `superseded`) and
+    /// stamp the transition time into `zakhor:tombstone`.
+    ///
+    /// Idempotent: a decision that is already superseded keeps its original
+    /// tombstone. Fails if the target has no `zakhor:decisionStatus` (i.e. it
+    /// is not a decision in this store).
     pub fn supersede(conn: &SparqlConnection, decision_uri: &Iri<String>) -> Result<(), String> {
-        let superseded_lit = storage_sparql::escape_literal(vocab::decision_status::SUPERSEDED);
+        let current = Self::query_status(conn, decision_uri)?;
+        match current.as_deref() {
+            None => Err(format!(
+                "cannot supersede {}: no zakhor:decisionStatus found (not a decision?)",
+                decision_uri.as_str()
+            )),
+            Some(vocab::decision_status::SUPERSEDED) => Ok(()),
+            Some(_) => {
+                let superseded_lit =
+                    storage_sparql::escape_literal(vocab::decision_status::SUPERSEDED);
+                let sparql = format!(
+                    "{}DELETE {{ <{}> <{}> ?old_status . }} \
+                     INSERT {{ <{}> <{}> {} ; <{}> ?superseded_at . }} \
+                     WHERE {{ <{}> <{}> ?old_status . BIND(NOW() AS ?superseded_at) . }}",
+                    storage_sparql::prefix_declarations(),
+                    decision_uri.as_str(),
+                    vocab::decision_status_iri().as_str(),
+                    decision_uri.as_str(),
+                    vocab::decision_status_iri().as_str(),
+                    superseded_lit,
+                    vocab::tombstone_iri().as_str(),
+                    decision_uri.as_str(),
+                    vocab::decision_status_iri().as_str(),
+                );
+                conn.update(&sparql, None::<&Cancellable>)
+                    .map_err(|e| format!("Failed to supersede decision: {}", e))
+            }
+        }
+    }
+
+    /// Read a decision's current status, if it has one.
+    fn query_status(
+        conn: &SparqlConnection,
+        decision_uri: &Iri<String>,
+    ) -> Result<Option<String>, String> {
         let sparql = format!(
-            "{}DELETE {{ <{}> <{}> ?old_status . }} INSERT {{ <{}> <{}> {} . }} WHERE {{ <{}> <{}> ?old_status . }}",
+            "{}SELECT ?status WHERE {{ <{}> <{}> ?status . }}",
             storage_sparql::prefix_declarations(),
             decision_uri.as_str(),
             vocab::decision_status_iri().as_str(),
-            decision_uri.as_str(),
-            vocab::decision_status_iri().as_str(),
-            superseded_lit,
-            decision_uri.as_str(),
-            vocab::decision_status_iri().as_str(),
         );
-        conn.update(&sparql, None::<&Cancellable>)
-            .map_err(|e| format!("Failed to supersede decision: {}", e))
+        let cursor = conn
+            .query(&sparql, None::<&Cancellable>)
+            .map_err(|e| format!("SPARQL query failed: {}", e))?;
+        let mut status = None;
+        while cursor
+            .next(None::<&Cancellable>)
+            .map_err(|e| format!("Cursor error: {}", e))?
+        {
+            if let Some(s) = cursor.string(0) {
+                status = Some(s.to_string());
+                break;
+            }
+        }
+        Ok(status)
     }
 
     /// Query decisions by status.

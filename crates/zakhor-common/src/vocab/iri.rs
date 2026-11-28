@@ -118,6 +118,10 @@ pub fn decision_status_iri() -> &'static Iri {
     iri!("http://zakhor/ns/decisionStatus")
 }
 
+pub fn tombstone_iri() -> &'static Iri {
+    iri!("http://zakhor/ns/tombstone")
+}
+
 pub fn conflicts_with_iri() -> &'static Iri {
     iri!("http://zakhor/ns/conflictsWith")
 }

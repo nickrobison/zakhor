@@ -93,6 +93,12 @@ fn test_decision_status_iri() {
 }
 
 #[test]
+fn test_tombstone_iri() {
+    let iri = tombstone_iri();
+    assert_eq!(iri.as_str(), "http://zakhor/ns/tombstone");
+}
+
+#[test]
 fn test_tool_name_iri() {
     let iri = tool_name_iri();
     assert!(iri.as_str().ends_with("toolName"));
@@ -226,6 +232,7 @@ fn test_all_predicate_iris_use_zakhor_ns() {
         observation_content_iri(),
         observation_created_at_iri(),
         decision_status_iri(),
+        tombstone_iri(),
         graph_importance_iri(),
         provenance_quality_iri(),
         has_entity_iri(),

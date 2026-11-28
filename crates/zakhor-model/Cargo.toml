@@ -14,6 +14,7 @@ zakhor-storage = { workspace = true }
 zakhor-search = { workspace = true }
 
 thiserror = "2"
+chrono = { workspace = true }
 gio = { workspace = true }
 tracker-rs = { workspace = true }
 oxrdf = { workspace = true }

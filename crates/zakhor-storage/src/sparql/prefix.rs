@@ -16,6 +16,7 @@ impl Prefix {
     pub const MEMORY: &'static str = "http://zakhor/ns/";
     pub const PROV: &'static str = "http://www.w3.org/ns/prov#";
     pub const PROV_WAS_DERIVED_FROM: &'static str = "http://www.w3.org/ns/prov#wasDerivedFrom";
+    pub const NRL: &'static str = "http://tracker.api.gnome.org/ontology/v3/nrl#";
 }
 
 pub(crate) const PREFIX_LIST: &[(&str, &str)] = &[
@@ -29,6 +30,7 @@ pub(crate) const PREFIX_LIST: &[(&str, &str)] = &[
     ("zakhor", Prefix::ZAKHOR),
     ("memory", Prefix::MEMORY),
     ("prov", Prefix::PROV),
+    ("nrl", Prefix::NRL),
 ];
 
 pub fn prefix_declarations() -> String {

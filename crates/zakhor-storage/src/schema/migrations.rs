@@ -30,7 +30,7 @@ pub fn ontology_file_content(relation_labels: &[String]) -> String {
     // -- Ontology declaration ----------------------------------------------------
     buf.push_str("zakhor: a nrl:Namespace, nrl:Ontology ;\n");
     buf.push_str("    nrl:prefix \"zakhor\" ;\n");
-    buf.push_str("    nrl:lastModified \"2026-11-23T00:00:00Z\"^^xsd:dateTime .\n");
+    buf.push_str("    nrl:lastModified \"2026-11-27T00:00:00Z\"^^xsd:dateTime .\n");
     buf.push('\n');
 
     // Tracker resolves every property IRI against a declared prefix, so the
@@ -108,6 +108,10 @@ pub fn ontology_file_content(relation_labels: &[String]) -> String {
             "zakhor:Decision",
             "xsd:string",
         ),
+        // When a decision was superseded. `DecisionModel::supersede` writes
+        // this alongside the status transition (SPARQL `NOW()`), and the
+        // background cleanup uses it to enforce its 30-day staleness window.
+        ("tombstone", "tombstone", "zakhor:Decision", "xsd:dateTime"),
         (
             "conflictsWith",
             "conflictsWith",
