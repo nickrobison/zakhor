@@ -38,6 +38,11 @@ pub struct CreateDecisionArgs {
 pub struct CreateDecisionResult {
     pub decision_uri: Iri<String>,
     pub status: String,
+    /// Set when the decision was created but its `supersedes` transition
+    /// failed (e.g. the target has no `zakhor:decisionStatus`). The decision
+    /// is already durable, so callers must surface this warning instead of
+    /// reporting a failed write and inviting a retry that duplicates it.
+    pub supersedes_warning: Option<String>,
 }
 
 /// Compose a decision's narrative fields into one indexable blob.
@@ -71,10 +76,11 @@ impl DecisionModel {
     /// When `args.supersedes` names an existing decision, that decision's
     /// status transitions to `superseded` (the documented semantics for the
     /// `supersedes` edge). The new decision is inserted first, so a failed
-    /// supersede leaves the new decision durable in the graph — the error
-    /// surfaces so the caller knows the transition did not happen.
+    /// supersede leaves the new decision durable in the graph; the failure is
+    /// reported in [`CreateDecisionResult::supersedes_warning`] rather than
+    /// returned as an error, so callers do not retry and duplicate the write.
     ///
-    /// Returns the decision URI and status.
+    /// Returns the decision URI, status, and an optional supersede warning.
     pub fn create(
         conn: &SparqlConnection,
         args: CreateDecisionArgs,
@@ -89,13 +95,23 @@ impl DecisionModel {
         conn.update(&sparql, None::<&Cancellable>)
             .map_err(|e| format!("Failed to create decision: {}", e))?;
 
-        if let Some(ref superseded) = args.supersedes {
-            Self::supersede(conn, superseded)?;
+        let mut supersedes_warning = None;
+        if let Some(ref superseded) = args.supersedes
+            && let Err(error) = Self::supersede(conn, superseded)
+        {
+            tracing::warn!(
+                decision = %decision_uri.as_str(),
+                target = %superseded.as_str(),
+                %error,
+                "decision created but supersede transition failed"
+            );
+            supersedes_warning = Some(error);
         }
 
         Ok(CreateDecisionResult {
             decision_uri,
             status: vocab::decision_status::ACTIVE.to_string(),
+            supersedes_warning,
         })
     }
 

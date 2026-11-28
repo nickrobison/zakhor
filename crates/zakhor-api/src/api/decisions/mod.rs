@@ -119,6 +119,10 @@ pub struct DecisionListResponse {
 /// `nrl:added`/`nrl:modified` are bound for ordering (and `nrl:added` is
 /// returned as the creation time). They are optional because they are
 /// Tracker-maintained metadata, not zakhor ontology properties.
+///
+/// `?outcome` must stay bound: it is both the returned title and the variable
+/// the `q` filter compares against. Dropping the OPTIONAL makes every title
+/// empty and turns search into a filter over an unbound variable (zero rows).
 fn build_list_query(
     q: Option<&str>,
     status: Option<&str>,
@@ -127,15 +131,17 @@ fn build_list_query(
     offset: u32,
 ) -> String {
     let mut where_fragment = build_filter_clauses(q, status);
+    where_fragment.push_str("  OPTIONAL { ?id zakhor:decisionOutcome ?outcome . }\n");
     where_fragment.push_str("  OPTIONAL { ?id nrl:added ?added . }\n");
     where_fragment.push_str("  OPTIONAL { ?id nrl:modified ?modified . }\n");
 
     // The default ordering is newest-created first; `sort` selects between
     // the same key (`created`) and Tracker's modification counter
-    // (`modified`, most recently touched first).
+    // (`modified`, most recently touched first). `?id` breaks ties so offset
+    // pagination is stable when two decisions share a timestamp.
     let order_clause = match sort {
-        Some("modified") => "ORDER BY DESC(?modified)",
-        _ => "ORDER BY DESC(?added)",
+        Some("modified") => "ORDER BY DESC(?modified) ?id",
+        _ => "ORDER BY DESC(?added) ?id",
     };
 
     let prefixes = prefix_declarations();
@@ -370,8 +376,10 @@ mod tests {
         assert!(q.contains("SELECT ?id ?outcome ?status ?added"));
         assert!(q.contains("LIMIT 20"));
         assert!(q.contains("OFFSET 0"));
-        // Default order is newest-created first.
-        assert!(q.contains("ORDER BY DESC(?added)"));
+        // The outcome must be bound: it is the title and the search variable.
+        assert!(q.contains("OPTIONAL { ?id zakhor:decisionOutcome ?outcome . }"));
+        // Default order is newest-created first, with a stable tie-break.
+        assert!(q.contains("ORDER BY DESC(?added) ?id"));
         assert!(q.contains("OPTIONAL { ?id nrl:added ?added . }"));
         assert!(q.contains("OPTIONAL { ?id nrl:modified ?modified . }"));
         assert!(!q.contains("FILTER(CONTAINS"));
@@ -381,6 +389,7 @@ mod tests {
     #[test]
     fn test_build_list_query_with_q() {
         let q = build_list_query(Some("test"), None, None, 10, 5);
+        assert!(q.contains("OPTIONAL { ?id zakhor:decisionOutcome ?outcome . }"));
         assert!(q.contains("CONTAINS(LCASE(?outcome), LCASE('test'))"));
         assert!(q.contains("LIMIT 10"));
         assert!(q.contains("OFFSET 5"));
@@ -393,13 +402,13 @@ mod tests {
         assert!(q.contains("?id zakhor:decisionStatus ?status ."));
         assert!(q.contains("FILTER(?status = \"superseded\")"));
         assert!(!q.contains("FILTER(false)"));
-        assert!(q.contains("ORDER BY DESC(?added)"));
+        assert!(q.contains("ORDER BY DESC(?added) ?id"));
     }
 
     #[test]
     fn test_build_list_query_sort_modified() {
         let q = build_list_query(None, None, Some("modified"), 20, 0);
-        assert!(q.contains("ORDER BY DESC(?modified)"));
+        assert!(q.contains("ORDER BY DESC(?modified) ?id"));
     }
 
     #[test]

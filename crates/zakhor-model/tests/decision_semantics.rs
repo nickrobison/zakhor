@@ -240,6 +240,45 @@ fn create_with_supersedes_retires_the_prior_decision() {
         ),
     );
     assert_eq!(rows, vec![vec![old.decision_uri.as_str().to_string()]]);
+    assert!(
+        new.supersedes_warning.is_none(),
+        "a successful supersede must not report a warning"
+    );
+}
+
+#[test]
+fn create_with_failing_supersede_keeps_decision_and_reports_warning() {
+    let conn = test_store("supersede-warning");
+    let bogus = iri("http://zakhor/ns/entity/definitely-not-a-decision");
+
+    let result = DecisionModel::create(
+        &conn,
+        CreateDecisionArgs {
+            supersedes: Some(bogus.clone()),
+            ..args("orphan")
+        },
+    )
+    .expect("the decision itself must still be created");
+
+    assert_eq!(result.status, "active");
+    let warning = result
+        .supersedes_warning
+        .expect("a failed supersede must surface a warning");
+    assert!(
+        warning.contains("no zakhor:decisionStatus"),
+        "warning must explain the failed transition, got: {warning}"
+    );
+
+    // The new decision is durable and active; the bogus target is untouched.
+    assert_eq!(
+        status_of(&conn, result.decision_uri.as_str()).as_deref(),
+        Some("active"),
+        "the new decision must remain durable and active"
+    );
+    assert!(
+        status_of(&conn, bogus.as_str()).is_none(),
+        "the non-decision target must not be modified"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -349,4 +388,58 @@ fn created_sort_is_backed_by_nrl_added() {
         !row[2].is_empty(),
         "nrl:added (the created sort key) must be bound"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The HTTP list handler's full query shape
+// ---------------------------------------------------------------------------
+
+/// Regression guard for the handler query, not just fragments: the list query
+/// once dropped its `?outcome` OPTIONAL, which blanked every title and made
+/// `q` search filter over an unbound variable (zero rows). Run the whole shape
+/// the handler generates against a real store.
+#[test]
+fn list_handler_query_shape_binds_outcome_and_search() {
+    let conn = test_store("list-shape");
+    let alpha = DecisionModel::create(&conn, args("alpha")).expect("create alpha");
+    DecisionModel::create(&conn, args("beta")).expect("create beta");
+
+    let base = "PREFIX zakhor: <http://zakhor/ns/> \
+         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> \
+         PREFIX nrl: <http://tracker.api.gnome.org/ontology/v3/nrl#>";
+
+    let rows = ask(
+        &conn,
+        &format!(
+            "{base} SELECT ?id ?outcome ?status ?added WHERE {{ \
+               ?id rdf:type zakhor:Decision . \
+               OPTIONAL {{ ?id zakhor:decisionOutcome ?outcome . }} \
+               OPTIONAL {{ ?id zakhor:decisionStatus ?status . }} \
+               OPTIONAL {{ ?id nrl:added ?added . }} \
+               OPTIONAL {{ ?id nrl:modified ?modified . }} \
+             }} ORDER BY DESC(?added) ?id LIMIT 20 OFFSET 0"
+        ),
+    );
+    assert_eq!(rows.len(), 2, "both decisions must be listed");
+    for row in &rows {
+        assert!(
+            !row[1].is_empty(),
+            "every list row must carry its outcome as the title, got {row:?}"
+        );
+        assert_eq!(row[2], "active", "the real status is bound, not a default");
+    }
+
+    // The `q` filter must actually match, not filter everything out.
+    let search = ask(
+        &conn,
+        &format!(
+            "{base} SELECT ?id ?outcome WHERE {{ \
+               ?id rdf:type zakhor:Decision . \
+               OPTIONAL {{ ?id zakhor:decisionOutcome ?outcome . }} \
+               FILTER(CONTAINS(LCASE(?outcome), LCASE('alpha'))) \
+             }} LIMIT 20"
+        ),
+    );
+    assert_eq!(search.len(), 1, "search must match the decision outcome");
+    assert_eq!(search[0][0], alpha.decision_uri.as_str());
 }

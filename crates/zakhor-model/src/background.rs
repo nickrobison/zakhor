@@ -53,9 +53,9 @@ pub fn start_background_workers(conn: SparqlConnection, config: BackgroundConfig
                 }
                 _ = cleanup_timer.tick() => {
                     match cleanup_stale_data(&conn) {
-                        Ok(outcome) if outcome.tombstoned > 0 => {
+                        Ok(outcome) if outcome.tombstoned > 0 || outcome.stale > 0 => {
                             tracing::info!(
-                                "Tombstoned {} superseded decisions; {} stale",
+                                "Cleanup pass: tombstoned {} superseded decisions, {} stale",
                                 outcome.tombstoned,
                                 outcome.stale
                             );
@@ -187,14 +187,13 @@ SELECT ?decision WHERE {{
     let cursor = conn
         .query(&stale, None::<&Cancellable>)
         .map_err(|e| format!("Stale decision query failed: {e}"))?;
+    // Count only: the worker logs one aggregate line per pass. Logging per
+    // decision would flood the log on stores with large superseded backlogs.
     while cursor
         .next(None::<&Cancellable>)
         .map_err(|e| format!("Cursor error: {e}"))?
     {
-        if let Some(uri) = cursor.string(0).map(|s| s.to_string()) {
-            tracing::warn!(decision = %uri, "superseded decision is stale (>{STALENESS_WINDOW_DAYS} days); eviction is not implemented yet");
-            outcome.stale += 1;
-        }
+        outcome.stale += 1;
     }
 
     Ok(outcome)

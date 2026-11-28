@@ -76,6 +76,7 @@ impl MemoryHandler {
 
             Ok(Json(RecordDecisionResponse {
                 decision_uri: create_result.decision_uri,
+                warning: create_result.supersedes_warning,
             }))
         })();
 
